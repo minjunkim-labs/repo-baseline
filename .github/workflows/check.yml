@@ -18,13 +18,55 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # v2 core on both OSes. Each leg records the sha256 of every file init wrote; ci compares them.
+  v2:
+    name: v2 (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.9'  # the oldest supported version
+      - name: baseline.py tests
+        run: python3 -m unittest test_baseline
+      - name: init, check, run check, budget in an empty repo
+        run: |
+          mkdir "$RUNNER_TEMP/repo"
+          python3 -I baseline.py init "$RUNNER_TEMP/repo"
+          python3 -I "$RUNNER_TEMP/repo/.baseline/baseline.py" check
+          python3 -I "$RUNNER_TEMP/repo/.baseline/baseline.py" run check
+          python3 -I "$RUNNER_TEMP/repo/.baseline/baseline.py" budget
+          python3 -I -c 'import hashlib, pathlib, sys; r = pathlib.Path(sys.argv[1]); print("".join(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.relative_to(r).as_posix()}\n" for p in sorted(r.rglob("*")) if p.is_file()), end="")' "$RUNNER_TEMP/repo" > "init-sha256-${{ matrix.os }}.txt"
+          cat "init-sha256-${{ matrix.os }}.txt"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: init-sha256-${{ matrix.os }}
+          path: init-sha256-${{ matrix.os }}.txt
+
   # Branch protection requires this job name (.github/repository-settings.json).
-  # With one job it is the gate job itself; add a needs-based gate only when a second job appears.
+  # It is the gate: it runs even when v2 fails (a skipped required check would count as passed).
   ci:
     name: ci
+    needs: v2
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      - name: v2 passed on both OSes
+        run: test "${{ needs.v2.result }}" = success
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: init-sha256-*
+          merge-multiple: true
+      - name: init wrote the same bytes on both OSes
+        run: cmp init-sha256-ubuntu-24.04.txt init-sha256-macos-15.txt
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
