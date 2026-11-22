@@ -158,6 +158,22 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("baseline.json은 객체여야 한다", result.stderr)
 
+    def test_check_reports_an_empty_baseline_json(self):
+        (self.repo / ".baseline/baseline.json").write_text("{}\n", encoding="utf-8")
+        result = cli("check", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("baseline.json의 판", result.stderr)
+
+    def test_check_refuses_a_symlinked_managed_file_with_the_right_bytes(self):
+        # git ignores a symlinked .gitattributes, so the right bytes behind a link must not pass.
+        gitattributes = self.repo / ".gitattributes"
+        (self.repo / "attrs").write_bytes(gitattributes.read_bytes())
+        gitattributes.unlink()
+        gitattributes.symlink_to("attrs")
+        result = cli("check", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(".gitattributes: 없거나 일반 파일이 아니다", result.stderr)
+
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])
         self.assertNotEqual(cli("run", "test", script=self.copy).returncode, 0)
@@ -174,6 +190,12 @@ class RunBudgetTests(unittest.TestCase):
         with open(self.repo / "AGENTS.md", "a", encoding="utf-8") as f:
             f.write("-\n" * 60)
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
+    def test_budget_counts_a_last_line_without_newline(self):
+        (self.repo / "AGENTS.md").write_bytes(b"x\n" * 60 + b"x")
+        result = cli("budget", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("61줄", result.stdout)
 
     def test_budget_fails_over_4000_bytes(self):
         with open(self.repo / "AGENTS.md", "a", encoding="utf-8") as f:

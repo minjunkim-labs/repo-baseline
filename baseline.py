@@ -30,6 +30,19 @@ DEFAULT_COMMANDS = {
 # Shell syntax only through `sh -c`, so every command runs the same on macOS, Linux and WSL2.
 OTHER_SHELLS = {"bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh"}
 BUDGET_LINES, BUDGET_BYTES = 60, 4000
+MAX_READ = 1 << 20
+
+
+def read_file(path):
+    """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
+    git ignores a symlinked .gitattributes, and a link to /dev/zero never ends."""
+    if path.is_symlink() or not path.is_file():
+        raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
+    with path.open("rb") as f:
+        data = f.read(MAX_READ + 1)
+    if len(data) > MAX_READ:
+        raise OSError(f"{MAX_READ}바이트를 넘는다")
+    return data
 
 
 def dump_json(obj):
@@ -79,7 +92,7 @@ def command_line(name, value):
 def load_commands(root):
     """(commands, problems). Problems are messages; commands is None when the file is unusable."""
     try:
-        commands = json.loads((root / ".baseline/commands.json").read_bytes())
+        commands = json.loads(read_file(root / ".baseline/commands.json"))
     except (OSError, ValueError) as error:
         return None, [f"commands.json을 읽지 못했다: {error}"]
     if not isinstance(commands, dict):
@@ -117,23 +130,23 @@ def cmd_check(args):
     root = repo_root()
     problems = []
     try:
-        recorded = json.loads((root / ".baseline/baseline.json").read_bytes())
+        recorded = json.loads(read_file(root / ".baseline/baseline.json"))
     except (OSError, ValueError) as error:
-        recorded = {}
+        recorded = None
         problems.append(f"baseline.json을 읽지 못했다: {error}")
-    if not isinstance(recorded, dict):
-        recorded = {}
+    if recorded is not None and not isinstance(recorded, dict):
+        recorded = None
         problems.append("baseline.json은 객체여야 한다")
-    if recorded and recorded.get("version") != VERSION:
+    if recorded is not None and recorded.get("version") != VERSION:
         problems.append(f"baseline.json의 판 {recorded.get('version')!r}이 baseline.py의 판 {VERSION!r}과 다르다")
-    if recorded and recorded.get("managed") != MANAGED:
+    if recorded is not None and recorded.get("managed") != MANAGED:
         problems.append("baseline.json의 관리 해시가 baseline.py 안의 해시와 다르다")
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
         try:
-            got = digest((root / rel).read_bytes(), kind)
-        except OSError:
-            problems.append(f"{rel}이 없다")
+            got = digest(read_file(root / rel), kind)
+        except OSError as error:
+            problems.append(f"{rel}: {error}")
             continue
         if got is None:
             problems.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
@@ -143,7 +156,7 @@ def cmd_check(args):
     problems += command_problems
     if commands is not None:
         try:
-            lines = (root / "AGENTS.md").read_text(encoding="utf-8").splitlines()
+            lines = read_file(root / "AGENTS.md").decode("utf-8").splitlines()
         except (OSError, ValueError):
             lines = []
         for name in COMMANDS:
@@ -182,8 +195,11 @@ def cmd_run(args):
 
 
 def cmd_budget(args):
-    data = (repo_root() / "AGENTS.md").read_bytes()
-    lines = data.count(b"\n")
+    try:
+        data = read_file(repo_root() / "AGENTS.md")
+    except OSError as error:
+        sys.exit(f"budget: AGENTS.md: {error}")
+    lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
     print(f"budget: AGENTS.md {lines}줄(상한 {BUDGET_LINES}), {len(data)}바이트(상한 {BUDGET_BYTES})")
     if lines > BUDGET_LINES or len(data) > BUDGET_BYTES:
         print("budget: 상한을 넘었다", file=sys.stderr)
