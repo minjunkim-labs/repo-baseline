@@ -84,8 +84,11 @@ def load_commands(root):
         return None, [f"commands.json을 읽지 못했다: {error}"]
     if not isinstance(commands, dict):
         return None, ["commands.json은 객체여야 한다"]
-    problems = [f"commands.json에 {name}이 없다" for name in COMMANDS if name not in commands]
-    problems += [p for name in COMMANDS if name in commands for p in [command_problem(name, commands[name])] if p]
+    problems = []
+    for name in COMMANDS:
+        problem = f"commands.json에 {name}이 없다" if name not in commands else command_problem(name, commands[name])
+        if problem:
+            problems.append(problem)
     return commands, problems
 
 
@@ -118,6 +121,9 @@ def cmd_check(args):
     except (OSError, ValueError) as error:
         recorded = {}
         problems.append(f"baseline.json을 읽지 못했다: {error}")
+    if not isinstance(recorded, dict):
+        recorded = {}
+        problems.append("baseline.json은 객체여야 한다")
     if recorded and recorded.get("version") != VERSION:
         problems.append(f"baseline.json의 판 {recorded.get('version')!r}이 baseline.py의 판 {VERSION!r}과 다르다")
     if recorded and recorded.get("managed") != MANAGED:
@@ -169,7 +175,10 @@ def cmd_run(args):
     if isinstance(value, str):
         print(f"run: {args.name}은 {value}")
         return 0
-    return subprocess.run(value, cwd=root).returncode
+    try:
+        return subprocess.run(value, cwd=root).returncode
+    except OSError as error:
+        sys.exit(f"run: {args.name}을 시작하지 못했다: {error}")
 
 
 def cmd_budget(args):

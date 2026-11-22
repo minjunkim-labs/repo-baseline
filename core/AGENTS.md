@@ -4,7 +4,7 @@
 
 ## 명령
 
-`python3 -I .baseline/baseline.py run <이름>`으로 부른다. 이 칸은 `.baseline/commands.json`과 같아야 한다.
+`python3 -I .baseline/baseline.py run test`처럼 부른다. 이 칸은 `.baseline/commands.json`과 같아야 한다.
 
 - setup: `N/A: 아직 정하지 않았다`
 - check: `python3 -I .baseline/baseline.py check`

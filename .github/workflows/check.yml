@@ -55,7 +55,7 @@ jobs:
   ci:
     name: ci
     needs: v2
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:

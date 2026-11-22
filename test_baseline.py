@@ -145,6 +145,19 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn("N/A: 아직 정하지 않았다", result.stdout)
 
+    def test_run_reports_a_missing_program(self):
+        self.set_command("test", ["no-such-program-baseline"])
+        result = cli("run", "test", script=self.copy)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("run: test을 시작하지 못했다", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_check_reports_a_baseline_json_that_is_not_an_object(self):
+        (self.repo / ".baseline/baseline.json").write_text("[1]\n", encoding="utf-8")
+        result = cli("check", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("baseline.json은 객체여야 한다", result.stderr)
+
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])
         self.assertNotEqual(cli("run", "test", script=self.copy).returncode, 0)
