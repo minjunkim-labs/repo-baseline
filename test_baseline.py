@@ -375,7 +375,7 @@ class FakeGitHub:
         if route == "repos/o/r/activity":  # cursor-paged: the real endpoint ignores `page`
             return self.pushes if query.get("ref") == "topic" else []
         if query.get("page", "1") != "1":
-            return []
+            return {"files": []} if route.startswith("repos/o/r/commits/") else []
         if route == "repos/o/r/pulls/7":
             later = self.calls_to(route) > 1
             head = "d" * 40 if self.moved == "head" and later else HEAD
@@ -528,6 +528,14 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertEqual(report["secret_hits"], ["app/.env"])
         self.assertIsNone(report["diff_argv"])
+
+    def test_a_commit_at_the_rest_file_limit_fails(self):
+        tree = core_tree()
+        gh = FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}))
+        gh.commits["e" * 40] = [f"f{i}" for i in range(3000)]
+        code, report, err = self.preflight(gh)
+        self.assertEqual((code, report), (2, None))
+        self.assertIn("3000", err)
 
     def test_head_moving_during_the_run_fails(self):
         tree = core_tree()

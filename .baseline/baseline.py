@@ -503,8 +503,10 @@ def preflight(repo, number, remote):
     paths = {p for f in files for p in (f["filename"], f.get("previous_filename")) if p}
     names = set(paths)
     for commit in commits:  # a .env added and renamed inside the PR shows only in its commit
-        names |= {p for f in pages(f"repos/{repo}/commits/{commit['sha']}", "files")
-                  for p in (f["filename"], f.get("previous_filename")) if p}
+        changed = pages(f"repos/{repo}/commits/{commit['sha']}", "files")
+        if len(changed) >= 3000:
+            raise OSError(f"커밋 {commit['sha']}의 파일이 REST 한도(3000개)에 닿아 다 볼 수 없다")
+        names |= {p for f in changed for p in (f["filename"], f.get("previous_filename")) if p}
     hits, examples = secret_names(names)
     # The contents API follows symlinks, so the bytes alone cannot show a link or a submodule.
     # Both sides count: a PR that turns a link into a file changes what the link used to reach.
