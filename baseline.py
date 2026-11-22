@@ -132,15 +132,14 @@ def cmd_check(args):
     try:
         recorded = json.loads(read_file(root / ".baseline/baseline.json"))
     except (OSError, ValueError) as error:
-        recorded = None
         problems.append(f"baseline.json을 읽지 못했다: {error}")
-    if recorded is not None and not isinstance(recorded, dict):
-        recorded = None
-        problems.append("baseline.json은 객체여야 한다")
-    if recorded is not None and recorded.get("version") != VERSION:
-        problems.append(f"baseline.json의 판 {recorded.get('version')!r}이 baseline.py의 판 {VERSION!r}과 다르다")
-    if recorded is not None and recorded.get("managed") != MANAGED:
-        problems.append("baseline.json의 관리 해시가 baseline.py 안의 해시와 다르다")
+    else:
+        if not isinstance(recorded, dict):
+            problems.append("baseline.json은 객체여야 한다")
+        elif recorded.get("version") != VERSION:
+            problems.append(f"baseline.json의 판 {recorded.get('version')!r}이 baseline.py의 판 {VERSION!r}과 다르다")
+        if isinstance(recorded, dict) and recorded.get("managed") != MANAGED:
+            problems.append("baseline.json의 관리 해시가 baseline.py 안의 해시와 다르다")
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
         try:

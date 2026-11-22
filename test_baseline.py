@@ -153,10 +153,11 @@ class RunBudgetTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
     def test_check_reports_a_baseline_json_that_is_not_an_object(self):
-        (self.repo / ".baseline/baseline.json").write_text("[1]\n", encoding="utf-8")
-        result = cli("check", script=self.copy)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("baseline.json은 객체여야 한다", result.stderr)
+        for text in ("[1]\n", "null\n"):
+            (self.repo / ".baseline/baseline.json").write_text(text, encoding="utf-8")
+            result = cli("check", script=self.copy)
+            self.assertEqual(result.returncode, 1, text)
+            self.assertIn("baseline.json은 객체여야 한다", result.stderr)
 
     def test_check_reports_an_empty_baseline_json(self):
         (self.repo / ".baseline/baseline.json").write_text("{}\n", encoding="utf-8")
