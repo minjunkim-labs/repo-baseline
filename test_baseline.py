@@ -351,9 +351,11 @@ class FakeGitHub:
         from urllib.parse import unquote, urlsplit
         url = urlsplit(path)
         query = dict(part.split("=", 1) for part in url.query.split("&") if part)
+        route = url.path
+        if route == "repos/o/r/activity":  # cursor-paged: the real endpoint ignores `page`
+            return self.pushes if query.get("ref") == "topic" else []
         if query.get("page", "1") != "1":
             return []
-        route = url.path
         if route == "repos/o/r/pulls/7":
             head = "d" * 40 if self.moved and self.calls_to(route) > 1 else HEAD
             return {"number": 7, "user": {"login": self.author},
@@ -365,8 +367,6 @@ class FakeGitHub:
             return [{"sha": sha} for sha in self.commits]
         if route.startswith("repos/o/r/commits/"):
             return {"files": [{"filename": p} for p in self.commits[route.rsplit("/", 1)[1]]]}
-        if route == "repos/o/r/activity":
-            return self.pushes if query.get("ref") == "topic" else []
         raise KeyError(route)
 
     def calls_to(self, route):
@@ -471,6 +471,13 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(self.grade({"REVIEW.md": tree["REVIEW.md"]}, base=base)[0], "어려움")
         # A sensitive path the PR itself lists counts only from the next PR on.
         self.assertEqual(self.grade({"REVIEW.md": listed})[0], "쉬움")
+
+    def test_sensitive_paths_written_as_prose_count(self):
+        tree = core_tree()
+        prose = tree["REVIEW.md"].replace("- 아직 없음.\n".encode(), "이 경로를 건드리면 어려움: `src/auth/**`, `pay.py`.\n".encode())
+        base = dict(tree, **{"REVIEW.md": prose})
+        self.assertEqual(self.grade({"src/auth/a.py": b"x\n"}, base=base)[0], "어려움")
+        self.assertEqual(self.grade({"pay.py": b"x\n"}, base=base)[0], "어려움")
 
     def test_widening_the_standing_instruction_is_hard(self):
         agents = core_tree()["AGENTS.md"]
@@ -593,6 +600,8 @@ class PreflightTests(unittest.TestCase):
         new = self.LOCK.replace("1.2.3", "1.2.4")
         self.assertEqual(self.bump(self.LOCK, new, pushers=(BOT, "owner"))[0], "어려움")
         self.assertEqual(self.bump(self.LOCK, new, pushers=())[0], "어려움")
+        # The activity endpoint ignores `page`; a full page cannot be read to the end.
+        self.assertEqual(self.bump(self.LOCK, new, pushers=(BOT,) * 100)[0], "어려움")
 
     def test_dependabot_is_the_pr_author_login_not_a_git_name(self):
         new = self.LOCK.replace("1.2.3", "1.2.4")

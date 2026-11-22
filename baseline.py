@@ -343,9 +343,8 @@ def section(data, title):
 
 
 def sensitive_patterns(review):
-    """The `path` globs listed in REVIEW.md 「민감한 파일」."""
-    return [p for line in section(review, "민감한 파일") if line.startswith("- ")
-            for p in re.findall(r"`([^`]+)`", line)]
+    """The `path` globs in REVIEW.md 「민감한 파일」, in list items or prose: a missed path lowers the grade."""
+    return [p for line in section(review, "민감한 파일") for p in re.findall(r"`([^`]+)`", line)]
 
 
 def embedded_managed(source):
@@ -438,7 +437,10 @@ def dependabot_problem(repo, pr, fork, files):
         return f"작성자가 {BOT}이 아니다"
     if fork:
         return "fork PR이다"
-    pushes = pages(f"repos/{repo}/activity?ref={quote(pr['head']['ref'], safe='')}")
+    # One page only: this endpoint pages by cursor and ignores `page`, so pages() would loop forever.
+    pushes = gh_api(f"repos/{repo}/activity?ref={quote(pr['head']['ref'], safe='')}&per_page=100")
+    if not isinstance(pushes, list) or len(pushes) >= 100:
+        return "head 브랜치의 push 기록을 다 읽지 못했다(100개 이상)"
     if not any(p.get("after") == pr["head"]["sha"] for p in pushes) or any(
             (p.get("actor") or {}).get("login") != BOT for p in pushes):
         return f"head 브랜치에 {BOT}이 아닌 push가 있거나 head를 push한 기록이 없다"
