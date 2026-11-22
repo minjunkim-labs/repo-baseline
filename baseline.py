@@ -26,6 +26,7 @@ MANAGED = {
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
     "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
+    ".claude/hooks/allow_enqueue.py": {"sha256": "b8c387181b4ba1b13ee24074018642e985908d6333aa7c486e6863a083d6d546"},
 }
 COMMANDS = ("setup", "check", "test", "build")
 DEFAULT_COMMANDS = {
@@ -56,6 +57,16 @@ MANIFESTS = {
     "gradle-wrapper.properties", "Package.swift", "Package.resolved", "Podfile", "Podfile.lock",
     "pubspec.yaml", "pubspec.lock", "mix.exs", "mix.lock", "packages.lock.json", "Directory.Packages.props",
 }
+# enqueue
+GRADES = ("문서", "쉬움", "어려움")
+STANDING = "- 상시 지시:"
+STANDING_COMMAND = "`python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`"
+SHA_RE = re.compile(r"[0-9a-f]{40}")
+PASSED = {"success", "neutral", "skipped"}
+PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
+            "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}}}}}")
+ENQUEUE = ("mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha})"
+           "{mergeQueueEntry{position}}}")
 HASH_RE = re.compile(r"\b[0-9a-f]{32,}\b|sha(?:1|256|384|512)-[A-Za-z0-9+/]+=*")
 VERSION_RE = re.compile(r"\d+(?:\.\d+)+")
 
@@ -519,6 +530,7 @@ def preflight(repo, number, remote):
     links = sorted({q for p in paths for q in ("/".join(p.split("/")[:i + 1]) for i in range(p.count("/") + 1))
                     if q in linked})
     report = {"pr": int(number), "fork": fork, "head": head, "base": base, "branch": pr["head"]["ref"],
+              "author": pr["user"]["login"], "base_branch": pr["base"]["ref"],
               "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
               "fetch_argv": None, "diff_argv": None}
     if not hits:
@@ -598,6 +610,147 @@ def cmd_review_preflight(args):
     return 0
 
 
+def gh_graphql(query, **fields):
+    """GitHub GraphQL. Only enqueue uses it: the merge queue has no REST endpoint, and cloud proxies block it."""
+    argv = ["gh", "api", "graphql", "-f", f"query={query}"]
+    for key, value in fields.items():
+        argv += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
+    result = subprocess.run(argv, capture_output=True)
+    data = json.loads(result.stdout or b"{}") if not result.returncode else {}
+    if result.returncode or data.get("errors") or "data" not in data:
+        raise OSError(f"gh api graphql: {data.get('errors') or result.stderr.decode('utf-8', 'replace').strip()}")
+    return data["data"]
+
+
+def review_fields(body):
+    """The `## Review` fields enqueue reads, each from exactly one `name: value` line."""
+    lines = section(body.encode("utf-8"), "Review")
+    fields = {}
+    for name in ("리뷰한 head", "등급", "남은 지적"):
+        values = [line[len(name) + 1:].strip().strip("`") for line in lines if line.startswith(f"{name}:")]
+        fields[name] = values[0] if len(values) == 1 else None if not values else ""
+    return fields
+
+
+def required_checks(repo, branch):
+    """(context, app id or None) pairs that branch protection and rulesets require on the base branch."""
+    need = set()
+    protection = (gh_api(f"repos/{repo}/branches/{quote(branch, safe='')}").get("protection") or {})
+    checks = protection.get("required_status_checks") or {}
+    need |= {(c["context"], c.get("app_id")) for c in checks.get("checks") or []}
+    need |= {(c, None) for c in checks.get("contexts") or [] if all(c != n for n, _ in need)}
+    for rule in pages(f"repos/{repo}/rules/branches/{quote(branch, safe='')}"):
+        if rule.get("type") == "required_status_checks":
+            need |= {(c["context"], c.get("integration_id")) for c in rule["parameters"]["required_status_checks"]}
+    return need
+
+
+def ci_problems(repo, sha, need):
+    if not need:
+        return ["필수 CI가 정해져 있지 않다"]
+    runs = pages(f"repos/{repo}/commits/{sha}/check-runs?filter=latest", "check_runs")
+    statuses = {s["context"]: s["state"] for s in pages(f"repos/{repo}/commits/{sha}/status", "statuses")}
+    problems = []
+    for context, app in sorted(need, key=lambda n: (n[0], str(n[1]))):
+        mine = [r for r in runs if r["name"] == context and (app in (None, -1) or (r.get("app") or {}).get("id") == app)]
+        if mine:
+            run = max(mine, key=lambda r: r["id"])
+            if run["status"] != "completed" or run["conclusion"] not in PASSED:
+                problems.append(f"필수 CI {context}: {run['conclusion'] or run['status']}")
+        elif app in (None, -1) and context in statuses:
+            if statuses[context] != "success":
+                problems.append(f"필수 CI {context}: {statuses[context]}")
+        else:
+            problems.append(f"필수 CI {context}: 결과가 없다")
+    return problems
+
+
+def account_problems(repo, report, commits):
+    """The author and every commit author must be able to push (Dependabot PRs: dependabot[bot] only)."""
+    allowed = {}
+
+    def can_push(login):
+        if login not in allowed:
+            allowed[login] = (login == BOT if report["author"] == BOT else
+                              gh_api(f"repos/{repo}/collaborators/{quote(login, safe='')}/permission")
+                              .get("permission") in ("admin", "write"))
+        return allowed[login]
+    problems = [] if can_push(report["author"]) else [f"작성자 {report['author']}에게 쓰기 권한이 없다"]
+    for commit in commits:
+        login = (commit.get("author") or {}).get("login")
+        if not login:
+            problems.append(f"커밋 {commit['sha'][:7]}의 작성자를 GitHub 계정으로 알 수 없다")
+        elif not can_push(login):
+            problems.append(f"커밋 {commit['sha'][:7]}의 작성자 {login}에게 쓰기 권한이 없다")
+    return problems
+
+
+def external_reviews(repo, number, reported):
+    """Reviews and comments written or edited after the review report: nobody judged them."""
+    items = [(r.get("submitted_at"), r) for r in pages(f"repos/{repo}/pulls/{number}/reviews")]
+    for path in (f"pulls/{number}/comments", f"issues/{number}/comments"):
+        items += [(max(c["created_at"], c.get("updated_at") or ""), c) for c in pages(f"repos/{repo}/{path}")]
+    return sorted({(item.get("user") or {}).get("login") or "ghost" for at, item in items if at and at > reported})
+
+
+def enqueue_problems(repo, number, sha, remote):
+    """(PR node id, reasons not to queue). The checks POLICY §5 lists, all recomputed now."""
+    report = preflight(repo, number, remote)
+    if report is None:
+        return None, ["head나 base가 실행 중에 바뀌었다"]
+    if report["secret_hits"]:
+        return None, ["비밀값 파일 이름: " + ", ".join(json.dumps(p) for p in report["secret_hits"])]
+    owner, name = repo.split("/")
+    pr = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"]
+    problems = [] if report["head"] == sha else [f"head가 {sha}가 아니라 {report['head']}다"]
+    if report["fork"]:
+        problems.append("fork PR이다")
+    agents = (contents(repo, "AGENTS.md", report["base"]) or b"").decode("utf-8", "replace").splitlines()
+    if not any(line.startswith(STANDING) and STANDING_COMMAND in line for line in agents):
+        problems.append("base의 AGENTS.md에 상시 지시 줄이 없다")
+    problems += account_problems(repo, report, pages(f"repos/{repo}/pulls/{number}/commits"))
+    fields = review_fields(pr["body"] or "")
+    if fields["등급"] is not None and fields["등급"] not in GRADES:
+        problems.append(f"「등급」이 {'·'.join(GRADES)} 중 하나가 아니다")
+    grade = max(report["grade"], fields["등급"] if fields["등급"] in GRADES else "문서", key=GRADES.index)
+    if grade == "어려움":
+        problems.append("어려움 등급이다(소유자가 GitHub 화면에서 넣는다)")
+    if grade == "쉬움" and fields["리뷰한 head"] != sha:
+        problems.append(f"리뷰 보고의 「리뷰한 head」가 {sha}가 아니다")
+    if (grade == "쉬움" or fields["남은 지적"] is not None) and fields["남은 지적"] != "없음":
+        problems.append("리뷰 보고의 「남은 지적」이 「없음」 한 줄이 아니다")
+    problems += ci_problems(repo, report["head"], required_checks(repo, report["base_branch"]))
+    # The report's time is the last body edit by a person: bots (CodeRabbit) also rewrite the body.
+    edits = [e["editedAt"] for e in pr["userContentEdits"]["nodes"] if (e.get("editor") or {}).get("__typename") == "User"]
+    late = external_reviews(repo, number, max(edits, default=pr["createdAt"]))
+    if late:
+        problems.append("리뷰 보고 뒤의 판정하지 않은 외부 리뷰: " + ", ".join(late))
+    return pr["id"], problems
+
+
+def cmd_enqueue(args):
+    if os.environ.get("CLAUDE_CODE_REMOTE") == "true":
+        print("enqueue: 클라우드 세션에서는 넣지 않는다. 프록시가 GraphQL(큐 넣기)을 막는다. 로컬 세션에서 부른다.",
+              file=sys.stderr)
+        return 2
+    if not SHA_RE.fullmatch(args.sha):
+        print("enqueue: SHA는 40자 소문자 hex다", file=sys.stderr)
+        return 2
+    try:
+        repo, number = pr_target(args.pr, args.remote)
+        node, problems = enqueue_problems(repo, number, args.sha, args.remote)
+        if problems:
+            for problem in problems:
+                print(f"enqueue: 넣지 않는다: {problem if problem.isprintable() else json.dumps(problem)}")
+            return 1
+        gh_graphql(ENQUEUE, id=node, sha=args.sha)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"enqueue: 실행 실패: {error}", file=sys.stderr)
+        return 2
+    print(f"enqueue: {repo}#{number}을 {args.sha}로 머지 큐에 넣었다")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="baseline.py", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -609,9 +762,13 @@ def main(argv=None):
     preflight_parser.add_argument("pr", help="PR URL 또는 번호")
     preflight_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     preflight_parser.add_argument("--json", action="store_true", help="JSON 한 개로 출력한다")
+    enqueue_parser = sub.add_parser("enqueue", help="문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다(로컬 전용)")
+    enqueue_parser.add_argument("pr", help="PR URL 또는 번호")
+    enqueue_parser.add_argument("sha", help="리뷰한 head(40자 SHA)")
+    enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     args = parser.parse_args(argv)
     return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget,
-            "review-preflight": cmd_review_preflight}[args.command](args)
+            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue}[args.command](args)
 
 
 if __name__ == "__main__":
