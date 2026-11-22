@@ -34,6 +34,8 @@ MANAGED = {
     "docs/agents/triage-labels.md": {"sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
     "docs/agents/domain.md": {"sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
     "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/arena/SKILL.md": {"sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"},
     ".claude/skills/blast-radius/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/blast-radius/SKILL.md": {"sha256": "4248d03e22365207d2e5f90c9542720f80a88a6b42fd542ef88dde3cf9f9223f"},
     ".claude/skills/code-review/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
@@ -64,6 +66,8 @@ MANAGED = {
     ".claude/skills/grilling/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/grilling/SKILL.md": {"sha256": "a146842ed93ca43d833550fa9adf02e58cb63c83fea9d4b4522995b82242d4e2"},
     ".claude/skills/grilling/agents/openai.yaml": {"sha256": "1411d7df7d99b7e621a1ff8283c8133cc2464be63d064e52d8ce169c6800ee9b"},
+    ".claude/skills/in-your-own-words/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/in-your-own-words/SKILL.md": {"sha256": "fa8ba74e27d7be371dc270ec78bbf816411477d0dfab185356c861ac8dd413ad"},
     ".claude/skills/interrogate/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/interrogate/SKILL.md": {"sha256": "3f3c2e9b8cf6b180dba9f32a4aff85e5691b09805232468e37a0ba45437a9984"},
     ".claude/skills/maintain-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
@@ -91,6 +95,8 @@ MANAGED = {
     ".claude/skills/to-tickets/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/to-tickets/SKILL.md": {"sha256": "56ec23c5b2782785d4e65bff9e315b6d3aeb4ef977c174a219e99489fada1995"},
     ".claude/skills/to-tickets/agents/openai.yaml": {"sha256": "21bc6215fffcd7614e9f772bb1760e87cc5fc7dcc707e7d282bc9414267a6090"},
+    ".claude/skills/unslop/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/unslop/SKILL.md": {"sha256": "ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f"},
     ".claude/skills/wayfinder/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/wayfinder/SKILL.md": {"sha256": "0c9fa96791aebf3b7d654cf35c6aadde97d81f57c17b07d13b27c14d9c46561f"},
     ".claude/skills/wayfinder/agents/openai.yaml": {"sha256": "88bc81a11a6d52ac67aeaa76b8b619e387020d47c5133a4dd4927fd15c4ad073"},
@@ -979,7 +985,9 @@ def skills_bump(root, check, now):
             raise ValueError("; ".join(problems))
         updates = []
         for name, src in lock["sources"].items():
-            pin = newest_pin(src, now - timedelta(days=src["days"]))
+            # No newer version: still check the copies against the pin (a skill added to the lock).
+            pin = newest_pin(src, now - timedelta(days=src["days"])) or (
+                (src.get("tag"), src["commit"]) if src.get("commit") else None)
             names = sorted(n for n, s in lock["skills"].items() if s["source"] == name)
             files = snapshot(src, names, lock["skills"], pin[1]) if pin else None
             if files and {rel: e["sha"] for rel, (_, e) in files.items()} != local_shas(root, names):
@@ -1024,12 +1032,12 @@ def skills_bump(root, check, now):
         for path in sorted((root / "skills" / name).rglob("*")):
             if path.is_file():
                 managed[SKILLS + path.relative_to(root / "skills").as_posix()] = {"sha256": sha256(path.read_bytes())}
-    before = sha256((root / "baseline.py").read_bytes())
     write_managed(root / "baseline.py", managed)
     after = sha256((root / "baseline.py").read_bytes())
     for rel in ("core/.claude/settings.json", ".claude/settings.json"):  # the enqueue hook pins baseline.py
         if (root / rel).is_file():
-            (root / rel).write_bytes((root / rel).read_bytes().replace(before.encode(), after.encode()))
+            data = (root / rel).read_bytes()
+            (root / rel).write_bytes(re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + after.encode() + b'"', data))
     shutil.copyfile(root / "baseline.py", root / ".baseline/baseline.py")
     recorded = json.loads((root / ".baseline/baseline.json").read_bytes())
     (root / ".baseline/baseline.json").write_bytes(dump_json(dict(recorded, managed=managed)))

@@ -1271,7 +1271,7 @@ class SkillsBumpTests(unittest.TestCase):
         (self.root / ".baseline/baseline.json").write_bytes(b.dump_json({"version": "x", "managed": {}}))
         self.pin = '{"args": ["--sha256", "%s"]}\n'
         (self.root / ".claude").mkdir()
-        (self.root / ".claude/settings.json").write_text(self.pin % b.sha256(self.read("baseline.py")))
+        (self.root / ".claude/settings.json").write_text(self.pin % ("0" * 64))  # any earlier hash is replaced
         self.gh = FakeSources()
         m = {"LICENSE": b"MIT m\n", "p.json": plugin("1.0.0"),
              "s/grill/SKILL.md": b"grill 1\n", "s/grilling/SKILL.md": b"grilling 1\n",
@@ -1290,6 +1290,8 @@ class SkillsBumpTests(unittest.TestCase):
                 "grilling": {"source": "m", "path": "s/grilling", "requires": []},
                 "blast": {"source": "p", "path": "pstack/skills/blast", "requires": []}}}
         self.write_lock()
+        code, out = self.bump()  # the copies of the pins
+        self.assertEqual(code, 0, out)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -1383,13 +1385,13 @@ class SkillsBumpTests(unittest.TestCase):
         outside = Path(self.tmp.name + "-outside")
         outside.mkdir()
         self.addCleanup(shutil.rmtree, outside)
-        (self.root / ".claude/skills").mkdir(parents=True)
+        shutil.rmtree(self.root / ".claude/skills/grill")
         (self.root / ".claude/skills/grill").symlink_to(outside)
         code, out = self.bump()
         self.assertEqual(code, 2, out)
         self.assertIn(".claude/skills/grill", out)
         self.assertEqual(list(outside.iterdir()), [])
-        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
     def test_git_files_in_a_skill_folder_are_refused(self):
         self.m_release("2" * 40, 10, "1.1.0")
@@ -1397,13 +1399,12 @@ class SkillsBumpTests(unittest.TestCase):
         code, out = self.bump()
         self.assertEqual(code, 2, out)
         self.assertIn(".gitattributes", out)
-        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
     def test_changing_a_skill_moves_its_required_skills_and_drops_removed_files(self):
         self.m_release("2" * 40, 10, "1.1.0")
         for root in ("skills", ".claude/skills"):
-            (self.root / root / "grilling").mkdir(parents=True)
-            (self.root / root / "grilling/old.md").write_bytes(b"old\n")
+            self.assertEqual(self.read(f"{root}/grilling/old.md"), b"old\n")
         code, out = self.bump()
         self.assertEqual(code, 0, out)
         for root in ("skills", ".claude/skills"):
@@ -1416,6 +1417,19 @@ class SkillsBumpTests(unittest.TestCase):
         self.assertEqual(json.loads(self.read(".baseline/baseline.json"))["managed"], managed)
         self.assertEqual(self.read(".claude/settings.json").decode(), self.pin % self.b.sha256(self.read("baseline.py")))
 
+    def test_a_skill_added_to_the_lock_comes_from_the_pinned_version(self):
+        code, out = self.bump()  # copies of the pins; no newer version exists
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")
+        self.lock = json.loads(self.read("skills/skills.lock.json"))
+        self.lock["skills"]["other"] = {"source": "m", "path": "s/other", "requires": []}
+        self.write_lock()
+        code, out = self.bump()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.read(".claude/skills/other/SKILL.md"), b"other\n")
+        self.assertEqual(json.loads(self.read("skills/skills.lock.json"))["sources"]["m"]["tag"], "v1.0.0")
+        self.assertEqual(self.bump("--check")[0], 0)
+
     def test_check_reports_without_writing(self):
         self.m_release("2" * 40, 10, "1.1.0")
         before = self.read("skills/skills.lock.json")
@@ -1423,7 +1437,7 @@ class SkillsBumpTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("m: v1.0.0 → v1.1.0", out)
         self.assertEqual(self.read("skills/skills.lock.json"), before)
-        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
     def test_a_new_version_without_changes_to_our_skills_is_no_update(self):
         files = dict(self.gh.trees["m/s", "1" * 40], **{"p.json": plugin("1.0.1")})
@@ -1451,14 +1465,14 @@ class SkillsBumpTests(unittest.TestCase):
         code, out = self.bump()
         self.assertEqual(code, 2, out)
         self.assertIn("s/grilling/SKILL.md", out)
-        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
     def test_bytes_that_do_not_match_the_tree_are_refused(self):
         self.m_release("2" * 40, 10, "1.1.0")
         self.gh.corrupt.add("s/grill/SKILL.md")
         code, out = self.bump()
         self.assertEqual(code, 2, out)
-        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
 
 if __name__ == "__main__":

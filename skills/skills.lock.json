@@ -1,8 +1,16 @@
 {
   "skills": {
+    "arena": {
+      "path": "pstack/skills/arena",
+      "requires": [],
+      "source": "pstack"
+    },
     "blast-radius": {
       "path": "pstack/skills/blast-radius",
-      "requires": [],
+      "requires": [
+        "arena",
+        "unslop"
+      ],
       "source": "pstack"
     },
     "code-review": {
@@ -45,9 +53,17 @@
       "requires": [],
       "source": "mattpocock"
     },
+    "in-your-own-words": {
+      "path": "pstack/skills/in-your-own-words",
+      "requires": [],
+      "source": "pstack"
+    },
     "interrogate": {
       "path": "pstack/skills/interrogate",
-      "requires": [],
+      "requires": [
+        "arena",
+        "in-your-own-words"
+      ],
       "source": "pstack"
     },
     "maintain-verification-skill": {
@@ -87,6 +103,11 @@
       "path": "skills/engineering/to-tickets",
       "requires": [],
       "source": "mattpocock"
+    },
+    "unslop": {
+      "path": "pstack/skills/unslop",
+      "requires": [],
+      "source": "pstack"
     },
     "wayfinder": {
       "path": "skills/engineering/wayfinder",

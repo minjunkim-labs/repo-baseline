@@ -6,6 +6,12 @@
     ".claude/hooks/check.py": {
       "sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"
     },
+    ".claude/skills/arena/LICENSE": {
+      "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
+    },
+    ".claude/skills/arena/SKILL.md": {
+      "sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"
+    },
     ".claude/skills/blast-radius/LICENSE": {
       "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
     },
@@ -96,6 +102,12 @@
     ".claude/skills/grilling/agents/openai.yaml": {
       "sha256": "1411d7df7d99b7e621a1ff8283c8133cc2464be63d064e52d8ce169c6800ee9b"
     },
+    ".claude/skills/in-your-own-words/LICENSE": {
+      "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
+    },
+    ".claude/skills/in-your-own-words/SKILL.md": {
+      "sha256": "fa8ba74e27d7be371dc270ec78bbf816411477d0dfab185356c861ac8dd413ad"
+    },
     ".claude/skills/interrogate/LICENSE": {
       "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
     },
@@ -176,6 +188,12 @@
     },
     ".claude/skills/to-tickets/agents/openai.yaml": {
       "sha256": "21bc6215fffcd7614e9f772bb1760e87cc5fc7dcc707e7d282bc9414267a6090"
+    },
+    ".claude/skills/unslop/LICENSE": {
+      "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
+    },
+    ".claude/skills/unslop/SKILL.md": {
+      "sha256": "ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f"
     },
     ".claude/skills/wayfinder/LICENSE": {
       "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
