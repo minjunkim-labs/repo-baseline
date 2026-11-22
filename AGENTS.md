@@ -8,7 +8,7 @@
 
 - setup: `N/A: 설치할 의존성이 없다(Python 3.9 이상과 시스템 IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)`
 - check: `N/A: 별도 린터가 없다. 링크·코어 구성·POLICY 길이 같은 결정적 검사는 test의 tools/test_distribution.py가 한다`
-- test: `python3 -m unittest discover -s tools -p 'test_*.py' && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p 'test_*.py' || exit 1; done`
+- test: `python3 -m unittest test_baseline && python3 -m unittest discover -s tools -p 'test_*.py' && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p 'test_*.py' || exit 1; done`
   - pr-conventions 테스트는 예시 데이터를 검사하며 `FAIL:` 줄을 출력한다. 성공 여부는 종료 코드로만 판단한다.
 - build: `N/A: 배포는 파일 복사다`
 
@@ -16,6 +16,7 @@
 
 | 경로 | 무엇 |
 | --- | --- |
+| `baseline.py`, `core/` | v2(#175) 도구와 소비 레포에 복사하는 코어. `init`·`check`·`run`·`budget`. 테스트는 `test_baseline.py` |
 | `POLICY.md` | 모든 소비 레포의 규칙. 한 쪽(1만 자) 안에 둔다 |
 | `templates/core/` | 코어. 소비 레포가 그대로 복사하는 4개 파일 |
 | `templates/github/` | GitHub 프로필. CI 골격, 저장소 설정 기준선, 에이전트 도구별 권한 예시 |
