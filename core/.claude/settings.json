@@ -38,10 +38,8 @@
     "allow": [],
     "ask": [],
     "deny": [
-      "Read(**/.env)",
-      "Read(**/.env.*)",
-      "Read(**/.env/**)",
-      "Read(**/.env.*/**)",
+      "Read(**/.env*)",
+      "Read(**/.env*/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Bash(git push * main)",

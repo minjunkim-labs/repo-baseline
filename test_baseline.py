@@ -1107,6 +1107,7 @@ class AllowEnqueueHookTests(unittest.TestCase):
         self.assertEqual(hook["args"], ["-I", "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
                                         "--sha256", self.pinned])
         self.assertEqual((settings["permissions"]["allow"], settings["permissions"]["ask"]), ([], []))
+        self.assertLessEqual({"Read(**/.env*)", "Read(**/.env*/**)"}, set(settings["permissions"]["deny"]))  # .envrc too
 
     def test_says_nothing_for_any_other_command(self):
         for command in (self.COMMAND + "; rm -rf ~", self.COMMAND + "\nrm x", "python3 .baseline/baseline.py enqueue 7 "
