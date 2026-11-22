@@ -8,7 +8,7 @@
               "-I",
               "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
               "--sha256",
-              "d42228f788ad03e86ff5dbdb3144c424fb5491436455218b3135656035a2ebc9"
+              "4b2e0e677cccf562882fdb686ecd11218869886432d79908ac902398ec3762b5"
             ],
             "command": "python3",
             "timeout": 15,
@@ -49,7 +49,9 @@
       "Bash(gh api *secrets*)",
       "Bash(gh api *allow_*merge*)",
       "Bash(gh api *-X DELETE*)",
+      "Bash(gh api *-XDELETE*)",
       "Bash(gh api *--method DELETE*)",
+      "Bash(gh api *--method=DELETE*)",
       "Bash(gh secret *)",
       "Bash(gh repo edit *)",
       "Bash(gh repo delete *)",

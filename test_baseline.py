@@ -806,6 +806,26 @@ class EnqueueTests(unittest.TestCase):
         gh.extra[f"repos/o/r/commits/{HEAD}/status"] = {"statuses": [{"context": "lint", "state": "success"}]}
         self.assertQueued(gh)
 
+    def test_a_failing_status_with_the_check_name_counts(self):
+        gh = self.gh()
+        gh.extra["repos/o/r/branches/main"] = {"protection": {"required_status_checks": {"contexts": ["ci"]}}}
+        gh.extra[f"repos/o/r/commits/{HEAD}/status"] = {"statuses": [{"context": "ci", "state": "failure"}]}
+        self.assertRefused(gh, "ci")
+
+    def test_changes_requested_blocks_even_a_docs_pr(self):
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.extra["repos/o/r/pulls/7/reviews"] = [
+            {"user": {"login": "helper", "type": "User"}, "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-01T00:01:00Z"},
+            {"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "state": "CHANGES_REQUESTED",
+             "submitted_at": "2026-01-01T00:02:00Z"}]
+        self.assertRefused(gh, "변경 요청: helper")
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.extra["repos/o/r/pulls/7/reviews"] = [
+            {"user": {"login": "helper", "type": "User"}, "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-01T00:01:00Z"},
+            {"user": {"login": "helper", "type": "User"}, "state": "APPROVED", "submitted_at": "2026-01-01T00:02:00Z"},
+            {"user": {"login": "helper", "type": "User"}, "state": "COMMENTED", "submitted_at": "2026-01-01T00:03:00Z"}]
+        self.assertQueued(gh)
+
     def test_remaining_findings_are_refused(self):
         self.assertRefused(self.gh(left="[Spec] P1 src/app.py:1 틀렸다"), "남은 지적")
         self.assertRefused(self.gh(left="없음\n- [Spec] P1 src/app.py:1 틀렸다"), "남은 지적")
@@ -818,7 +838,7 @@ class EnqueueTests(unittest.TestCase):
 
     def test_unjudged_external_reviews_are_refused(self):
         late = "2026-01-01T00:20:00Z"
-        for route, item in (("pulls/7/reviews", {"user": {"login": "coderabbitai[bot]"}, "submitted_at": late}),
+        for route, item in (("pulls/7/reviews", {"user": {"login": "coderabbitai[bot]"}, "state": "COMMENTED", "submitted_at": late}),
                             ("pulls/7/comments", {"user": {"login": "helper"}, "created_at": REPORTED,
                                                   "updated_at": late}),
                             ("issues/7/comments", {"user": {"login": "owner"}, "created_at": late})):
@@ -827,7 +847,7 @@ class EnqueueTests(unittest.TestCase):
             self.assertRefused(gh, "판정하지 않은 외부 리뷰")
         gh = self.gh()
         gh.extra["repos/o/r/issues/7/comments"] = [{"user": {"login": "x[bot]"}, "created_at": "2026-01-01T00:05:00Z"}]
-        gh.extra["repos/o/r/pulls/7/reviews"] = [{"user": {"login": "owner"}, "submitted_at": None}]  # pending
+        gh.extra["repos/o/r/pulls/7/reviews"] = [{"user": {"login": "owner"}, "state": "PENDING", "submitted_at": None}]  # pending
         self.assertQueued(gh)
 
     def test_a_bot_editing_the_body_does_not_move_the_report_time(self):

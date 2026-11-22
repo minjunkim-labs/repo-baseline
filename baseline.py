@@ -655,15 +655,16 @@ def ci_problems(repo, sha, need):
     problems = []
     for context, app in sorted(need, key=lambda n: (n[0], str(n[1]))):
         mine = [r for r in runs if r["name"] == context and (app in (None, -1) or (r.get("app") or {}).get("id") == app)]
+        status = statuses.get(context) if app in (None, -1) else None
+        if not mine and status is None:
+            problems.append(f"필수 CI {context}: 결과가 없다")
+            continue
         if mine:
             run = max(mine, key=lambda r: r["id"])
             if run["status"] != "completed" or run["conclusion"] not in PASSED:
                 problems.append(f"필수 CI {context}: {run['conclusion'] or run['status']}")
-        elif app in (None, -1) and context in statuses:
-            if statuses[context] != "success":
-                problems.append(f"필수 CI {context}: {statuses[context]}")
-        else:
-            problems.append(f"필수 CI {context}: 결과가 없다")
+        if status not in (None, "success"):  # a check run and a status of one name: both must pass
+            problems.append(f"필수 CI {context}: {status}")
     return problems
 
 
@@ -687,9 +688,19 @@ def account_problems(repo, report, commits):
     return problems
 
 
-def external_reviews(repo, number, reported):
+def changes_requested(reviews):
+    """People whose last review state is CHANGES_REQUESTED. Comments do not change a state; bots are left out."""
+    last = {}
+    for review in sorted(reviews, key=lambda r: r.get("submitted_at") or ""):
+        user = review.get("user") or {}
+        if user.get("type") != "Bot" and review.get("submitted_at") and review.get("state") != "COMMENTED":
+            last[user.get("login") or "ghost"] = review["state"]
+    return sorted(login for login, state in last.items() if state == "CHANGES_REQUESTED")
+
+
+def external_reviews(repo, number, reported, reviews):
     """Reviews and comments written or edited after the review report: nobody judged them."""
-    items = [(r.get("submitted_at"), r) for r in pages(f"repos/{repo}/pulls/{number}/reviews")]
+    items = [(r.get("submitted_at"), r) for r in reviews]
     for path in (f"pulls/{number}/comments", f"issues/{number}/comments"):
         items += [(max(c["created_at"], c.get("updated_at") or ""), c) for c in pages(f"repos/{repo}/{path}")]
     return sorted({(item.get("user") or {}).get("login") or "ghost" for at, item in items if at and at > reported})
@@ -722,11 +733,15 @@ def enqueue_problems(repo, number, sha, remote):
     if (grade == "쉬움" or fields["남은 지적"] is not None) and fields["남은 지적"] != "없음":
         problems.append("리뷰 보고의 「남은 지적」이 「없음」 한 줄이 아니다")
     problems += ci_problems(repo, report["head"], required_checks(repo, report["base_branch"]))
+    reviews = pages(f"repos/{repo}/pulls/{number}/reviews")
+    blocked = changes_requested(reviews)
+    if blocked:
+        problems.append("변경 요청: " + ", ".join(blocked))
     if grade == "쉬움":  # docs PRs have no reviewer to judge bot comments: CI only (POLICY §3)
         # The report's time is the last body edit by a person: bots (CodeRabbit) also rewrite the body.
         edits = [e["editedAt"] for e in pr["userContentEdits"]["nodes"]
                  if (e.get("editor") or {}).get("__typename") == "User"]
-        late = external_reviews(repo, number, max(edits, default=pr["createdAt"]))
+        late = external_reviews(repo, number, max(edits, default=pr["createdAt"]), reviews)
         if late:
             problems.append("리뷰 보고 뒤의 판정하지 않은 외부 리뷰: " + ", ".join(late))
     return pr["id"], problems
