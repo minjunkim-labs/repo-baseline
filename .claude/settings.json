@@ -6,7 +6,9 @@
           {
             "args": [
               "-I",
-              "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py"
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
+              "--sha256",
+              "d42228f788ad03e86ff5dbdb3144c424fb5491436455218b3135656035a2ebc9"
             ],
             "command": "python3",
             "timeout": 15,
@@ -18,9 +20,7 @@
     ]
   },
   "permissions": {
-    "allow": [
-      "Bash(python3 -I .baseline/baseline.py enqueue *)"
-    ],
+    "allow": [],
     "ask": [],
     "deny": [
       "Read(**/.env)",
@@ -38,6 +38,8 @@
       "Bash(git push *-f)",
       "Bash(git push *-f *)",
       "Bash(git push * +*)",
+      "Bash(git push *--mirror*)",
+      "Bash(git push *--all*)",
       "Bash(git reset *--hard*)",
       "Bash(git clean *)",
       "Bash(gh api *protection*)",
@@ -45,6 +47,9 @@
       "Bash(gh api *hooks*)",
       "Bash(gh api *collaborators*)",
       "Bash(gh api *secrets*)",
+      "Bash(gh api *allow_*merge*)",
+      "Bash(gh api *-X DELETE*)",
+      "Bash(gh api *--method DELETE*)",
       "Bash(gh secret *)",
       "Bash(gh repo edit *)",
       "Bash(gh repo delete *)",

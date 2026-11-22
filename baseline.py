@@ -26,7 +26,7 @@ MANAGED = {
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
     "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
-    ".claude/hooks/allow_enqueue.py": {"sha256": "b8c387181b4ba1b13ee24074018642e985908d6333aa7c486e6863a083d6d546"},
+    ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
 }
 COMMANDS = ("setup", "check", "test", "build")
 DEFAULT_COMMANDS = {
@@ -627,8 +627,10 @@ def review_fields(body):
     lines = section(body.encode("utf-8"), "Review")
     fields = {}
     for name in ("리뷰한 head", "등급", "남은 지적"):
-        values = [line[len(name) + 1:].strip().strip("`") for line in lines if line.startswith(f"{name}:")]
-        fields[name] = values[0] if len(values) == 1 else None if not values else ""
+        at = [i for i, line in enumerate(lines) if line.startswith(f"{name}:")]
+        fields[name] = lines[at[0]][len(name) + 1:].strip().strip("`") if len(at) == 1 else None if not at else ""
+        if len(at) == 1 and at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("-", "*")):
+            fields[name] += " (목록이 이어진다)"  # 「남은 지적: 없음」 followed by a list is not 없음
     return fields
 
 
@@ -720,11 +722,13 @@ def enqueue_problems(repo, number, sha, remote):
     if (grade == "쉬움" or fields["남은 지적"] is not None) and fields["남은 지적"] != "없음":
         problems.append("리뷰 보고의 「남은 지적」이 「없음」 한 줄이 아니다")
     problems += ci_problems(repo, report["head"], required_checks(repo, report["base_branch"]))
-    # The report's time is the last body edit by a person: bots (CodeRabbit) also rewrite the body.
-    edits = [e["editedAt"] for e in pr["userContentEdits"]["nodes"] if (e.get("editor") or {}).get("__typename") == "User"]
-    late = external_reviews(repo, number, max(edits, default=pr["createdAt"]))
-    if late:
-        problems.append("리뷰 보고 뒤의 판정하지 않은 외부 리뷰: " + ", ".join(late))
+    if grade == "쉬움":  # docs PRs have no reviewer to judge bot comments: CI only (POLICY §3)
+        # The report's time is the last body edit by a person: bots (CodeRabbit) also rewrite the body.
+        edits = [e["editedAt"] for e in pr["userContentEdits"]["nodes"]
+                 if (e.get("editor") or {}).get("__typename") == "User"]
+        late = external_reviews(repo, number, max(edits, default=pr["createdAt"]))
+        if late:
+            problems.append("리뷰 보고 뒤의 판정하지 않은 외부 리뷰: " + ", ".join(late))
     return pr["id"], problems
 
 

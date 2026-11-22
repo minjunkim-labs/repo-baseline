@@ -63,8 +63,8 @@ PR 본문 Merge Danger에 등급, 영향 범위, 되돌리는 법, 걸린 민감
 ## 5. 병합
 
 - 상시 지시: 코어 `AGENTS.md`의 한 줄이다. 문서·쉬움 PR은 에이전트가 `python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`로 머지 큐에 넣는다. 소유자가 그 저장소에서 끄려면 이 줄을 지운다.
-- `enqueue`는 넣기 직전에 등급, PR이 fork가 아니고 작성자와 모든 커밋이 쓰기 권한이 있는 계정(Dependabot 예외는 `dependabot[bot]`)인지, head가 그 SHA인지, 필수 CI 통과, (쉬움이면) 리뷰 보고의 「리뷰한 head」·「등급」·「남은 지적: 없음」, 판정하지 않은 외부 리뷰가 없음을 다시 계산하고 `expectedHeadOid`로 넣는다. 하나라도 맞지 않으면 넣지 않고 이유를 출력한다. 어려움 등급은 늘 거부하고, 건너뛰는 옵션은 없다.
-- 코어 `.claude/settings.json`은 되돌릴 수 없는 일(비밀값 읽기, `main`·강제 push, `git reset --hard`·`git clean`, 저장소 설정 쓰기, `enqueue` 밖의 병합)을 deny로 막고 ask는 두지 않는다. 자동 모드는 `enqueue`의 allow 규칙을 버리므로, `PreToolUse` 훅(`.claude/hooks/allow_enqueue.py`)이 `enqueue <번호> <40자 SHA>` 꼴이고 `origin/main`과 같은 사본일 때만 허용한다. `enqueue`는 GraphQL을 쓰므로 로컬 전용이다.
+- `enqueue`는 넣기 직전에 등급, PR이 fork가 아니고 작성자와 모든 커밋 작성자(GitHub이 커밋 이메일로 이은 계정)가 쓰기 권한이 있는 계정(Dependabot 예외는 `dependabot[bot]`)인지, head가 그 SHA인지, 필수 CI 통과, (쉬움이면) 리뷰 보고의 「리뷰한 head」·「등급」·「남은 지적: 없음」과 보고 뒤에 판정하지 않은 외부 리뷰가 없음을 다시 계산하고 `expectedHeadOid`로 넣는다. 하나라도 맞지 않으면 넣지 않고 이유를 출력한다. 어려움 등급은 늘 거부하고, 건너뛰는 옵션은 없다.
+- 코어 `.claude/settings.json`은 되돌릴 수 없는 일(비밀값 읽기, `main`·강제 push, `git reset --hard`·`git clean`, 저장소 설정 쓰기, `enqueue` 밖의 병합)을 deny로 막고 ask는 두지 않는다. `enqueue`의 allow 규칙은 두지 않는다. 자동 모드가 버리고, 규칙은 어떤 코드가 도는지 보지 못한다. 대신 `PreToolUse` 훅(`.claude/hooks/allow_enqueue.py`)이 `enqueue <번호> <40자 SHA>` 꼴이고 사본의 sha256이 `settings.json`에 고정한 값과 같을 때만 허용한다. `enqueue`는 GraphQL을 쓰므로 로컬 전용이다.
 - 에이전트가 머지 큐에 넣는 길은 `enqueue` 하나다. 어려움 PR은 소유자가 GitHub 화면에서 넣는다(§3). `gh pr merge`, 큐를 우회하는 병합, 자동 병합은 쓰지 않는다(저장소 설정 `allow_auto_merge: false`).
 - 큐는 최신 `main` 위에서 필수 CI를 다시 돌리고 squash로 병합한다. 그래서 PR에 base를 합치지 않고 최신 브랜치 요구(`strict`)는 끈다. head가 바뀌면 다시 리뷰한다.
 - GitHub 저장소는 조직이 소유한 공개 저장소로 두고 PR 필수, 필수 CI, 머지 큐, force push·삭제 금지를 켠다. 머지 큐를 그 경우에만 쓸 수 있기 때문이다([문서](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue), 2026-11-16 확인).

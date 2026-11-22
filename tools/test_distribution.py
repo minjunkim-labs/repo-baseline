@@ -47,7 +47,9 @@ class DistributionTests(unittest.TestCase):
     def test_own_v2_copies_match_their_sources(self):
         # check trusts the hashes inside the copy, so a stale copy would pass check here.
         for copy, source in [(".baseline/baseline.py", "baseline.py"),
-                             (".github/pull_request_template.md", "core/.github/pull_request_template.md")]:
+                             (".github/pull_request_template.md", "core/.github/pull_request_template.md"),
+                             (".claude/settings.json", "core/.claude/settings.json"),
+                             (".claude/hooks/allow_enqueue.py", "core/.claude/hooks/allow_enqueue.py")]:
             self.assertEqual((ROOT / copy).read_bytes(), (ROOT / source).read_bytes(), copy)
 
     def test_own_coderabbit_config_is_the_template(self):

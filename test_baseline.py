@@ -759,6 +759,13 @@ class EnqueueTests(unittest.TestCase):
         gh.checks[0]["conclusion"] = "failure"
         self.assertRefused(gh, "ci")
 
+    def test_docs_pr_ignores_bot_comments_nobody_judges(self):
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.edits = []
+        gh.extra["repos/o/r/issues/7/comments"] = [{"user": {"login": "coderabbitai[bot]"},
+                                                    "created_at": "2026-01-01T00:20:00Z"}]
+        self.assertQueued(gh)
+
     def test_easy_pr_needs_the_report(self):
         self.assertRefused(self.gh(grade=None), "리뷰한 head")
 
@@ -801,6 +808,7 @@ class EnqueueTests(unittest.TestCase):
 
     def test_remaining_findings_are_refused(self):
         self.assertRefused(self.gh(left="[Spec] P1 src/app.py:1 틀렸다"), "남은 지적")
+        self.assertRefused(self.gh(left="없음\n- [Spec] P1 src/app.py:1 틀렸다"), "남은 지적")
         gh = self.gh()
         gh.body = gh.body.replace("남은 지적: 없음\n", "")
         self.assertRefused(gh, "남은 지적")
@@ -862,33 +870,37 @@ class EnqueueTests(unittest.TestCase):
 
 
 class AllowEnqueueHookTests(unittest.TestCase):
-    """The PreToolUse hook gets the event JSON on stdin, like Claude Code sends it."""
+    """The PreToolUse hook gets the event JSON on stdin and the pinned sha256 in argv, as settings.json gives it."""
     COMMAND = "python3 -I .baseline/baseline.py enqueue 7 " + HEAD
+    HOOK = ROOT / "core/.claude/hooks/allow_enqueue.py"
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.repo = Path(self.tmp.name) / "r"
         (self.repo / ".baseline").mkdir(parents=True)
         (self.repo / ".baseline/baseline.py").write_bytes((ROOT / "baseline.py").read_bytes())
-        git = lambda *a: subprocess.run(["git", "-C", str(self.repo), *a], check=True, capture_output=True)  # noqa: E731
-        git("init", "-q")
-        git("add", ".")
-        git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "x")
-        git("update-ref", "refs/remotes/origin/main", "HEAD")
+        self.pinned = hashlib.sha256((ROOT / "baseline.py").read_bytes()).hexdigest()
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def hook(self, command=COMMAND, cwd=None, tool="Bash"):
+    def hook(self, command=COMMAND, cwd=None, tool="Bash", argv=None):
         event = {"tool_name": tool, "tool_input": {"command": command}, "cwd": str(cwd or self.repo),
-                 "permission_mode": "auto", "hook_event_name": "PreToolUse"}
-        result = subprocess.run([sys.executable, "-I", str(ROOT / "core/.claude/hooks/allow_enqueue.py")],
+                 "permission_mode": "default", "hook_event_name": "PreToolUse"}
+        result = subprocess.run([sys.executable, "-I", str(self.HOOK), *(argv or ["--sha256", self.pinned])],
                                 input=json.dumps(event), capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] if result.stdout else None
 
-    def test_allows_the_exact_command_when_the_copy_is_origin_main(self):
+    def test_allows_the_exact_command_when_the_copy_has_the_pinned_hash(self):
         self.assertEqual(self.hook(), "allow")
+
+    def test_settings_pin_this_baseline_py_and_allow_no_rule(self):
+        settings = json.loads((ROOT / "core/.claude/settings.json").read_text(encoding="utf-8"))
+        hook, = settings["hooks"]["PreToolUse"][0]["hooks"]
+        self.assertEqual(hook["args"], ["-I", "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
+                                        "--sha256", self.pinned])
+        self.assertEqual((settings["permissions"]["allow"], settings["permissions"]["ask"]), ([], []))
 
     def test_says_nothing_for_any_other_command(self):
         for command in (self.COMMAND + "; rm -rf ~", self.COMMAND + "\nrm x", "python3 .baseline/baseline.py enqueue 7 "
@@ -898,24 +910,23 @@ class AllowEnqueueHookTests(unittest.TestCase):
             self.assertIsNone(self.hook(command), command)
         self.assertIsNone(self.hook(tool="Monitor"))
 
-    def test_says_nothing_when_the_copy_is_not_origin_main(self):
+    def test_says_nothing_when_the_copy_is_not_the_pinned_bytes(self):
         (self.repo / ".baseline/baseline.py").write_bytes(b"print('x')\n")
         self.assertIsNone(self.hook())
+        self.assertIsNone(self.hook(cwd=self.tmp.name))  # no copy there
+        for argv in ([], ["--sha256"], ["--sha256", "x" * 64], ["--sha", self.pinned]):
+            self.assertIsNone(self.hook(argv=argv or ["--x"]), argv)
 
-    def test_says_nothing_outside_the_repo_root_or_for_a_symlinked_copy(self):
-        (self.repo / "sub").mkdir()
-        self.assertIsNone(self.hook(cwd=self.repo / "sub"))
-        self.assertIsNone(self.hook(cwd=self.tmp.name))
+    def test_says_nothing_for_a_symlinked_copy(self):
         real = self.repo / "real.py"
         (self.repo / ".baseline/baseline.py").rename(real)
         (self.repo / ".baseline/baseline.py").symlink_to(real)
         self.assertIsNone(self.hook())
 
     def test_bad_input_says_nothing(self):
-        result = subprocess.run([sys.executable, "-I", str(ROOT / "core/.claude/hooks/allow_enqueue.py")],
+        result = subprocess.run([sys.executable, "-I", str(self.HOOK), "--sha256", self.pinned],
                                 input="not json", capture_output=True, text=True)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
-
 
 if __name__ == "__main__":
     unittest.main()
