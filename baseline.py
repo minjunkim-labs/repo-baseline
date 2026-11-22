@@ -8,6 +8,7 @@ import ast
 import fnmatch
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -103,7 +104,8 @@ def digest(data, kind):
 
 
 def repo_root():
-    here = Path(__file__).resolve().parent
+    # No resolve(): a symlinked .baseline/baseline.py must not move the root (check then refuses it).
+    here = Path(os.path.abspath(__file__)).parent
     return here.parent if here.name == ".baseline" else Path.cwd()
 
 
@@ -172,6 +174,11 @@ def cmd_init(args):
 def cmd_check(args):
     root = repo_root()
     problems = []
+    if Path(os.path.abspath(__file__)).parent.name == ".baseline":
+        try:
+            read_file(root, ".baseline/baseline.py")
+        except OSError as error:
+            problems.append(f".baseline/baseline.py: {error}")
     try:
         recorded = json.loads(read_file(root, ".baseline/baseline.json"))
     except (OSError, ValueError) as error:
@@ -311,9 +318,9 @@ def is_manifest(name):
 
 def is_sensitive(path, patterns):
     parts = path.split("/")
-    return (path.startswith((".github/", ".baseline/")) or parts[-1] in {".mcp.json", ".mise.toml", "CODEOWNERS"}
-            or any(part in AGENT_DIRS for part in parts) or is_manifest(parts[-1])
-            or any(path.startswith(p.rstrip("*")) if p.endswith(("/", "/**")) else fnmatch.fnmatchcase(path, p)
+    return (parts[-1] in {".mcp.json", ".mise.toml", "CODEOWNERS"} or is_manifest(parts[-1])
+            or any(part in AGENT_DIRS or part in {".github", ".baseline"} for part in parts)
+            or any(fnmatch.fnmatchcase(path, p) or path.startswith(p.rstrip("*").rstrip("/") + "/")
                    for p in patterns))
 
 
@@ -374,8 +381,25 @@ def upgrade_problem(paths, old, new):
         return "baseline.json을 읽지 못했다"
     if not isinstance(before, dict) or not isinstance(after, dict) or not isinstance(after.get("version"), str):
         return "baseline.json이 객체가 아니거나 판이 없다"
+    version = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", after["version"])
+    current = re.match(r"(\d+)\.(\d+)\.(\d+)", str(before.get("version")))
+    if not version:
+        return f"판 {after['version']!r}이 X.Y.Z가 아니다"
+    if current and (tuple(map(int, version.groups())) < tuple(map(int, current.groups()))
+                    or before.get("version") == after["version"]):
+        return "판을 올리지 않는다"
     tag = TAG.format(after["version"])
-    source = contents(BASELINE_REPO, "baseline.py", tag)
+    try:  # a tag only (a branch can have the same name), and one that main already holds
+        target = gh_api(f"repos/{BASELINE_REPO}/git/ref/tags/{tag}")["object"]
+        if target["type"] == "tag":
+            target = gh_api(f"repos/{BASELINE_REPO}/git/tags/{target['sha']}")["object"]
+        if target["type"] != "commit":
+            return f"태그 {tag}가 커밋을 가리키지 않는다"
+        if gh_api(f"repos/{BASELINE_REPO}/compare/{target['sha']}...main")["status"] not in ("ahead", "identical"):
+            return f"태그 {tag}가 {BASELINE_REPO} main에 없는 커밋이다"
+    except (OSError, KeyError, TypeError) as error:
+        return f"태그 {tag}를 읽지 못했다: {error}"
+    source = contents(BASELINE_REPO, "baseline.py", target["sha"])
     managed = embedded_managed(source) if source is not None else None
     if managed is None:
         return f"{BASELINE_REPO}의 태그 {tag}에서 baseline.py의 관리 해시를 읽지 못했다"
@@ -482,6 +506,13 @@ def preflight(repo, number, remote):
         names |= {p for f in pages(f"repos/{repo}/commits/{commit['sha']}", "files")
                   for p in (f["filename"], f.get("previous_filename")) if p}
     hits, examples = secret_names(names)
+    tree = gh_api(f"repos/{repo}/git/trees/{head}?recursive=1")
+    if tree.get("truncated"):
+        raise OSError("head 트리가 커서 REST가 다 보여 주지 않는다")
+    # The contents API follows symlinks, so the bytes alone cannot show a link or a submodule.
+    modes = {e["path"]: e["mode"] for e in tree["tree"]}
+    links = sorted({q for p in paths for q in ("/".join(p.split("/")[:i + 1]) for i in range(p.count("/") + 1))
+                    if modes.get(q) in ("120000", "160000")})
     report = {"pr": int(number), "fork": fork, "head": head, "base": base, "branch": pr["head"]["ref"],
               "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
               "fetch_argv": None, "diff_argv": None}
@@ -498,6 +529,8 @@ def preflight(repo, number, remote):
         old, new = read(base), read(head)
         patterns = sensitive_patterns(old("REVIEW.md"))
         reasons = [f"민감한 파일: {p}" for p in sorted(paths) if is_sensitive(p, patterns)]
+        reasons += [f"symlink·submodule: {p}" for p in links]
+        reasons += [f"출력할 수 없는 문자가 있는 경로: {json.dumps(p)}" for p in sorted(paths) if not p.isprintable()]
         for rel, spec in MANAGED.items():
             (kind, _), = spec.items()
             if rel in paths and (kind == "sha256" or old(rel) is None or new(rel) is None
@@ -515,7 +548,7 @@ def preflight(repo, number, remote):
             exceptions.append(("upgrade", upgrade_problem(paths, old, new)))
         if reasons and pr["user"]["login"] == BOT:
             exceptions.append(("Dependabot", dependabot_problem(repo, pr, fork, files)))
-        passed = [name for name, problem in exceptions if problem is None]
+        passed = [name for name, problem in exceptions if problem is None and not links]
         if passed:
             report["grade"], reasons = "쉬움", [f"{passed[0]} 예외"]
         else:
@@ -546,13 +579,14 @@ def cmd_review_preflight(args):
     print(f"PR: {report['pr']}  fork: {'예' if report['fork'] else '아니요'}  branch: {report['branch']}")
     print(f"head: {report['head']}")
     print(f"base: {report['base']}")
-    print("미검토(.env.example): " + (", ".join(report["unreviewed_examples"]) or "없음"))
+    show = lambda paths: ", ".join(p if p.isprintable() else json.dumps(p) for p in paths)  # noqa: E731
+    print("미검토(.env.example): " + (show(report["unreviewed_examples"]) or "없음"))
     if code:
-        print("리뷰 미완(비밀값 파일): " + ", ".join(report["secret_hits"]))
+        print("리뷰 미완(비밀값 파일): " + show(report["secret_hits"]))
         return code
     print(f"등급: {report['grade']}")
     for reason in report["reasons"]:
-        print(f"이유: {reason}")
+        print(f"이유: {show([reason])}")
     print("fetch: " + shlex.join(report["fetch_argv"]))
     print("diff: " + shlex.join(report["diff_argv"]) + "  (저장소 루트에서)")
     return 0

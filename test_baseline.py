@@ -234,6 +234,18 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(".github/pull_request_template.md: 없거나 일반 파일이 아니다", result.stderr)
 
+    def test_check_refuses_a_symlinked_copy_of_itself(self):
+        # Otherwise the root moves to wherever the link points, and the real root goes unchecked.
+        fake = self.repo / "vendor/fake"
+        fake.mkdir(parents=True)
+        (fake / ".baseline").mkdir()
+        (fake / ".baseline/baseline.py").write_bytes(self.copy.read_bytes())
+        self.copy.unlink()
+        self.copy.symlink_to("../vendor/fake/.baseline/baseline.py")
+        result = cli("check", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(".baseline/baseline.py: 없거나 일반 파일이 아니다", result.stderr)
+
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])
         self.assertNotEqual(cli("run", "test", script=self.copy).returncode, 0)
@@ -326,7 +338,7 @@ class FakeGitHub:
         self.author, self.fork, self.commits = author, fork, {HEAD: sorted(set(base) ^ set(head) | {
             p for p in set(base) & set(head) if base[p] != head[p]})}
         self.pushes = [{"actor": {"login": author}, "after": HEAD}]
-        self.patches = {}
+        self.patches, self.modes, self.extra = {}, {}, {}
         for ref, files in ((BASE, base), (HEAD, head)):
             for path, data in files.items():
                 self.raw[("o/r", path, ref)] = data
@@ -352,6 +364,11 @@ class FakeGitHub:
         url = urlsplit(path)
         query = dict(part.split("=", 1) for part in url.query.split("&") if part)
         route = url.path
+        if route in self.extra:
+            return self.extra[route]
+        if route == f"repos/o/r/git/trees/{HEAD}":
+            return {"truncated": False, "tree": [{"path": p, "mode": self.modes.get(p, "100644")} for p in self.head]
+                    + [{"path": p, "mode": m} for p, m in self.modes.items() if p not in self.head]}
         if route == "repos/o/r/activity":  # cursor-paged: the real endpoint ignores `page`
             return self.pushes if query.get("ref") == "topic" else []
         if query.get("page", "1") != "1":
@@ -471,6 +488,8 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(self.grade({"REVIEW.md": tree["REVIEW.md"]}, base=base)[0], "어려움")
         # A sensitive path the PR itself lists counts only from the next PR on.
         self.assertEqual(self.grade({"REVIEW.md": listed})[0], "쉬움")
+        folder = tree["REVIEW.md"].replace("- 아직 없음.\n\n## 코딩".encode(), "- `src/auth` 인증\n\n## 코딩".encode())
+        self.assertEqual(self.grade({"src/auth/a.py": b"x\n"}, base=dict(tree, **{"REVIEW.md": folder}))[0], "어려움")
 
     def test_sensitive_paths_written_as_prose_count(self):
         tree = core_tree()
@@ -523,7 +542,7 @@ class PreflightTests(unittest.TestCase):
 
     # upgrade exception
 
-    def upgrade(self, version="2.0.1", tag_core=None, extra=None, tag_version=None):
+    def upgrade(self, version="2.0.1", tag_core=None, extra=None, tag_version=None, status="ahead", modes=None):
         """Base is this core; head is the core of a tag whose AGENTS.md block says `tag_core`."""
         import baseline as b
         base = core_tree()
@@ -536,7 +555,11 @@ class PreflightTests(unittest.TestCase):
                              ".baseline/baseline.json": b.dump_json({"version": version, "profiles": [],
                                                                      "managed": managed})})
         gh = FakeGitHub(base, dict(head, **(extra or {})))
-        gh.raw[(b.BASELINE_REPO, "baseline.py", f"v{version}")] = source.encode()
+        tag = "t" * 40
+        gh.raw[(b.BASELINE_REPO, "baseline.py", tag)] = source.encode()
+        gh.extra[f"repos/{b.BASELINE_REPO}/git/ref/tags/v{version}"] = {"object": {"type": "commit", "sha": tag}}
+        gh.extra[f"repos/{b.BASELINE_REPO}/compare/{tag}...main"] = {"status": status}
+        gh.modes.update(modes or {})
         code, report, err = self.preflight(gh)
         self.assertEqual(code, 0, err)
         return report["grade"], report["reasons"]
@@ -556,6 +579,28 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(self.upgrade(extra={"AGENTS.md": agents.replace("한 줄로".encode(), b"x")})[0], "어려움")
         self.assertEqual(self.upgrade(extra={"src/app.py": b"x\n"})[0], "어려움")
         self.assertEqual(self.upgrade(extra={".baseline/commands.json": b"{}\n"})[0], "어려움")
+
+    def test_upgrade_needs_a_newer_tag_that_main_holds(self):
+        self.assertEqual(self.upgrade(status="diverged")[0], "어려움")
+        self.assertEqual(self.upgrade(version="2-x")[0], "어려움")
+        self.assertEqual(self.upgrade(version="1.9.0")[0], "어려움")  # downgrade from 2.0.0-dev
+
+    def test_upgrade_through_a_symlink_is_hard(self):
+        grade, reasons = self.upgrade(modes={".baseline/baseline.py": "120000"})
+        self.assertEqual(grade, "어려움")
+        self.assertIn("symlink·submodule: .baseline/baseline.py", reasons)
+
+    def test_symlinks_submodules_and_unprintable_names_are_hard(self):
+        tree = core_tree()
+        gh = FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}))
+        gh.modes["docs"] = "120000"
+        code, report, _ = self.preflight(gh)
+        self.assertEqual((code, report["grade"]), (0, "어려움"))
+        self.assertEqual(self.grade({"docs/a\nb.md": b"a\n"})[0], "어려움")
+
+    def test_nested_baseline_and_github_folders_are_sensitive(self):
+        for path in ("vendor/x/.baseline/commands.json", "vendor/x/.github/workflows/ci.yml"):
+            self.assertEqual(self.grade({path: b"x\n"})[0], "어려움", path)
 
     def test_upgrade_without_the_tag_is_hard(self):
         import baseline as b
