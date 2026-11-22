@@ -1342,6 +1342,22 @@ class SkillsBumpTests(unittest.TestCase):
         code, out = self.bump("--check")
         self.assertEqual(code, 0, out)
 
+    def test_a_new_tag_on_an_older_commit_is_not_taken(self):
+        self.m_release("0" * 40, 90, "1.1.0", tag_age=10)
+        commits = self.gh.commits["m/s"]
+        commits.insert(0, commits.pop())  # 0... comes before the pinned 1...
+        code, out = self.bump("--check")
+        self.assertEqual(code, 0, out)
+        self.assertIn("새 판이 없다", out)
+
+    def test_git_files_in_a_skill_folder_are_refused(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        self.gh.trees["m/s", "2" * 40]["s/grill/.gitattributes"] = b"* -diff\n"
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIn(".gitattributes", out)
+        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+
     def test_changing_a_skill_moves_its_required_skills_and_drops_removed_files(self):
         self.m_release("2" * 40, 10, "1.1.0")
         code, out = self.bump()

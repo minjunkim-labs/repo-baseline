@@ -890,15 +890,15 @@ def lock_problems(lock):
 def newest_pin(src, cutoff):
     """(tag or None, commit) of the newest version older than the cutoff that is newer than the pin, or None."""
     repo = src["repo"]
+
+    def ahead(sha):  # never back, never sideways: a new tag can name an old commit
+        return not src.get("commit") or gh_api(f"repos/{repo}/compare/{src['commit']}...{sha}")["status"] == "ahead"
     if src["update"] == "commit":
         found = gh_api(f"repos/{repo}/commits?sha={quote(src['branch'], safe='')}"
                        f"&until={cutoff:%Y-%m-%dT%H:%M:%SZ}&per_page=1")
         if not found:
             return None
-        sha = found[0]["sha"]
-        if src.get("commit") and gh_api(f"repos/{repo}/compare/{src['commit']}...{sha}")["status"] != "ahead":
-            return None  # never back, never sideways
-        return None, sha
+        return (None, found[0]["sha"]) if ahead(found[0]["sha"]) else None
     current = tag_version(src.get("tag"))
     for tag in sorted({t["name"] for t in pages(f"repos/{repo}/tags") if tag_version(t["name"])},
                       key=tag_version, reverse=True):
@@ -913,7 +913,7 @@ def newest_pin(src, cutoff):
             raise ValueError(f"{repo} {tag}: 커밋을 가리키지 않는다")
         date = date or gh_api(f"repos/{repo}/commits/{target['sha']}")["commit"]["committer"]["date"]
         if datetime.fromisoformat(date.replace("Z", "+00:00")) <= cutoff:
-            return tag, target["sha"]
+            return (tag, target["sha"]) if ahead(target["sha"]) else None
     return None
 
 
@@ -933,7 +933,7 @@ def snapshot(src, names, skills, commit):
         found["LICENSE"] = src["license"]
         for rel, path in found.items():
             entry = entries.get(path) or {}
-            if (not rel.isprintable() or "\\" in rel or any(part in ("", ".", "..") for part in rel.split("/"))
+            if (not rel.isprintable() or "\\" in rel or any(part in ("", ".", "..") or part.lower().startswith(".git") for part in rel.split("/"))
                     or entry.get("type") != "blob" or entry.get("mode") not in ("100644", "100755")
                     or not isinstance(entry.get("size"), int) or entry["size"] > MAX_READ):
                 raise OSError(f"{repo}@{commit[:7]} {json.dumps(path)}: 없거나 일반 파일이 아니다(symlink·submodule, "
