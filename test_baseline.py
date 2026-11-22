@@ -70,6 +70,35 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual((self.repo / "AGENTS.md").read_text(encoding="utf-8"), "mine\n")
         self.assertFalse((self.repo / ".baseline").exists())
 
+    def assertInitRefusesSymlink(self, target):
+        result = cli("init", target)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("symlink", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
+    def test_init_refuses_a_broken_symlink_and_writes_nothing(self):
+        outside = Path(self.tmp.name + "-outside")
+        self.addCleanup(lambda: outside.unlink() if outside.exists() else None)
+        (self.repo / "AGENTS.md").symlink_to(outside)
+        self.assertInitRefusesSymlink(self.repo)
+        self.assertFalse(outside.exists())
+        self.assertFalse((self.repo / ".baseline").exists())
+
+    def test_init_refuses_a_symlinked_folder_on_the_way(self):
+        elsewhere = tempfile.TemporaryDirectory()
+        self.addCleanup(elsewhere.cleanup)
+        (self.repo / ".baseline").symlink_to(elsewhere.name, target_is_directory=True)
+        self.assertInitRefusesSymlink(self.repo)
+        self.assertEqual(list(Path(elsewhere.name).iterdir()), [])
+
+    def test_init_refuses_a_target_that_is_a_symlink(self):
+        link = Path(self.tmp.name) / "link"
+        real = Path(self.tmp.name) / "real"
+        real.mkdir()
+        link.symlink_to(real, target_is_directory=True)
+        self.assertInitRefusesSymlink(link)
+        self.assertEqual(list(real.iterdir()), [])
+
     def test_one_character_inside_the_managed_block_fails(self):
         self.init()
         self.edit("AGENTS.md", "고치지 않는다.", "고치지 않는다!")

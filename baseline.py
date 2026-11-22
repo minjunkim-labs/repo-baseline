@@ -116,6 +116,17 @@ def cmd_init(args):
     files[".baseline/baseline.py"] = Path(__file__).read_bytes()
     files[".baseline/commands.json"] = dump_json(DEFAULT_COMMANDS)
     files[".baseline/baseline.json"] = dump_json({"version": VERSION, "profiles": [], "managed": MANAGED})
+    # Writing through a symlink (even a broken one) lands outside the repo, so stop before any write.
+    links = set()
+    for rel in files:
+        path = target
+        for part in (".", *Path(rel).parts):
+            path = path / part
+            if path.is_symlink():
+                links.add(path.as_posix())
+    links = sorted(links)
+    if links:
+        sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
     existing = sorted(rel for rel in files if (target / rel).exists())
     if existing:
         sys.exit("init: 이미 있다(기존 저장소는 migrate로 옮긴다): " + ", ".join(existing))
