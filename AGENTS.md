@@ -28,7 +28,7 @@ pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로
 - PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 하나를 더한다. `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮길 일을 쓴다. `CHANGELOG.md`는 고치지 않는다. 태그를 낼 때 지난 태그 뒤 항목을 릴리스 노트로 모으고 지운다.
 - 같은 사실을 README, `docs/start.md`, `prompts/setup.md`에 적었으면 함께 고친다.
 - 소비 레포가 v2로 옮길 때까지 `tools/sync_consumers.py`를 돌리지 않는다.
-- 리뷰는 `origin/main` 판의 `prompts/review.md`·`tools/review_preflight.py`·`REVIEW.md`로 한다.
+- 리뷰는 `origin/main` 판의 `prompts/review.md`·`.baseline/baseline.py`·`REVIEW.md`로 한다.
 - 에이전트 도구의 문서를 근거로 쓰면 공식 문서 링크와 확인일을 적는다. 코어에 특정 도구·모델 이름을 넣지 않는다.
 - 저장소 설정을 서버에 적용하지 않는다(`tools/apply_github_settings.py --apply`는 소유자가 실행한다).
 
