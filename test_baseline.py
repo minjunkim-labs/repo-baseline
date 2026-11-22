@@ -338,7 +338,7 @@ class FakeGitHub:
         self.author, self.fork, self.commits = author, fork, {HEAD: sorted(set(base) ^ set(head) | {
             p for p in set(base) & set(head) if base[p] != head[p]})}
         self.pushes = [{"actor": {"login": author}, "after": HEAD}]
-        self.patches, self.modes, self.extra = {}, {}, {}
+        self.patches, self.modes, self.base_modes, self.extra = {}, {}, {}, {}
         for ref, files in ((BASE, base), (HEAD, head)):
             for path, data in files.items():
                 self.raw[("o/r", path, ref)] = data
@@ -369,15 +369,20 @@ class FakeGitHub:
         if route == f"repos/o/r/git/trees/{HEAD}":
             return {"truncated": False, "tree": [{"path": p, "mode": self.modes.get(p, "100644")} for p in self.head]
                     + [{"path": p, "mode": m} for p, m in self.modes.items() if p not in self.head]}
+        if route == f"repos/o/r/git/trees/{BASE}":
+            return {"truncated": False, "tree": [{"path": p, "mode": self.base_modes.get(p, "100644")}
+                                                 for p in self.base]}
         if route == "repos/o/r/activity":  # cursor-paged: the real endpoint ignores `page`
             return self.pushes if query.get("ref") == "topic" else []
         if query.get("page", "1") != "1":
             return []
         if route == "repos/o/r/pulls/7":
-            head = "d" * 40 if self.moved and self.calls_to(route) > 1 else HEAD
+            later = self.calls_to(route) > 1
+            head = "d" * 40 if self.moved == "head" and later else HEAD
+            base = "a" * 40 if self.moved == "base" and later else BASE
             return {"number": 7, "user": {"login": self.author},
                     "head": {"sha": head, "ref": "topic", "repo": {"full_name": "x/r" if self.fork else "o/r"}},
-                    "base": {"sha": BASE, "ref": "main", "repo": {"full_name": "o/r"}}}
+                    "base": {"sha": base, "ref": "main", "repo": {"full_name": "o/r"}}}
         if route == "repos/o/r/pulls/7/files":
             return self.files()
         if route == "repos/o/r/pulls/7/commits":
@@ -527,11 +532,13 @@ class PreflightTests(unittest.TestCase):
     def test_head_moving_during_the_run_fails(self):
         tree = core_tree()
         gh = FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}))
-        gh.moved = True
-        code, report, err = self.preflight(gh)
-        self.assertEqual(code, 2)
-        self.assertIsNone(report)
-        self.assertIn("head", err)
+        for moved in ("head", "base"):
+            gh.calls.clear()
+            gh.moved = moved
+            code, report, err = self.preflight(gh)
+            self.assertEqual(code, 2, moved)
+            self.assertIsNone(report)
+            self.assertIn("바뀌었다", err)
 
     def test_fork_and_diff_command(self):
         tree = core_tree()
@@ -597,6 +604,10 @@ class PreflightTests(unittest.TestCase):
         code, report, _ = self.preflight(gh)
         self.assertEqual((code, report["grade"]), (0, "어려움"))
         self.assertEqual(self.grade({"docs/a\nb.md": b"a\n"})[0], "어려움")
+        base = dict(tree, **{"docs/link.md": b"../.claude/settings.json"})
+        gh = FakeGitHub(base, dict(base, **{"docs/link.md": b"now a file\n"}))
+        gh.base_modes["docs/link.md"] = "120000"
+        self.assertEqual(self.preflight(gh)[1]["grade"], "어려움")
 
     def test_nested_baseline_and_github_folders_are_sensitive(self):
         for path in ("vendor/x/.baseline/commands.json", "vendor/x/.github/workflows/ci.yml"):

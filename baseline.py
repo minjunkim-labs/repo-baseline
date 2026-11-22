@@ -492,7 +492,7 @@ def pr_target(pr, remote):
 
 
 def preflight(repo, number, remote):
-    """The report, or None when the head moved during the run."""
+    """The report, or None when the head or base moved during the run."""
     pr = gh_api(f"repos/{repo}/pulls/{number}")
     head, base = pr["head"]["sha"], pr["base"]["sha"]
     fork = (pr["head"].get("repo") or {}).get("full_name") != pr["base"]["repo"]["full_name"]
@@ -506,13 +506,16 @@ def preflight(repo, number, remote):
         names |= {p for f in pages(f"repos/{repo}/commits/{commit['sha']}", "files")
                   for p in (f["filename"], f.get("previous_filename")) if p}
     hits, examples = secret_names(names)
-    tree = gh_api(f"repos/{repo}/git/trees/{head}?recursive=1")
-    if tree.get("truncated"):
-        raise OSError("head 트리가 커서 REST가 다 보여 주지 않는다")
     # The contents API follows symlinks, so the bytes alone cannot show a link or a submodule.
-    modes = {e["path"]: e["mode"] for e in tree["tree"]}
+    # Both sides count: a PR that turns a link into a file changes what the link used to reach.
+    linked = set()
+    for sha in (base, head):
+        tree = gh_api(f"repos/{repo}/git/trees/{sha}?recursive=1")
+        if tree.get("truncated"):
+            raise OSError("트리가 커서 REST가 다 보여 주지 않는다")
+        linked |= {e["path"] for e in tree["tree"] if e["mode"] in ("120000", "160000")}
     links = sorted({q for p in paths for q in ("/".join(p.split("/")[:i + 1]) for i in range(p.count("/") + 1))
-                    if modes.get(q) in ("120000", "160000")})
+                    if q in linked})
     report = {"pr": int(number), "fork": fork, "head": head, "base": base, "branch": pr["head"]["ref"],
               "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
               "fetch_argv": None, "diff_argv": None}
@@ -558,7 +561,8 @@ def preflight(repo, number, remote):
         report["fetch_argv"] = ["git", "fetch", "--no-tags", remote, base,
                                 f"+refs/pull/{number}/head:refs/review-preflight/{remote}/pr/{number}"]
         report["diff_argv"] = ["git", "diff", f"{base}...{head}", "--", ".", ":!.env*", ":!**/.env*"]
-    if gh_api(f"repos/{repo}/pulls/{number}")["head"]["sha"] != head:
+    now = gh_api(f"repos/{repo}/pulls/{number}")
+    if now["head"]["sha"] != head or now["base"]["sha"] != base:
         return None
     return report
 
@@ -570,7 +574,7 @@ def cmd_review_preflight(args):
         print(f"review-preflight: 실행 실패: {error}", file=sys.stderr)
         return 2
     if report is None:
-        print("review-preflight: head가 실행 중에 바뀌었다. 다시 실행한다.", file=sys.stderr)
+        print("review-preflight: head나 base가 실행 중에 바뀌었다. 다시 실행한다.", file=sys.stderr)
         return 2
     code = 1 if report["secret_hits"] else 0
     if args.json:
