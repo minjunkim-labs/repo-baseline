@@ -60,7 +60,7 @@ Matt 스킬의 기본 동작 중 [POLICY.md](../../POLICY.md)와 어긋나는 �
 
 ## 회고
 
-`/retro`를 써도 된다. 입력은 [prompts/retro.md](../../prompts/retro.md)의 입력이다. 반영할 곳은 retro.md 2번 순서(린트·검사, `REVIEW.md` 「코딩 기준」·「배운 규칙」, `AGENTS.md` 길잡이)다. `CODING_STANDARDS.md`는 만들지 않는다. 이 저장소의 리뷰는 그 파일을 읽지 않는다. 제안 중 사람이 고른 것만 반영한다(POLICY §6).
+`/retro`를 써도 된다. 입력은 [prompts/retro.md](../../prompts/retro.md)의 입력이다. 반영할 곳은 retro.md 「막는 순서」(구조 > 타입 > 린트·검사 > 테스트 > `REVIEW.md` > `AGENTS.md`)다. `CODING_STANDARDS.md`는 만들지 않는다. 이 저장소의 리뷰는 그 파일을 읽지 않는다. 제안 중 사람이 고른 것만 반영한다(POLICY §6).
 
 ## PR 본문
 

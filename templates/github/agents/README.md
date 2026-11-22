@@ -70,7 +70,7 @@
 
 코어 기준에 없는 것을 이 스킬로 채울 수 있다. 이 스킬은 사람이 부를 때만 돈다(`disable-model-invocation`, [v1.3.2](https://github.com/mattpocock/skills/tree/v1.3.2/skills), 확인일 2026-11-10).
 
-- 깊은 모듈: `/improve-codebase-architecture`가 최근 자주 바뀐 영역에서 얕은 모듈을 찾아 HTML 보고서로 보여 주고, 고른 후보를 질문으로 다듬는다. 회고에서 테스트가 구현에 묶인다는 지적이 반복될 때 쓴다([prompts/retro.md](../../../prompts/retro.md) 7번). 용어는 `codebase-design`, 도메인 이름은 `GLOSSARY.md`를 따른다.
+- 깊은 모듈: `/improve-codebase-architecture`가 최근 자주 바뀐 영역에서 얕은 모듈을 찾아 HTML 보고서로 보여 주고, 고른 후보를 질문으로 다듬는다. 회고에서 테스트가 구현에 묶인다는 지적이 반복될 때 쓴다([prompts/retro.md](../../../prompts/retro.md) 「막는 순서」). 용어는 `codebase-design`, 도메인 이름은 `GLOSSARY.md`를 따른다.
 
 Claude Code에는 같은 이름의 내장 `/code-review`가 있다. Matt 플러그인으로 설치했으면 `/mattpocock-skills:code-review`처럼 플러그인 이름을 붙여 부른다.
 
