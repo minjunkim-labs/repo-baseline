@@ -1,0 +1,1 @@
+- repo-baseline 자신이 v2 코어(`.baseline/`, 관리 블록)를 쓴다. v1 소비 레포의 PR 템플릿 원본은 `templates/core/pull_request_template.md`로 옮겼다. 소비 레포가 v2로 옮길 때까지 `sync_consumers.py`를 돌리지 않는다.

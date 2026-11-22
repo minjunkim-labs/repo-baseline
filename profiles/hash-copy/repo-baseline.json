@@ -16,7 +16,7 @@
       "source": "profiles/pr-conventions/test_workflow_policy.py"
     },
     ".github/pull_request_template.md": {
-      "source": ".github/pull_request_template.md"
+      "source": "templates/core/pull_request_template.md"
     },
     ".github/dependabot.yml": {
       "source": "templates/github/dependabot.yml",

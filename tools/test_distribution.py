@@ -44,9 +44,11 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in core.iterdir()), sorted(CORE))
         self.assertLessEqual(len((core / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 60)
 
-    def test_own_pr_template_is_the_core_template(self):
-        self.assertEqual((ROOT / ".github/pull_request_template.md").read_text(encoding="utf-8"),
-                         (ROOT / "templates/core/pull_request_template.md").read_text(encoding="utf-8"))
+    def test_own_v2_copies_match_their_sources(self):
+        # check trusts the hashes inside the copy, so a stale copy would pass check here.
+        for copy, source in [(".baseline/baseline.py", "baseline.py"),
+                             (".github/pull_request_template.md", "core/.github/pull_request_template.md")]:
+            self.assertEqual((ROOT / copy).read_bytes(), (ROOT / source).read_bytes(), copy)
 
     def test_own_coderabbit_config_is_the_template(self):
         template = (ROOT / "templates/github/.coderabbit.yaml").read_text(encoding="utf-8")

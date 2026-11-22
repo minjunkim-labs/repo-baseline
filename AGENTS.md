@@ -1,47 +1,52 @@
 # repo-baseline
 
-1인·소규모 팀이 언어·스택·에이전트 도구(Claude Code·Codex·Cursor 등)와 관계없이 쓰는 개발 기준의 원본 저장소다. 규칙은 `POLICY.md`, 소비 레포에 복사하는 파일은 `templates/`와 `profiles/`에 있다.
+1인·소규모 팀의 개발 기준 원본이다. 규칙은 `POLICY.md`, v2 코어는 `baseline.py`·`core/`에 있다.
 
 ## 명령
 
-모든 에이전트와 사람이 같은 명령을 쓴다. 스크립트는 Python 표준 라이브러리만 쓴다.
+`python3 -I .baseline/baseline.py run test`처럼 부른다. 이 칸은 `.baseline/commands.json`과 같아야 한다. 스크립트는 Python 표준 라이브러리만 쓴다.
 
-- setup: `N/A: 설치할 의존성이 없다(Python 3.9 이상과 시스템 IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)`
-- check: `N/A: 별도 린터가 없다. 링크·코어 구성·POLICY 길이 같은 결정적 검사는 test의 tools/test_distribution.py가 한다`
-- test: `python3 -m unittest test_baseline && python3 -m unittest discover -s tools -p 'test_*.py' && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p 'test_*.py' || exit 1; done`
-  - pr-conventions 테스트는 예시 데이터를 검사하며 `FAIL:` 줄을 출력한다. 성공 여부는 종료 코드로만 판단한다.
+- setup: `N/A: 의존성이 없다(Python 3.9 이상, IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)`
+- check: `python3 -I .baseline/baseline.py check`
+- test: `sh -c 'python3 -m unittest test_baseline && python3 -m unittest discover -s tools -p "test_*.py" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p "test_*.py" || exit 1; done'`
 - build: `N/A: 배포는 파일 복사다`
+
+pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로 본다. `baseline.py`·`core/`를 고치면 루트의 `.baseline/`과 관리 파일도 함께 고친다.
 
 ## 길잡이
 
 | 경로 | 무엇 |
 | --- | --- |
-| `baseline.py`, `core/` | v2(#175) 도구와 소비 레포에 복사하는 코어. `init`·`check`·`run`·`budget`. 테스트는 `test_baseline.py` |
-| `POLICY.md` | 모든 소비 레포의 규칙. 한 쪽(1만 자) 안에 둔다 |
-| `templates/core/` | 코어. 소비 레포가 그대로 복사하는 4개 파일 |
-| `templates/github/` | GitHub 프로필. CI 골격, 저장소 설정 기준선, 에이전트 도구별 권한 예시 |
-| `profiles/` | 기본 프로필(matt-skills, pstack, ops), 선택 프로필(team, pr-conventions, linear)과 파일을 복사하는 도구 hash-copy |
-| `tools/` | GitHub 설정 적용·감사 도구와 배포 검사 |
-| `prompts/` | 에이전트에게 첨부하는 셋업·리뷰·회고 프롬프트 |
-| `docs/start.md` | 사람이 따라 하는 코어 적용 절차 |
-| `REVIEW.md` | 이 저장소의 리뷰 기준. 리뷰할 때만 읽는다 |
-| `changelog.d/` | 변경 기록. PR마다 파일 하나에 1~3줄. 소비 레포가 손으로 옮길 일을 적는다 |
-| `CHANGELOG.md` | 2026-11-17 전의 변경 기록. 새 항목을 더하지 않는다 |
+| `baseline.py`, `core/` | v2 도구와 코어. 테스트는 `test_baseline.py` |
+| `templates/`, `profiles/`, `tools/` | v1 도구. 소비 레포가 v2로 옮길 때까지 둔다 |
+| `prompts/` | 셋업·리뷰·회고 프롬프트 |
+| `changelog.d/` | 변경 기록. PR마다 파일 하나 |
+| `REVIEW.md` | 리뷰 기준. 리뷰할 때만 읽는다 |
 
+## 이 저장소의 규칙
+
+- PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 하나를 더한다. `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮길 일을 쓴다. `CHANGELOG.md`는 고치지 않는다. 태그를 낼 때 지난 태그 뒤 항목을 릴리스 노트로 모으고 지운다.
+- 같은 사실을 README, `docs/start.md`, `prompts/setup.md`에 적었으면 함께 고친다.
+- 소비 레포가 v2로 옮길 때까지 `tools/sync_consumers.py`를 돌리지 않는다.
+- 리뷰는 `origin/main` 판의 `prompts/review.md`·`tools/review_preflight.py`·`REVIEW.md`로 한다.
+- 에이전트 도구의 문서를 근거로 쓰면 공식 문서 링크와 확인일을 적는다. 코어에 특정 도구·모델 이름을 넣지 않는다.
+- 저장소 설정을 서버에 적용하지 않는다(`tools/apply_github_settings.py --apply`는 소유자가 실행한다).
+
+<!-- baseline:start -->
 ## 작업 방식
 
-- `POLICY.md`를 따른다. 기준 브랜치는 `main` 하나, 병합은 squash다. 에이전트는 §5의 조건을 만족하는 되돌리기 쉬움 PR만, 소유자가 지시할 때 병합한다.
-- 시작 전에 완료 기준을 정하고 PR 본문 Summary에 적는다. 완료 주장은 위 test 명령의 실제 출력이다.
-- PR 본문은 `.github/pull_request_template.md`를, 리뷰와 회고는 `prompts/review.md`·`prompts/retro.md`를 따른다. PR 본문 작성·코드 리뷰·회고를 하는 다른 스킬이 있어도 이 규칙이 먼저다.
-- PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 파일 하나를 더한다. 날짜는 작성일, slug는 영문 소문자·숫자·`-`다. 내용은 `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮겨야 하는 변경이면 그 일을 적는다. `CHANGELOG.md`는 고치지 않는다. 열린 PR들이 같은 줄을 고쳐 충돌하지 않게 하려는 것이다. v2부터는 태그를 낼 때 지난 태그 뒤의 항목을 그 태그의 GitHub 릴리스 노트로 모으고, 같은 PR에서 모은 파일을 지운다. 소비 레포의 `upgrade` PR은 그 릴리스 노트를 가리킨다.
-- 같은 사실을 여러 문서에 적었으면(README, `docs/start.md`, `prompts/setup.md`) 함께 고친다.
-- hash-copy 파일이나 관리 블록(예: ops 「켜기」)의 원본을 바꾼 PR이 병합되면, 깨끗한 `origin/main` checkout에서 `python3 tools/sync_consumers.py --open-prs`를 돌린다. 소비 레포 CI가 끝나면 `--enqueue`를 돌린다. `--enqueue`는 파이프라인이 `tools/consumers.json`의 상시 지시를 실행하는 것이고(POLICY §5), 아래 「하지 않는 것」의 에이전트 병합이 아니다. 이전 PR과 동기화 전용이 아닌 PR은 리뷰를 거친다.
-- 에이전트 도구의 문서를 근거로 쓰면 공식 문서 링크와 확인일을 적는다.
-- 리뷰는 `prompts/review.md`로 받는다. 되돌리기 쉬움이면 이 세션의 하위 에이전트에게 맡겨도 되고, 어려움이거나 민감한 파일을 건드리면 새 세션에 첨부한다(`POLICY.md` §3). 이 저장소의 PR은 `origin/main` 판의 `prompts/review.md`·`tools/review_preflight.py`·`REVIEW.md`로 리뷰한다.
+- 규칙은 repo-baseline의 [POLICY.md](https://github.com/minjunkim-labs/repo-baseline/blob/main/POLICY.md)다. 이 블록은 그 요약이다.
+- 시작 전에 완료 기준을 정해 PR 본문 Summary에 쓴다. 완료 주장은 명령의 실제 출력이다.
+- 리뷰 등급은 셋이다. 문서는 필수 CI만, 쉬움은 구현 대화를 물려받지 않는 하위 에이전트 리뷰 한 번, 어려움은 새 세션 리뷰와 보안 관점 리뷰 뒤 소유자 병합이다(POLICY §3).
+- 등급은 `review-preflight`가 정하고 리뷰어는 올릴 수만 있다. `enqueue`는 어려움 PR을 넣지 않는다.
+- 무엇을 만들고 무엇이라 부를지 정할 일이 크면 사람만 부르는 스킬(`grill-with-docs`, `wayfinder`, `to-spec`, `to-tickets`)의 이름을 대고 실행을 권한다.
+- 이 블록은 repo-baseline이 관리한다. 고치지 않는다. 블록 밖은 프로젝트가 쓴다.
 
 ## 하지 않는 것
 
-- 비밀값(`.env*`, 키, 토큰)을 읽거나 커밋하지 않는다.
-- `main`에 직접 push하지 않는다. 소유자가 지시하지 않은 PR, 되돌리기 어려움 PR은 병합하지 않는다.
-- 저장소 설정을 서버에 적용하지 않는다(`tools/apply_github_settings.py --apply`는 소유자가 실행한다).
-- 코어에 특정 도구·모델 이름을 넣지 않는다.
+- 비밀값(`.env*`, 키, 토큰)을 읽거나 커밋하지 않는다. 커밋됐으면 먼저 키를 폐기한다.
+- `main`에 직접 push하지 않는다. `enqueue`를 거치지 않고 병합하지 않는다.
+- 어려움 PR(예: 돈, 인증·권한, 복구가 어려운 migration, workflow 권한, 에이전트 설정 폴더, `.baseline/`)을 병합하지 않는다.
+- 우선순위·일정·내부 판단과 취약점 설명을 공개 Issue·PR·커밋에 쓰지 않는다.
+- 브랜치 보호·저장소 설정·CI workflow를 사람 승인 없이 바꾸지 않는다.
+<!-- baseline:end -->

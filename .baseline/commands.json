@@ -1,0 +1,15 @@
+{
+  "build": "N/A: 배포는 파일 복사다",
+  "check": [
+    "python3",
+    "-I",
+    ".baseline/baseline.py",
+    "check"
+  ],
+  "setup": "N/A: 의존성이 없다(Python 3.9 이상, IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)",
+  "test": [
+    "sh",
+    "-c",
+    "python3 -m unittest test_baseline && python3 -m unittest discover -s tools -p \"test_*.py\" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s \"$d\" -p \"test_*.py\" || exit 1; done"
+  ]
+}
