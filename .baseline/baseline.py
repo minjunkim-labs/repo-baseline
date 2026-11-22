@@ -729,6 +729,8 @@ def enqueue_problems(repo, number, sha, remote):
     grade = max(report["grade"], fields["등급"] if fields["등급"] in GRADES else "문서", key=GRADES.index)
     if grade == "어려움":
         problems.append("어려움 등급이다(소유자가 GitHub 화면에서 넣는다)")
+    if grade == "쉬움" and fields["등급"] is None:
+        problems.append("리뷰 보고에 「등급」이 없다")
     if grade == "쉬움" and fields["리뷰한 head"] != sha:
         problems.append(f"리뷰 보고의 「리뷰한 head」가 {sha}가 아니다")
     if (grade == "쉬움" or fields["남은 지적"] is not None) and fields["남은 지적"] != "없음":

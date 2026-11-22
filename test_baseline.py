@@ -954,6 +954,9 @@ class EnqueueTests(unittest.TestCase):
 
     def test_easy_pr_needs_the_report(self):
         self.assertRefused(self.gh(grade=None), "리뷰한 head")
+        gh = self.gh()
+        gh.body = gh.body.replace("등급: 쉬움\n", "")
+        self.assertRefused(gh, "「등급」이 없다")
 
     def test_hard_grade_is_always_refused(self):
         self.assertRefused(self.gh({".github/workflows/x.yml": b"on: push\n"}), "어려움")
