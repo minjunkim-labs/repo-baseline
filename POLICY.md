@@ -33,6 +33,7 @@ repo-baseline v2를 쓰는 모든 저장소의 규칙이다. 도구·모델·스
 판정과 진행:
 
 - 등급은 `baseline.py review-preflight`가 바뀐 경로, 관리 블록 해시, 위 예외로 먼저 정한다. 리뷰어는 리뷰 보고의 「등급」 칸으로 올릴 수 있고 내릴 수 없다. `enqueue`는 두 등급 가운데 높은 쪽을 쓴다.
+- 등급을 정하는 입력(`AGENTS.md`의 상시 지시 줄, `REVIEW.md`의 「민감한 파일」 절)은 PR 트리가 아니라 base(`main`)에서 읽는다. upgrade 예외의 sha256은 baseline 저장소의 그 태그에서 읽는다. 상시 지시 줄을 만들거나 넓히는 변경과 「민감한 파일」 줄을 지우는 변경은 어려움이다.
 - 리뷰어에게는 리뷰 프롬프트 경로와 PR 링크만 준다. 기준은 저장소의 `REVIEW.md`이고, Spec(완료 기준)과 Standards(`REVIEW.md`) 두 축으로 따로 본다.
 - 확실한 결함은 리뷰어가 고쳐 커밋한다. 리뷰는 최대 3라운드이고, 2라운드부터는 바뀐 부분만 본다.
 - 리뷰 봇은 어려움 PR에서만 요청한다. 외부 리뷰의 지적은 리뷰어가 받아들일지 판정한 것만 센다.
@@ -62,7 +63,7 @@ PR 본문 Merge Danger에 등급, 영향 범위, 되돌리는 법, 걸린 민감
 ## 5. 병합
 
 - 상시 지시: 코어 `AGENTS.md`의 한 줄이다. 문서·쉬움 PR은 에이전트가 `python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`로 머지 큐에 넣는다. 소유자가 그 저장소에서 끄려면 이 줄을 지운다.
-- `enqueue`는 넣기 직전에 등급, head가 그 SHA인지, 필수 CI 통과, (쉬움이면) 리뷰 보고의 「리뷰한 head」·「등급」·「남은 지적: 없음」, 판정하지 않은 외부 리뷰가 없음을 다시 계산하고 `expectedHeadOid`로 넣는다. 하나라도 맞지 않으면 넣지 않고 이유를 출력한다. 어려움 등급은 늘 거부하고, 건너뛰는 옵션은 없다.
+- `enqueue`는 넣기 직전에 등급, PR이 fork가 아니고 작성자와 모든 커밋이 쓰기 권한이 있는 계정(Dependabot 예외는 `dependabot[bot]`)인지, head가 그 SHA인지, 필수 CI 통과, (쉬움이면) 리뷰 보고의 「리뷰한 head」·「등급」·「남은 지적: 없음」, 판정하지 않은 외부 리뷰가 없음을 다시 계산하고 `expectedHeadOid`로 넣는다. 하나라도 맞지 않으면 넣지 않고 이유를 출력한다. 어려움 등급은 늘 거부하고, 건너뛰는 옵션은 없다.
 - 에이전트가 머지 큐에 넣는 길은 `enqueue` 하나다. 어려움 PR은 소유자가 GitHub 화면에서 넣는다(§3). `gh pr merge`, 큐를 우회하는 병합, 자동 병합은 쓰지 않는다(저장소 설정 `allow_auto_merge: false`).
 - 큐는 최신 `main` 위에서 필수 CI를 다시 돌리고 squash로 병합한다. 그래서 PR에 base를 합치지 않고 최신 브랜치 요구(`strict`)는 끈다. head가 바뀌면 다시 리뷰한다.
 - GitHub 저장소는 조직이 소유한 공개 저장소로 두고 PR 필수, 필수 CI, 머지 큐, force push·삭제 금지를 켠다. 머지 큐를 그 경우에만 쓸 수 있기 때문이다([문서](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue), 2026-11-16 확인).
@@ -98,6 +99,6 @@ PR 본문 Merge Danger에 등급, 영향 범위, 되돌리는 법, 걸린 민감
 
 - `main` 보호: PR 필수, 필수 CI, 머지 큐, force push·삭제 금지. 서버가 막는다.
 - 비밀값을 읽거나 커밋하지 않는다(§7).
-- 돈, 인증·권한, 복구가 어려운 데이터 migration, workflow 쓰기 권한, 에이전트 설정 폴더, `.baseline/`를 건드리는 PR은 사람이 diff를 읽고 병합한다.
+- 돈, 인증·권한, 복구가 어려운 데이터 migration, workflow 쓰기 권한, 에이전트 설정 폴더, `.baseline/`를 건드리는 PR은 사람이 diff를 읽고 병합한다. §3의 upgrade 예외만 이 줄의 예외다. 그 바이트는 baseline 저장소에서 사람이 읽었고, 해시는 그 태그에서 읽는다.
 - 우선순위·일정·내부 판단과 취약점 설명을 공개 Issue·PR·커밋에 적지 않는다.
 - 브랜치 보호·저장소 설정·CI workflow를 사람 승인 없이 바꾸지 않는다.
