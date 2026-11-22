@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+BIG = 16 << 20  # larger files count by size and mtime, so a turn never waits on reading them
+
 
 def git(cwd, *args):
     return subprocess.run(["git", *args], cwd=cwd, capture_output=True, check=True).stdout
@@ -26,12 +28,19 @@ def fingerprint(root):
         names = git(root, "ls-files", "-z")
     h.update(git(root, "status", "--porcelain", "-z", "--untracked-files=all"))
     names += git(root, "ls-files", "-z", "-o", "--exclude-standard")
+    top = os.path.realpath(root)
     for name in sorted(set(names.split(b"\0")) - {b""}):
         path = os.path.join(os.fsencode(root), name)
         h.update(name + b"\0")
         if os.path.islink(path):  # never follow: a link to /dev/zero would not end
             h.update(os.readlink(path))
+        elif os.path.commonpath([top, os.path.realpath(os.fsdecode(path))]) != top:
+            continue  # a linked parent folder leads out of the repo
         elif os.path.isfile(path):
+            st = os.stat(path)
+            if st.st_size > BIG:
+                h.update(f"{st.st_size} {st.st_mtime_ns}".encode())
+                continue
             with open(path, "rb") as f:
                 for chunk in iter(lambda: f.read(1 << 20), b""):
                     h.update(chunk)
@@ -47,8 +56,15 @@ def main():
         return 1
     if event.get("stop_hook_active"):
         return 0  # Claude is already continuing because of this hook; do not block again
+    project = os.environ.get("CLAUDE_PROJECT_DIR")
+    if not project:
+        return 0
     try:
-        # CLAUDE_PROJECT_DIR points at the first checkout even inside a worktree, so start from cwd.
+        # CLAUDE_PROJECT_DIR points at the first checkout even inside a worktree, so start from cwd,
+        # but only run the project's own code: cwd must be in the same repo (same common git dir).
+        common = ("rev-parse", "--path-format=absolute", "--git-common-dir")
+        if git(cwd, *common) != git(project, *common):
+            return 0
         root = git(cwd, "rev-parse", "--show-toplevel").decode().rstrip("\n")
         stamp = Path(git(cwd, "rev-parse", "--absolute-git-dir").decode().rstrip("\n")) / "baseline-check"
     except (OSError, subprocess.CalledProcessError):
@@ -61,14 +77,19 @@ def main():
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"check.py: 작업 트리를 읽지 못했다: {error}", file=sys.stderr)
         return 1
-    if stamp.is_file() and stamp.read_text() == now:
+    if not stamp.is_symlink() and stamp.is_file() and stamp.read_text() == now:
         return 0
     result = subprocess.run([sys.executable, "-I", str(script), "run", "check"], cwd=root,
                             capture_output=True, text=True)
     if result.returncode != 0:
+        # Stop treats exit 2 with empty stdout and "No such file" on stderr as non-blocking.
+        print("check.py: check가 실패했다")
         print(result.stdout + result.stderr, end="", file=sys.stderr)
         return 2
-    stamp.write_text(now)
+    temp = stamp.with_name(stamp.name + ".tmp")
+    temp.unlink(missing_ok=True)
+    temp.write_text(now)
+    os.replace(temp, stamp)  # replaces a link at stamp instead of writing through it
     return 0
 
 
