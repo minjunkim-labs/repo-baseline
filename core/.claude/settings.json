@@ -8,7 +8,7 @@
               "-I",
               "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
               "--sha256",
-              "4b2e0e677cccf562882fdb686ecd11218869886432d79908ac902398ec3762b5"
+              "4f4f0ab520bed503cc25360817cc5aecc10ff0aff6a8373d6a610580edf20336"
             ],
             "command": "python3",
             "timeout": 15,
@@ -16,6 +16,21 @@
           }
         ],
         "matcher": "Bash"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "args": [
+              "-I",
+              "${CLAUDE_PROJECT_DIR}/.claude/hooks/check.py"
+            ],
+            "command": "python3",
+            "timeout": 120,
+            "type": "command"
+          }
+        ]
       }
     ]
   },
