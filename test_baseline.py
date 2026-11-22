@@ -58,7 +58,7 @@ class InitCheckTests(unittest.TestCase):
         self.init()
         written = sorted(p.relative_to(self.repo).as_posix() for p in self.repo.rglob("*") if p.is_file())
         self.assertEqual(written, [".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
-                                   ".claude/hooks/check.py", ".claude/settings.json",
+                                   ".claude/hooks/allow_enqueue.py", ".claude/hooks/check.py", ".claude/settings.json",
                                    ".gitattributes", ".github/pull_request_template.md", "AGENTS.md", "CLAUDE.md",
                                    "REVIEW.md"])
         self.assertEqual((self.repo / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n")
@@ -577,6 +577,9 @@ class FakeGitHub:
             return {"files": [{"filename": p} for p in self.commits[route.rsplit("/", 1)[1]]]}
         raise KeyError(route)
 
+    def graphql(self, argv):
+        return subprocess.CompletedProcess(argv, 1, b"", b"no graphql here")
+
     def calls_to(self, route):
         return sum(1 for argv in self.calls if argv[-1].split("?")[0] == route)
 
@@ -585,6 +588,8 @@ class FakeGitHub:
         self.calls.append(list(argv))
         if argv[:2] != ["gh", "api"]:
             return subprocess.CompletedProcess(argv, 1, b"", b"not gh api")
+        if argv[2] == "graphql":
+            return self.graphql(argv)
         path = argv[-1]
         if "/contents/" in path:
             url = urlsplit(path)
@@ -857,6 +862,281 @@ class PreflightTests(unittest.TestCase):
         new = self.LOCK.replace("1.2.3", "1.2.4")
         self.assertEqual(self.bump(self.LOCK, new, author="owner")[0], "어려움")
 
+
+REPORT = ("## Summary\n완료 기준: x\n\n## Review\n리뷰어(구현과 다른 컨텍스트): 하위 에이전트\n리뷰한 head: {head}\n"
+          "등급: {grade}\n고친 것: 없음\n남은 지적: {left}\n외부 리뷰 판정: 없음\n\n## Summary by CodeRabbit\n등급: 문서\n")
+REPORTED = "2026-01-01T00:10:00Z"
+
+
+class EnqueueGitHub(FakeGitHub):
+    """FakeGitHub plus what enqueue reads: required CI, permissions, review activity and the GraphQL PR."""
+
+    def __init__(self, base, head, body="", **kwargs):
+        super().__init__(base, head, **kwargs)
+        self.body, self.mutations, self.commit_author = body, [], {"login": self.author}
+        self.edits = [(REPORTED, "User", "owner")]
+        self.checks = [{"id": 1, "name": "ci", "status": "completed", "conclusion": "success", "app": {"id": 15368}}]
+        self.permission = {"owner": "admin", "helper": "write", "reader": "read"}
+        self.extra.update({
+            "repos/o/r/branches/main": {"protection": {"required_status_checks": {
+                "checks": [{"context": "ci", "app_id": 15368}], "contexts": ["ci"]}}},
+            "repos/o/r/rules/branches/main": [],
+            f"repos/o/r/commits/{HEAD}/status": {"statuses": []},
+            "repos/o/r/pulls/7/reviews": [], "repos/o/r/pulls/7/comments": [], "repos/o/r/issues/7/comments": []})
+
+    def answer(self, path):
+        route = path.split("?")[0]
+        if route == f"repos/o/r/commits/{HEAD}/check-runs":
+            return {"check_runs": self.checks}
+        if route == "repos/o/r/pulls/7/commits" and "page=1" in path:
+            return [{"sha": sha, "author": self.commit_author} for sha in self.commits]
+        if route.startswith("repos/o/r/collaborators/"):
+            return {"permission": self.permission.get(route.split("/")[4], "none")}
+        return super().answer(path)
+
+    def graphql(self, argv):
+        fields = dict(argv[i + 1].split("=", 1) for i, a in enumerate(argv) if a in ("-f", "-F"))
+        if "enqueuePullRequest" in fields["query"]:
+            self.mutations.append(fields)
+            data = {"enqueuePullRequest": {"mergeQueueEntry": {"position": 1}}}
+        else:
+            edits = [{"editedAt": t, "editor": {"__typename": kind, "login": login}} for t, kind, login in self.edits]
+            data = {"repository": {"pullRequest": {"id": "PR_7", "body": self.body, "createdAt": "2026-01-01T00:00:00Z",
+                                                   "userContentEdits": {"totalCount": len(edits), "nodes": edits}}}}
+        return subprocess.CompletedProcess(argv, 0, json.dumps({"data": data}).encode(), b"")
+
+
+class EnqueueTests(unittest.TestCase):
+    def gh(self, changes=None, grade="쉬움", left="없음", reviewed=HEAD, **kwargs):
+        tree = core_tree()
+        head = dict(tree, **(changes or {"src/app.py": b"x\n"}))
+        body = REPORT.format(head=reviewed, grade=grade, left=left) if grade else ""
+        return EnqueueGitHub(tree, head, body=body, **kwargs)
+
+    def enqueue(self, gh, sha=HEAD, remote="false"):
+        import baseline as b
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        out = StringIO()
+        with mock.patch.object(b.subprocess, "run", gh.run), mock.patch.dict(b.os.environ, {"CLAUDE_CODE_REMOTE": remote}), \
+                redirect_stdout(out), redirect_stderr(out):
+            code = b.main(["enqueue", PR_URL, sha])
+        return code, out.getvalue()
+
+    def assertQueued(self, gh):
+        code, out = self.enqueue(gh)
+        self.assertEqual(code, 0, out)
+        self.assertEqual(gh.mutations, [{"query": gh.mutations[0]["query"], "id": "PR_7", "sha": HEAD}])
+        self.assertIn("expectedHeadOid", gh.mutations[0]["query"])
+
+    def assertRefused(self, gh, reason, sha=HEAD):
+        code, out = self.enqueue(gh, sha)
+        self.assertEqual(code, 1, out)
+        self.assertIn(reason, out)
+        self.assertEqual(gh.mutations, [])
+
+    def test_easy_pr_with_a_clean_report_is_queued_at_that_head(self):
+        self.assertQueued(self.gh())
+
+    def test_docs_pr_needs_ci_and_no_report(self):
+        self.assertQueued(self.gh({"docs/a.md": b"a\n"}, grade=None))
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.checks[0]["conclusion"] = "failure"
+        self.assertRefused(gh, "ci")
+
+    def test_docs_pr_ignores_bot_comments_nobody_judges(self):
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.edits = []
+        gh.extra["repos/o/r/issues/7/comments"] = [{"user": {"login": "coderabbitai[bot]"},
+                                                    "created_at": "2026-01-01T00:20:00Z"}]
+        self.assertQueued(gh)
+
+    def test_easy_pr_needs_the_report(self):
+        self.assertRefused(self.gh(grade=None), "리뷰한 head")
+        gh = self.gh()
+        gh.body = gh.body.replace("등급: 쉬움\n", "")
+        self.assertRefused(gh, "「등급」이 없다")
+
+    def test_hard_grade_is_always_refused(self):
+        self.assertRefused(self.gh({".github/workflows/x.yml": b"on: push\n"}), "어려움")
+        self.assertRefused(self.gh({"AGENTS.md": core_tree()["AGENTS.md"].replace(b"POLICY.md]", b"POLICY.mdx]")}), "어려움")
+
+    def test_report_grade_above_the_path_grade_wins(self):
+        self.assertRefused(self.gh(grade="어려움"), "어려움")
+        docs = {"docs/a.md": b"a\n"}
+        self.assertQueued(self.gh(docs, grade="쉬움"))  # raised to easy: the easy report is complete
+        self.assertRefused(self.gh(docs, grade="쉬움", reviewed="d" * 40), "리뷰한 head")
+        self.assertRefused(self.gh(docs, grade="모름"), "등급")
+
+    def test_head_mismatch_is_refused(self):
+        self.assertRefused(self.gh(), "head", sha="d" * 40)
+        self.assertRefused(self.gh(reviewed="d" * 40), "리뷰한 head")
+        self.assertRefused(self.gh(reviewed="`" + HEAD + "`" + "x"), "리뷰한 head")
+
+    def test_ci_not_passed_is_refused(self):
+        for run in ({"status": "in_progress", "conclusion": None}, {"conclusion": "failure"},
+                    {"app": {"id": 1}}, {"name": "other"}):
+            gh = self.gh()
+            gh.checks[0].update(run)
+            self.assertRefused(gh, "ci")
+        gh = self.gh()
+        gh.checks.append(dict(gh.checks[0], id=2, conclusion="failure"))  # the latest run counts
+        self.assertRefused(gh, "ci")
+        gh = self.gh()
+        gh.extra["repos/o/r/branches/main"] = {"protection": {"enabled": False}}
+        self.assertRefused(gh, "필수 CI")
+
+    def test_required_checks_from_rulesets_and_statuses_count(self):
+        gh = self.gh()
+        gh.extra["repos/o/r/rules/branches/main"] = [{"type": "required_status_checks", "parameters": {
+            "required_status_checks": [{"context": "lint"}]}}]
+        self.assertRefused(gh, "lint")
+        gh.extra[f"repos/o/r/commits/{HEAD}/status"] = {"statuses": [{"context": "lint", "state": "success"}]}
+        self.assertQueued(gh)
+
+    def test_a_failing_status_with_the_check_name_counts(self):
+        gh = self.gh()
+        gh.extra["repos/o/r/branches/main"] = {"protection": {"required_status_checks": {"contexts": ["ci"]}}}
+        gh.extra[f"repos/o/r/commits/{HEAD}/status"] = {"statuses": [{"context": "ci", "state": "failure"}]}
+        self.assertRefused(gh, "ci")
+
+    def test_changes_requested_blocks_even_a_docs_pr(self):
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.extra["repos/o/r/pulls/7/reviews"] = [
+            {"user": {"login": "helper", "type": "User"}, "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-01T00:01:00Z"},
+            {"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "state": "CHANGES_REQUESTED",
+             "submitted_at": "2026-01-01T00:02:00Z"}]
+        self.assertRefused(gh, "변경 요청: helper")
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.extra["repos/o/r/pulls/7/reviews"] = [
+            {"user": {"login": "helper", "type": "User"}, "state": "CHANGES_REQUESTED", "submitted_at": "2026-01-01T00:01:00Z"},
+            {"user": {"login": "helper", "type": "User"}, "state": "APPROVED", "submitted_at": "2026-01-01T00:02:00Z"},
+            {"user": {"login": "helper", "type": "User"}, "state": "COMMENTED", "submitted_at": "2026-01-01T00:03:00Z"}]
+        self.assertQueued(gh)
+
+    def test_remaining_findings_are_refused(self):
+        self.assertRefused(self.gh(left="[Spec] P1 src/app.py:1 틀렸다"), "남은 지적")
+        self.assertRefused(self.gh(left="없음\n- [Spec] P1 src/app.py:1 틀렸다"), "남은 지적")
+        gh = self.gh()
+        gh.body = gh.body.replace("남은 지적: 없음\n", "")
+        self.assertRefused(gh, "남은 지적")
+        gh = self.gh()
+        gh.body += "\n## Review\n남은 지적: 없음\n"
+        self.assertRefused(gh, "남은 지적")
+
+    def test_unjudged_external_reviews_are_refused(self):
+        late = "2026-01-01T00:20:00Z"
+        for route, item in (("pulls/7/reviews", {"user": {"login": "coderabbitai[bot]"}, "state": "COMMENTED", "submitted_at": late}),
+                            ("pulls/7/comments", {"user": {"login": "helper"}, "created_at": REPORTED,
+                                                  "updated_at": late}),
+                            ("issues/7/comments", {"user": {"login": "owner"}, "created_at": late})):
+            gh = self.gh()
+            gh.extra[f"repos/o/r/{route}"] = [item]
+            self.assertRefused(gh, "판정하지 않은 외부 리뷰")
+        gh = self.gh()
+        gh.extra["repos/o/r/issues/7/comments"] = [{"user": {"login": "x[bot]"}, "created_at": "2026-01-01T00:05:00Z"}]
+        gh.extra["repos/o/r/pulls/7/reviews"] = [{"user": {"login": "owner"}, "state": "PENDING", "submitted_at": None}]  # pending
+        self.assertQueued(gh)
+
+    def test_a_bot_editing_the_body_does_not_move_the_report_time(self):
+        gh = self.gh()
+        gh.edits.append(("2026-01-01T00:30:00Z", "Bot", "coderabbitai"))
+        gh.extra["repos/o/r/issues/7/comments"] = [{"user": {"login": "coderabbitai[bot]"},
+                                                    "created_at": "2026-01-01T00:20:00Z"}]
+        self.assertRefused(gh, "판정하지 않은 외부 리뷰")
+
+    def test_base_must_hold_the_standing_instruction(self):
+        tree = core_tree()
+        tree["AGENTS.md"] = b"".join(l for l in tree["AGENTS.md"].splitlines(True) if "상시 지시" not in l.decode())
+        gh = EnqueueGitHub(tree, dict(tree, **{"src/app.py": b"x\n"}), body=REPORT.format(head=HEAD, grade="쉬움",
+                                                                                          left="없음"))
+        self.assertRefused(gh, "상시 지시")
+
+    def test_fork_and_accounts_without_write_are_refused(self):
+        self.assertRefused(self.gh(fork=True), "fork")
+        self.assertRefused(self.gh(author="reader"), "reader")
+        gh = self.gh()
+        gh.commit_author = None
+        self.assertRefused(gh, "커밋")
+        gh = self.gh()
+        gh.commit_author = {"login": "stranger"}
+        self.assertRefused(gh, "stranger")
+
+    def test_secret_names_stop_it(self):
+        gh = self.gh()
+        gh.commits["e" * 40] = ["app/.env"]
+        self.assertRefused(gh, ".env")
+
+    def test_cloud_and_a_bad_sha_stop_before_any_call(self):
+        gh = self.gh()
+        code, out = self.enqueue(gh, remote="true")
+        self.assertEqual(code, 2)
+        self.assertIn("클라우드", out)
+        code, out = self.enqueue(gh, sha="c" * 39)
+        self.assertEqual(code, 2)
+        self.assertEqual(gh.calls, [])
+
+
+class AllowEnqueueHookTests(unittest.TestCase):
+    """The PreToolUse hook gets the event JSON on stdin and the pinned sha256 in argv, as settings.json gives it."""
+    COMMAND = "python3 -I .baseline/baseline.py enqueue 7 " + HEAD
+    HOOK = ROOT / "core/.claude/hooks/allow_enqueue.py"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name) / "r"
+        (self.repo / ".baseline").mkdir(parents=True)
+        (self.repo / ".baseline/baseline.py").write_bytes((ROOT / "baseline.py").read_bytes())
+        self.pinned = hashlib.sha256((ROOT / "baseline.py").read_bytes()).hexdigest()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def hook(self, command=COMMAND, cwd=None, tool="Bash", argv=None):
+        event = {"tool_name": tool, "tool_input": {"command": command}, "cwd": str(cwd or self.repo),
+                 "permission_mode": "default", "hook_event_name": "PreToolUse"}
+        result = subprocess.run([sys.executable, "-I", str(self.HOOK), *(argv or ["--sha256", self.pinned])],
+                                input=json.dumps(event), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] if result.stdout else None
+
+    def test_allows_the_exact_command_when_the_copy_has_the_pinned_hash(self):
+        self.assertEqual(self.hook(), "allow")
+
+    def test_settings_pin_this_baseline_py_and_allow_no_rule(self):
+        settings = json.loads((ROOT / "core/.claude/settings.json").read_text(encoding="utf-8"))
+        hook, = settings["hooks"]["PreToolUse"][0]["hooks"]
+        self.assertEqual(hook["args"], ["-I", "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
+                                        "--sha256", self.pinned])
+        self.assertEqual((settings["permissions"]["allow"], settings["permissions"]["ask"]), ([], []))
+        self.assertLessEqual({"Read(**/.env*)", "Read(**/.env*/**)"}, set(settings["permissions"]["deny"]))  # .envrc too
+
+    def test_says_nothing_for_any_other_command(self):
+        for command in (self.COMMAND + "; rm -rf ~", self.COMMAND + "\nrm x", "python3 .baseline/baseline.py enqueue 7 "
+                        + HEAD, f"python3 -I .baseline/baseline.py enqueue {PR_URL} {HEAD}",
+                        "python3 -I .baseline/baseline.py enqueue 7 " + HEAD[:39], "python3 -I .baseline/baseline.py check",
+                        " " + self.COMMAND, "python3 -I .baseline/baseline.py enqueue 07 " + HEAD):
+            self.assertIsNone(self.hook(command), command)
+        self.assertIsNone(self.hook(tool="Monitor"))
+
+    def test_says_nothing_when_the_copy_is_not_the_pinned_bytes(self):
+        (self.repo / ".baseline/baseline.py").write_bytes(b"print('x')\n")
+        self.assertIsNone(self.hook())
+        self.assertIsNone(self.hook(cwd=self.tmp.name))  # no copy there
+        for argv in ([], ["--sha256"], ["--sha256", "x" * 64], ["--sha", self.pinned]):
+            self.assertIsNone(self.hook(argv=argv or ["--x"]), argv)
+
+    def test_says_nothing_for_a_symlinked_copy(self):
+        real = self.repo / "real.py"
+        (self.repo / ".baseline/baseline.py").rename(real)
+        (self.repo / ".baseline/baseline.py").symlink_to(real)
+        self.assertIsNone(self.hook())
+
+    def test_bad_input_says_nothing(self):
+        result = subprocess.run([sys.executable, "-I", str(self.HOOK), "--sha256", self.pinned],
+                                input="not json", capture_output=True, text=True)
+        self.assertEqual((result.returncode, result.stdout), (0, ""))
 
 if __name__ == "__main__":
     unittest.main()

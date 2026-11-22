@@ -1,10 +1,10 @@
 # repo-baseline
 
-1인·소규모 팀의 개발 기준 원본이다. 규칙은 `POLICY.md`, v2 코어는 `baseline.py`·`core/`에 있다.
+1인·소규모 팀의 개발 기준 원본이다.
 
 ## 명령
 
-`python3 -I .baseline/baseline.py run test`처럼 부른다. 이 칸은 `.baseline/commands.json`과 같아야 한다. 스크립트는 Python 표준 라이브러리만 쓴다.
+`python3 -I .baseline/baseline.py run test`처럼 부른다. 스크립트는 Python 표준 라이브러리만 쓴다.
 
 - setup: `N/A: 의존성이 없다(Python 3.9 이상, IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)`
 - check: `python3 -I .baseline/baseline.py check`
@@ -25,6 +25,7 @@ pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로
 
 ## 이 저장소의 규칙
 
+- 상시 지시: 문서·쉬움 PR은 리뷰가 끝나면 `python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`로 머지 큐에 넣는다.
 - PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 하나를 더한다. `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮길 일을 쓴다. `CHANGELOG.md`는 고치지 않는다. 태그를 낼 때 지난 태그 뒤 항목을 릴리스 노트로 모으고 지운다.
 - 같은 사실을 README, `docs/start.md`, `prompts/setup.md`에 적었으면 함께 고친다.
 - 소비 레포가 v2로 옮길 때까지 `tools/sync_consumers.py`를 돌리지 않는다.
