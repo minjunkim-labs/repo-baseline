@@ -30,7 +30,7 @@ Matt 스킬은 트래커·라벨·도메인 문서 설정을 `docs/agents/`에�
 
 - 위 표의 스킬과 그 스킬이 부르는 스킬만 판을 고정한 사본으로 `.claude/skills/`에 둔다. 목록, 출처, 판, 의존 스킬(`requires`)은 [skills/skills.lock.json](skills/skills.lock.json)에 있다. 플러그인 대신 사본을 쓰는 까닭은 클라우드 세션과 Projects 스레드가 저장소 settings의 플러그인을 불러오지 않고 `.claude/skills/`는 읽기 때문이다.
 - 원본은 이 저장소의 `skills/`다. 스킬마다 출처의 LICENSE(Matt는 저장소 루트, pstack은 `pstack/LICENSE`, 둘 다 MIT)를 함께 둔다. `init`이 `.claude/skills/`로 복사하고, `check`는 사본이 이 판의 해시와 다르거나 사본 폴더에 없는 파일이 있으면 실패한다. 프로젝트만의 스킬은 다른 이름의 폴더에 둔다.
-- 갱신 기준은 출처마다 lock에 있다. 태그가 있는 출처(Matt)는 나온 지 `days`(7)일이 지난 가장 새 태그를 받는다. 태그 날짜는 태그 객체의 날짜이고, 가벼운 태그(lightweight)면 커밋 날짜다. 태그가 없는 출처(pstack의 `cursor/plugins`)는 `branch`에서 `days`일보다 오래된 마지막 커밋을 받고, `plugin.json`의 `version`과 커밋 SHA를 함께 적는다. 판은 앞으로만 간다. 우리 스킬의 바이트가 그대로면 받지 않는다.
+- 갱신 기준은 출처마다 lock에 있다. 태그가 있는 출처(Matt)는 나온 지 `days`(7)일이 지난 가장 새 태그를 받는다. 태그 날짜는 태그 객체의 날짜이고, 자기 날짜가 없는 가벼운 태그(lightweight)는 받지 않는다. 고정한 커밋보다 앞서지 않는 태그는 건너뛴다. 태그가 없는 출처(pstack의 `cursor/plugins`)는 `branch`에서 `days`일보다 오래된 마지막 커밋을 받고, `plugin.json`의 `version`과 커밋 SHA를 함께 적는다. 판은 앞으로만 간다. 우리 스킬의 바이트가 그대로면 받지 않는다.
 - 한 출처의 스킬은 한 판으로 함께 바뀐다. 그래서 `requires`는 같은 출처의 스킬만 적을 수 있다.
 
 ### 갱신하는 법

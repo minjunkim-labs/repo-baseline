@@ -139,16 +139,22 @@ HASH_RE = re.compile(r"\b[0-9a-f]{32,}\b|sha(?:1|256|384|512)-[A-Za-z0-9+/]+=*")
 VERSION_RE = re.compile(r"\d+(?:\.\d+)+")
 
 
-def read_file(root, rel):
-    """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
-    No symlink anywhere on the way: git ignores a symlinked .gitattributes, a linked .github moves the
-    PR template, and a link to /dev/zero never ends."""
+def linked(root, rel):
+    """Is any part of root/rel a symlink?"""
     path = root
     for part in Path(rel).parts:
         path = path / part
         if path.is_symlink():
-            raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
-    if not path.is_file():
+            return True
+    return False
+
+
+def read_file(root, rel):
+    """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
+    No symlink anywhere on the way: git ignores a symlinked .gitattributes, a linked .github moves the
+    PR template, and a link to /dev/zero never ends."""
+    path = root / rel
+    if linked(root, rel) or not path.is_file():
         raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
     with path.open("rb") as f:
         data = f.read(MAX_READ + 1)
@@ -289,6 +295,8 @@ def cmd_check(args):
             problems.append(f"{rel}: {'관리 블록이' if kind == 'block_sha256' else '파일이'} 이 판과 다르다")
     # A file added to a skill copy changes the skill too. Other folders in .claude/skills/ are the project's.
     for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
+        if linked(root, SKILLS + name):  # os.walk opens a linked top folder; read_file above already reported it
+            continue
         for folder, dirs, names in os.walk(root / SKILLS / name):
             for entry in names + [d for d in dirs if Path(folder, d).is_symlink()]:
                 rel = Path(folder, entry).relative_to(root).as_posix()
@@ -905,15 +913,14 @@ def newest_pin(src, cutoff):
         if current and tag_version(tag) <= current:
             return None
         target = gh_api(f"repos/{repo}/git/ref/tags/{quote(tag, safe='')}")["object"]
-        date = None
-        if target["type"] == "tag":  # the tag's own date: an old commit can get a new tag
-            annotated = gh_api(f"repos/{repo}/git/tags/{target['sha']}")
-            date, target = annotated["tagger"]["date"], annotated["object"]
+        if target["type"] != "tag":  # a lightweight tag has no date of its own: an old commit can get a new tag
+            continue
+        annotated = gh_api(f"repos/{repo}/git/tags/{target['sha']}")
+        date, target = annotated["tagger"]["date"], annotated["object"]
         if target["type"] != "commit":
             raise ValueError(f"{repo} {tag}: 커밋을 가리키지 않는다")
-        date = date or gh_api(f"repos/{repo}/commits/{target['sha']}")["commit"]["committer"]["date"]
-        if datetime.fromisoformat(date.replace("Z", "+00:00")) <= cutoff:
-            return (tag, target["sha"]) if ahead(target["sha"]) else None
+        if datetime.fromisoformat(date.replace("Z", "+00:00")) <= cutoff and ahead(target["sha"]):
+            return tag, target["sha"]
     return None
 
 
@@ -985,6 +992,9 @@ def skills_bump(root, check, now):
                   f"({src['repo']}, 스킬: {', '.join(names)})")
         if check:
             return 1
+        links = [base + n for base in ("skills/", SKILLS) for update in updates for n in update[3] if linked(root, base + n)]
+        if links:  # rmtree(ignore_errors) would leave the link and write through it
+            raise OSError(f"symlink가 있는 경로에 쓰지 않는다: {', '.join(links)}")
         writes = {}  # download and verify everything before the first write
         for name, src, (tag, commit), names, files in updates:
             for rel, (path, entry) in files.items():

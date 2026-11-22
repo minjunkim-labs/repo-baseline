@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -164,6 +165,17 @@ class InitCheckTests(unittest.TestCase):
         self.assertCheck(0)
         (self.repo / ".claude/skills/tdd/extra.md").write_text("x\n", encoding="utf-8")
         self.assertCheck(1, ".claude/skills/tdd/extra.md: 이 판의 스킬 사본에 없는 파일이다")
+
+    def test_a_linked_skill_copy_fails_without_walking_the_link(self):
+        self.init()
+        outside = Path(self.tmp.name + "-outside")
+        self.addCleanup(shutil.rmtree, outside, True)
+        shutil.copytree(self.repo / ".claude/skills/tdd", outside)
+        (outside / "far.md").write_text("x\n", encoding="utf-8")
+        shutil.rmtree(self.repo / ".claude/skills/tdd")
+        (self.repo / ".claude/skills/tdd").symlink_to(outside)
+        self.assertCheck(1, ".claude/skills/tdd/SKILL.md: 없거나 일반 파일이 아니다")
+        self.assertNotIn("far.md", self.check().stderr)
 
     def test_removed_marker_fails(self):
         self.init()
@@ -1188,7 +1200,7 @@ class FakeSources:
 
     def __init__(self):
         self.tags, self.commits, self.trees, self.modes, self.calls = {}, {}, {}, {}, []
-        self.corrupt = set()
+        self.corrupt, self.light = set(), set()
 
     def commit(self, repo, sha, age, files, tag=None, tag_age=None):
         self.commits.setdefault(repo, []).append((sha, days_ago(age)))
@@ -1204,7 +1216,7 @@ class FakeSources:
                 {"name": t, "commit": {"sha": c}} for t, c, _ in self.tags.get(repo, [])]
         if rest.startswith("git/ref/tags/"):
             t, c, _ = next(x for x in self.tags[repo] if x[0] == rest.rsplit("/", 1)[1])
-            return {"object": {"type": "tag", "sha": "t" + c[1:]}}
+            return {"object": {"type": "commit", "sha": c} if t in self.light else {"type": "tag", "sha": "t" + c[1:]}}
         if rest.startswith("git/tags/"):
             t, c, date = next(x for x in self.tags[repo] if "t" + x[1][1:] == rest.rsplit("/", 1)[1])
             return {"tagger": {"date": date}, "object": {"type": "commit", "sha": c}}
@@ -1350,6 +1362,35 @@ class SkillsBumpTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertIn("새 판이 없다", out)
 
+    def test_a_tag_behind_the_pin_is_skipped_for_an_older_tag_ahead_of_it(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        self.m_release("0" * 40, 90, "1.2.0", tag_age=8)
+        commits = self.gh.commits["m/s"]
+        commits.insert(0, commits.pop())  # 0... comes before the pinned 1...
+        code, out = self.bump("--check")
+        self.assertEqual(code, 1, out)
+        self.assertIn("m: v1.0.0 → v1.1.0", out)
+
+    def test_a_lightweight_tag_is_not_taken(self):
+        self.m_release("2" * 40, 30, "1.1.0", tag_age=1)
+        self.gh.light.add("v1.1.0")  # no tag date: the 30-day-old commit date says nothing about the tag
+        code, out = self.bump("--check")
+        self.assertEqual(code, 0, out)
+        self.assertIn("새 판이 없다", out)
+
+    def test_a_linked_skill_folder_is_not_written_through(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        outside = Path(self.tmp.name + "-outside")
+        outside.mkdir()
+        self.addCleanup(shutil.rmtree, outside)
+        (self.root / ".claude/skills").mkdir(parents=True)
+        (self.root / ".claude/skills/grill").symlink_to(outside)
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIn(".claude/skills/grill", out)
+        self.assertEqual(list(outside.iterdir()), [])
+        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+
     def test_git_files_in_a_skill_folder_are_refused(self):
         self.m_release("2" * 40, 10, "1.1.0")
         self.gh.trees["m/s", "2" * 40]["s/grill/.gitattributes"] = b"* -diff\n"
@@ -1360,6 +1401,9 @@ class SkillsBumpTests(unittest.TestCase):
 
     def test_changing_a_skill_moves_its_required_skills_and_drops_removed_files(self):
         self.m_release("2" * 40, 10, "1.1.0")
+        for root in ("skills", ".claude/skills"):
+            (self.root / root / "grilling").mkdir(parents=True)
+            (self.root / root / "grilling/old.md").write_bytes(b"old\n")
         code, out = self.bump()
         self.assertEqual(code, 0, out)
         for root in ("skills", ".claude/skills"):
