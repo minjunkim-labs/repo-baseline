@@ -17,8 +17,10 @@ START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 # file together with baseline.json still fails. test_baseline.py keeps them equal to core/.
 MANAGED = {
     ".gitattributes": {"sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
-    "AGENTS.md": {"block_sha256": "9bfb5a756aa596b09a6741c38e0da0114be63e59ad15bea20fb3f91137435559"},
+    "AGENTS.md": {"block_sha256": "5a0264145665fe22598322b9a6c3bbf0f9f96c2c2ffd0b281e948ceb112ef8f1"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
+    "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
+    ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
 }
 COMMANDS = ("setup", "check", "test", "build")
 DEFAULT_COMMANDS = {

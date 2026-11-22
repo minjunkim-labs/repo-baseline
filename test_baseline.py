@@ -57,7 +57,8 @@ class InitCheckTests(unittest.TestCase):
         self.init()
         written = sorted(p.relative_to(self.repo).as_posix() for p in self.repo.rglob("*") if p.is_file())
         self.assertEqual(written, [".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
-                                   ".gitattributes", "AGENTS.md", "CLAUDE.md"])
+                                   ".gitattributes", ".github/pull_request_template.md", "AGENTS.md", "CLAUDE.md",
+                                   "REVIEW.md"])
         self.assertEqual((self.repo / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n")
         self.assertEqual((self.repo / "CLAUDE.md").read_bytes(), b"@AGENTS.md\n")
         self.assertEqual(self.copy.read_bytes(), (ROOT / "baseline.py").read_bytes())
@@ -119,6 +120,26 @@ class InitCheckTests(unittest.TestCase):
         path.write_text(json.dumps(recorded), encoding="utf-8")
         self.assertCheck(1, "baseline.json의 관리 해시가 baseline.py 안의 해시와 다르다")
         self.assertCheck(1, "CLAUDE.md: 파일이")
+
+    def test_review_md_block_is_managed_and_project_cells_are_free(self):
+        self.init()
+        self.edit("REVIEW.md", "## 배운 규칙\n", "## 배운 규칙\n\n- 2026-11-22 우리 규칙\n")
+        self.assertCheck(0)
+        self.edit("REVIEW.md", "P0:", "P9:")
+        self.assertCheck(1, "REVIEW.md: 관리 블록이")
+
+    def test_pr_template_is_a_managed_file(self):
+        self.init()
+        self.edit(".github/pull_request_template.md", "남은 지적:", "남은 의견:")
+        self.assertCheck(1, ".github/pull_request_template.md: 파일이")
+
+    def test_standing_instruction_can_be_removed_without_failing_check(self):
+        self.init()
+        lines = (self.repo / "AGENTS.md").read_text(encoding="utf-8").splitlines(keepends=True)
+        standing = [line for line in lines if line.startswith("- 상시 지시:")]
+        self.assertEqual(len(standing), 1)
+        self.edit("AGENTS.md", standing[0], "")
+        self.assertCheck(0)
 
     def test_removed_marker_fails(self):
         self.init()
@@ -246,6 +267,19 @@ class SourceTests(unittest.TestCase):
         text = (ROOT / "core/AGENTS.md").read_text(encoding="utf-8")
         for name, value in b.DEFAULT_COMMANDS.items():
             self.assertIn(b.command_line(name, value) + "\n", text)
+
+    def test_core_instructions_use_no_emphasis_words(self):
+        import baseline as b
+        for rel in ("AGENTS.md", "REVIEW.md"):
+            text = (ROOT / "core" / rel).read_bytes().replace(b.START, b"").replace(b.END, b"").decode("utf-8")
+            for word in ("MUST", "NEVER", "!"):
+                self.assertNotIn(word, text, rel)
+
+    def test_pr_template_has_the_review_fields_enqueue_reads(self):
+        text = (ROOT / "core/.github/pull_request_template.md").read_text(encoding="utf-8")
+        review = text.split("## Review\n", 1)[1].splitlines()
+        for field in ("리뷰한 head:", "등급:", "남은 지적:"):
+            self.assertEqual([line for line in review if line.startswith(field)], [field], field)
 
 
 if __name__ == "__main__":
