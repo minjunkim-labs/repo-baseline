@@ -56,11 +56,19 @@ class InitCheckTests(unittest.TestCase):
 
     def test_init_writes_the_minimal_core(self):
         self.init()
+        import baseline as b
         written = sorted(p.relative_to(self.repo).as_posix() for p in self.repo.rglob("*") if p.is_file())
-        self.assertEqual(written, [".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
-                                   ".claude/hooks/allow_enqueue.py", ".claude/hooks/check.py", ".claude/settings.json",
-                                   ".gitattributes", ".github/pull_request_template.md", "AGENTS.md", "CLAUDE.md",
-                                   "REVIEW.md"])
+        skills = sorted(rel for rel in b.MANAGED if rel.startswith(".claude/skills/"))
+        self.assertIn(".claude/skills/tdd/SKILL.md", skills)
+        self.assertEqual([rel for rel in written if rel not in skills], [
+            ".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
+            ".claude/hooks/allow_enqueue.py", ".claude/hooks/check.py", ".claude/settings.json",
+            ".gitattributes", ".github/pull_request_template.md", "AGENTS.md", "CLAUDE.md", "REVIEW.md",
+            "docs/agents/LICENSE", "docs/agents/domain.md", "docs/agents/issue-tracker.md",
+            "docs/agents/triage-labels.md"])
+        self.assertEqual(sorted(set(written) & set(skills)), skills)
+        self.assertEqual((self.repo / ".claude/skills/tdd/SKILL.md").read_bytes(),
+                         (ROOT / "skills/tdd/SKILL.md").read_bytes())
         self.assertEqual((self.repo / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n")
         self.assertEqual((self.repo / "CLAUDE.md").read_bytes(), b"@AGENTS.md\n")
         self.assertEqual(self.copy.read_bytes(), (ROOT / "baseline.py").read_bytes())
@@ -142,6 +150,20 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual(len(standing), 1)
         self.edit("AGENTS.md", standing[0], "")
         self.assertCheck(0)
+
+    def test_editing_a_skill_copy_fails(self):
+        self.init()
+        with (self.repo / ".claude/skills/tdd/SKILL.md").open("a", encoding="utf-8") as f:
+            f.write("x\n")
+        self.assertCheck(1, ".claude/skills/tdd/SKILL.md: 파일이 이 판과 다르다")
+
+    def test_an_extra_file_in_a_skill_copy_fails_and_a_project_skill_passes(self):
+        self.init()
+        (self.repo / ".claude/skills/mine").mkdir()
+        (self.repo / ".claude/skills/mine/SKILL.md").write_text("mine\n", encoding="utf-8")
+        self.assertCheck(0)
+        (self.repo / ".claude/skills/tdd/extra.md").write_text("x\n", encoding="utf-8")
+        self.assertCheck(1, ".claude/skills/tdd/extra.md: 이 판의 스킬 사본에 없는 파일이다")
 
     def test_removed_marker_fails(self):
         self.init()
@@ -478,10 +500,21 @@ class StopHookTests(unittest.TestCase):
 class SourceTests(unittest.TestCase):
     def test_embedded_hashes_match_core(self):
         import baseline as b
-        core = ROOT / "core"
-        actual = {rel: {kind: b.digest((core / rel).read_bytes(), kind)} for rel, spec in b.MANAGED.items()
+        actual = {rel: {kind: b.digest(b.source(rel).read_bytes(), kind)} for rel, spec in b.MANAGED.items()
                   for kind in spec}
-        self.assertEqual(b.MANAGED, actual, "core/를 고쳤으면 baseline.py의 MANAGED를 이 값으로 바꾼다")
+        self.assertEqual(b.MANAGED, actual, "core/·skills/를 고쳤으면 baseline.py의 MANAGED를 이 값으로 바꾼다")
+
+    def test_skill_copies_match_the_lock(self):
+        import baseline as b
+        lock = json.loads((ROOT / "skills/skills.lock.json").read_text(encoding="utf-8"))
+        self.assertEqual(b.lock_problems(lock), [])
+        on_disk = sorted(p.relative_to(ROOT / "skills").as_posix() for p in (ROOT / "skills").rglob("*")
+                         if p.is_file() and p.name != "skills.lock.json")
+        managed = sorted(rel[len(b.SKILLS):] for rel in b.MANAGED if rel.startswith(b.SKILLS))
+        self.assertEqual(on_disk, managed)
+        for name in lock["skills"]:
+            self.assertIn(f"{name}/SKILL.md", managed)
+            self.assertIn(f"{name}/LICENSE", managed)
 
     def test_core_agents_md_shows_the_default_commands(self):
         import baseline as b
@@ -606,7 +639,7 @@ class FakeGitHub:
 
 def core_tree():
     import baseline as b
-    tree = {rel: (ROOT / "core" / rel).read_bytes() for rel in b.MANAGED}
+    tree = {rel: b.source(rel).read_bytes() for rel in b.MANAGED}
     tree[".baseline/baseline.py"] = (ROOT / "baseline.py").read_bytes()
     tree[".baseline/baseline.json"] = b.dump_json({"version": b.VERSION, "profiles": [], "managed": b.MANAGED})
     tree["README.md"] = b"# r\n"
@@ -1137,6 +1170,236 @@ class AllowEnqueueHookTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-I", str(self.HOOK), "--sha256", self.pinned],
                                 input="not json", capture_output=True, text=True)
         self.assertEqual((result.returncode, result.stdout), (0, ""))
+
+NOW = "2026-11-23T00:00:00+00:00"
+
+
+def blob_sha(data):
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def days_ago(n):
+    from datetime import datetime, timedelta
+    return (datetime.fromisoformat(NOW) - timedelta(days=n)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+class FakeSources:
+    """Answers `gh api` for skill sources: tags, commits by date, trees and file bytes per commit."""
+
+    def __init__(self):
+        self.tags, self.commits, self.trees, self.modes, self.calls = {}, {}, {}, {}, []
+        self.corrupt = set()
+
+    def commit(self, repo, sha, age, files, tag=None, tag_age=None):
+        self.commits.setdefault(repo, []).append((sha, days_ago(age)))
+        self.trees[repo, sha] = files
+        if tag:
+            self.tags.setdefault(repo, []).append((tag, sha, days_ago(age if tag_age is None else tag_age)))
+
+    def answer(self, route, query):
+        repo = "/".join(route.split("/")[1:3])
+        rest = route.split("/", 3)[3]
+        if rest == "tags":
+            return [] if query.get("page", "1") != "1" else [
+                {"name": t, "commit": {"sha": c}} for t, c, _ in self.tags.get(repo, [])]
+        if rest.startswith("git/ref/tags/"):
+            t, c, _ = next(x for x in self.tags[repo] if x[0] == rest.rsplit("/", 1)[1])
+            return {"object": {"type": "tag", "sha": "t" + c[1:]}}
+        if rest.startswith("git/tags/"):
+            t, c, date = next(x for x in self.tags[repo] if "t" + x[1][1:] == rest.rsplit("/", 1)[1])
+            return {"tagger": {"date": date}, "object": {"type": "commit", "sha": c}}
+        if rest == "commits":
+            ok = [(c, d) for c, d in self.commits[repo] if d <= query["until"]]
+            return [{"sha": c, "commit": {"committer": {"date": d}}} for c, d in ok[-1:]]
+        if rest.startswith("compare/"):
+            a, b_ = rest.split("/", 1)[1].split("...")
+            order = [c for c, _ in self.commits[repo]]
+            return {"status": "identical" if a == b_ else "ahead" if order.index(a) < order.index(b_) else "behind"}
+        if rest.startswith("git/trees/"):
+            files = self.trees[repo, rest.rsplit("/", 1)[1]]
+            return {"truncated": False, "tree": [
+                {"path": p, "type": "blob", "mode": self.modes.get(p, "100644"), "sha": blob_sha(d), "size": len(d)}
+                for p, d in files.items()]}
+        raise KeyError(route)
+
+    def run(self, argv, **kwargs):
+        from urllib.parse import unquote, urlsplit
+        self.calls.append(list(argv))
+        if argv[:2] != ["gh", "api"]:
+            return subprocess.CompletedProcess(argv, 1, b"", b"not gh api")
+        url = urlsplit(argv[-1])
+        query = dict(part.split("=", 1) for part in url.query.split("&") if part)
+        if "/contents/" in url.path:
+            repo, rel = url.path.split("/contents/", 1)
+            files = self.trees.get((repo.split("/", 1)[1], unquote(query["ref"])), {})
+            data = files.get(unquote(rel))
+            if data is None:
+                return subprocess.CompletedProcess(argv, 1, b"", b"gh: Not Found (HTTP 404)\n")
+            return subprocess.CompletedProcess(argv, 0, data + (b"!" if unquote(rel) in self.corrupt else b""), b"")
+        try:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(self.answer(url.path, query)).encode(), b"")
+        except (KeyError, StopIteration):
+            return subprocess.CompletedProcess(argv, 1, b"", b"gh: Not Found (HTTP 404)\n")
+
+
+def plugin(version):
+    return json.dumps({"version": version}).encode()
+
+
+class SkillsBumpTests(unittest.TestCase):
+    """skills-bump in a temporary repo-baseline: skills/, its lock, baseline.py and .baseline/."""
+
+    def setUp(self):
+        import baseline as b
+        self.b = b
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name)
+        (self.root / ".baseline").mkdir()
+        (self.root / "baseline.py").write_bytes((ROOT / "baseline.py").read_bytes())
+        (self.root / ".baseline/baseline.json").write_bytes(b.dump_json({"version": "x", "managed": {}}))
+        self.pin = '{"args": ["--sha256", "%s"]}\n'
+        (self.root / ".claude").mkdir()
+        (self.root / ".claude/settings.json").write_text(self.pin % b.sha256(self.read("baseline.py")))
+        self.gh = FakeSources()
+        m = {"LICENSE": b"MIT m\n", "p.json": plugin("1.0.0"),
+             "s/grill/SKILL.md": b"grill 1\n", "s/grilling/SKILL.md": b"grilling 1\n",
+             "s/grilling/old.md": b"old\n", "s/other/SKILL.md": b"other\n"}
+        self.gh.commit("m/s", "1" * 40, 60, m, tag="v1.0.0")
+        p = {"pstack/LICENSE": b"MIT p\n", "pstack/plugin.json": plugin("0.1.0"), "pstack/skills/blast/SKILL.md": b"b1\n"}
+        self.gh.commit("c/p", "a" * 40, 60, p)
+        self.lock = {
+            "sources": {
+                "m": {"repo": "m/s", "update": "tag", "days": 7, "license": "LICENSE", "plugin": "p.json",
+                      "tag": "v1.0.0", "commit": "1" * 40, "version": "1.0.0"},
+                "p": {"repo": "c/p", "update": "commit", "branch": "main", "days": 7, "license": "pstack/LICENSE",
+                      "plugin": "pstack/plugin.json", "commit": "a" * 40, "version": "0.1.0"}},
+            "skills": {
+                "grill": {"source": "m", "path": "s/grill", "requires": ["grilling"]},
+                "grilling": {"source": "m", "path": "s/grilling", "requires": []},
+                "blast": {"source": "p", "path": "pstack/skills/blast", "requires": []}}}
+        self.write_lock()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write_lock(self):
+        (self.root / "skills").mkdir(exist_ok=True)
+        (self.root / "skills/skills.lock.json").write_bytes(self.b.dump_json(self.lock))
+
+    def bump(self, *flags):
+        from contextlib import redirect_stdout, redirect_stderr
+        from datetime import datetime
+        from io import StringIO
+        from unittest import mock
+        out, err = StringIO(), StringIO()
+        with mock.patch.object(self.b.subprocess, "run", self.gh.run), redirect_stdout(out), redirect_stderr(err):
+            code = self.b.skills_bump(self.root, "--check" in flags, datetime.fromisoformat(NOW))
+        return code, out.getvalue() + err.getvalue()
+
+    def read(self, rel):
+        path = self.root / rel
+        return path.read_bytes() if path.exists() else None
+
+    def m_release(self, sha, age, version, grilling=b"grilling 2\n", tag_age=None):
+        files = {"LICENSE": b"MIT m\n", "p.json": plugin(version), "s/grill/SKILL.md": b"grill " + version.encode() + b"\n",
+                 "s/grilling/SKILL.md": grilling, "s/other/SKILL.md": b"other 2\n"}
+        self.gh.commit("m/s", sha, age, files, tag="v" + version, tag_age=tag_age)
+
+    def test_tag_source_takes_the_newest_tag_older_than_7_days(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        self.m_release("3" * 40, 3, "1.2.0")
+        code, out = self.bump()
+        self.assertEqual(code, 0, out)
+        lock = json.loads(self.read("skills/skills.lock.json"))
+        self.assertEqual({k: lock["sources"]["m"][k] for k in ("tag", "commit", "version")},
+                         {"tag": "v1.1.0", "commit": "2" * 40, "version": "1.1.0"})
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1.1.0\n")
+        self.assertEqual(self.read("skills/grill/LICENSE"), b"MIT m\n")
+        self.assertIsNone(self.read("skills/other/SKILL.md"))  # not in the lock
+
+    def test_a_tag_newer_than_7_days_is_not_taken_even_on_an_old_commit(self):
+        self.m_release("2" * 40, 30, "1.1.0", tag_age=2)
+        code, out = self.bump("--check")
+        self.assertEqual(code, 0, out)
+        self.assertIn("새 판이 없다", out)
+
+    def test_commit_source_takes_the_last_commit_older_than_7_days(self):
+        files = dict(self.gh.trees["c/p", "a" * 40])
+        self.gh.commit("c/p", "b" * 40, 10, dict(files, **{"pstack/skills/blast/SKILL.md": b"b2\n",
+                                                           "pstack/plugin.json": plugin("0.2.0")}))
+        self.gh.commit("c/p", "c" * 40, 2, dict(files, **{"pstack/skills/blast/SKILL.md": b"b3\n"}))
+        code, out = self.bump()
+        self.assertEqual(code, 0, out)
+        lock = json.loads(self.read("skills/skills.lock.json"))["sources"]["p"]
+        self.assertEqual((lock["commit"], lock["version"]), ("b" * 40, "0.2.0"))
+        self.assertEqual(self.read("skills/blast/SKILL.md"), b"b2\n")
+        self.assertEqual(self.read(".claude/skills/blast/LICENSE"), b"MIT p\n")
+
+    def test_a_commit_source_never_goes_back(self):
+        self.lock["sources"]["p"]["commit"] = "b" * 40
+        self.write_lock()
+        self.gh.commit("c/p", "b" * 40, 3, dict(self.gh.trees["c/p", "a" * 40]))
+        code, out = self.bump("--check")
+        self.assertEqual(code, 0, out)
+
+    def test_changing_a_skill_moves_its_required_skills_and_drops_removed_files(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        code, out = self.bump()
+        self.assertEqual(code, 0, out)
+        for root in ("skills", ".claude/skills"):
+            self.assertEqual(self.read(f"{root}/grilling/SKILL.md"), b"grilling 2\n")
+            self.assertIsNone(self.read(f"{root}/grilling/old.md"))
+        managed = self.b.embedded_managed(self.read("baseline.py"))
+        self.assertEqual(managed[".claude/skills/grilling/SKILL.md"], {"sha256": self.b.sha256(b"grilling 2\n")})
+        self.assertNotIn(".claude/skills/grilling/old.md", managed)
+        self.assertEqual(self.read(".baseline/baseline.py"), self.read("baseline.py"))
+        self.assertEqual(json.loads(self.read(".baseline/baseline.json"))["managed"], managed)
+        self.assertEqual(self.read(".claude/settings.json").decode(), self.pin % self.b.sha256(self.read("baseline.py")))
+
+    def test_check_reports_without_writing(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        before = self.read("skills/skills.lock.json")
+        code, out = self.bump("--check")
+        self.assertEqual(code, 1, out)
+        self.assertIn("m: v1.0.0 → v1.1.0", out)
+        self.assertEqual(self.read("skills/skills.lock.json"), before)
+        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+
+    def test_a_new_version_without_changes_to_our_skills_is_no_update(self):
+        files = dict(self.gh.trees["m/s", "1" * 40], **{"p.json": plugin("1.0.1")})
+        self.gh.commit("m/s", "2" * 40, 10, files, tag="v1.0.1")
+        for rel, data in {"grill/SKILL.md": b"grill 1\n", "grilling/SKILL.md": b"grilling 1\n",
+                          "grilling/old.md": b"old\n"}.items():
+            (self.root / "skills" / rel).parent.mkdir(parents=True, exist_ok=True)
+            (self.root / "skills" / rel).write_bytes(data)
+            (self.root / "skills" / rel).with_name("LICENSE").write_bytes(b"MIT m\n")
+        before = self.read("skills/skills.lock.json")
+        code, out = self.bump("--check")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.read("skills/skills.lock.json"), before)
+
+    def test_a_requirement_outside_the_lock_or_source_is_refused(self):
+        self.lock["skills"]["grill"]["requires"] = ["blast"]
+        self.write_lock()
+        code, out = self.bump("--check")
+        self.assertEqual(code, 2, out)
+        self.assertIn("grill: 의존 스킬 blast", out)
+
+    def test_a_symlink_in_a_skill_folder_is_refused_and_nothing_is_written(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        self.gh.modes["s/grilling/SKILL.md"] = "120000"
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIn("s/grilling/SKILL.md", out)
+        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+
+    def test_bytes_that_do_not_match_the_tree_are_refused(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        self.gh.corrupt.add("s/grill/SKILL.md")
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIsNone(self.read("skills/grill/SKILL.md"))
+
 
 if __name__ == "__main__":
     unittest.main()
