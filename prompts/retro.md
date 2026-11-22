@@ -38,7 +38,7 @@
 
 ## prompt-audit
 
-Claude Code에서 `/doctor prompt-audit`을 돌려 지금 모델에 필요 없는 지시를 찾는다(v2.1.283 이상, [Memory 문서](https://code.claude.com/docs/en/memory) 「Audit your instruction files」, 2026-11-22 확인). 회고 때와 baseline·스킬 판을 올린 뒤 돌린다. 결과는 제안으로만 받는다. 다른 도구를 쓰면 같은 일을 손으로 한다. `AGENTS.md`, `REVIEW.md` 「코딩 기준」·「배운 규칙」, 저장소의 프롬프트·스킬 파일(예: `prompts/*.md`, `.claude/skills/`)에서 아래 셋을 찾는다.
+Claude Code에서 `/doctor prompt-audit`을 돌려 지금 모델에 필요 없는 지시를 찾는다(v2.1.283 이상, [Memory 문서](https://code.claude.com/docs/en/memory) 「Audit your instruction files」, 2026-11-22 확인). 회고 때와 baseline·스킬 판을 올린 뒤 돌린다. 결과는 제안으로만 받는다. 다른 도구를 쓰거나 audit이 보지 않은 파일이 있으면 같은 일을 손으로 한다. `AGENTS.md`, `REVIEW.md` 「코딩 기준」·「배운 규칙」, 저장소의 프롬프트·스킬 파일(예: `prompts/*.md`, `.claude/skills/`)에서 아래 셋을 찾는다.
 
 - 서로 어긋나는 규칙.
 - 린트·검사가 이미 막아 필요 없어진 규칙.
