@@ -447,6 +447,15 @@ class StopHookTests(unittest.TestCase):
         self.assertEqual(len(self.runs()), 1)
         self.assertEqual(target.read_text(), "keep")
 
+    def test_a_newline_in_a_worktree_path_does_not_forge_an_entry(self):
+        evil = self.repo.parent / "evil"
+        self.git("worktree", "add", "-q", "-b", "nl", f"{self.repo.parent}/a\nworktree {evil}")
+        (evil / ".baseline").mkdir(parents=True)
+        (evil / ".git").write_text(f"gitdir: {self.repo}/.git\n")
+        (evil / ".baseline/baseline.py").write_text(FAKE_BASELINE)
+        self.assertEqual(self.hook(cwd=evil).returncode, 0)
+        self.assertEqual(self.runs(), [])
+
     def test_git_before_2_36_still_blocks(self):
         # `git worktree list -z` needs git 2.36; this stand-in refuses it like an older git.
         bin_ = self.repo.parent / "bin"

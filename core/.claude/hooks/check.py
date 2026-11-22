@@ -68,8 +68,12 @@ def main():
     except (OSError, subprocess.CalledProcessError):
         return 0  # not a git repo
     try:
-        # No -z: it needs git 2.36, and Ubuntu 22.04 ships 2.34. A path with a newline is not matched.
-        trees = git(project, "worktree", "list", "--porcelain").splitlines()
+        try:
+            trees = git(project, "worktree", "list", "--porcelain", "-z").split(b"\0")
+        except subprocess.CalledProcessError:
+            # -z needs git 2.36 (Ubuntu 22.04 ships 2.34). Lines cannot hold a path with a newline,
+            # which could forge a `worktree` line, so this path only runs on that older git.
+            trees = git(project, "worktree", "list", "--porcelain").splitlines()
     except (OSError, subprocess.CalledProcessError) as error:
         print(f"check.py: 프로젝트의 worktree 목록을 읽지 못했다: {error}", file=sys.stderr)
         return 1

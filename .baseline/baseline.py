@@ -26,7 +26,7 @@ MANAGED = {
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
     "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
-    ".claude/hooks/check.py": {"sha256": "15468318b061dc58cdbcd4f35e5e46075d0e1025d80e51ffd4b40584c4e3d372"},
+    ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
 }
 COMMANDS = ("setup", "check", "test", "build")
 DEFAULT_COMMANDS = {
