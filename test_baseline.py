@@ -1,6 +1,7 @@
 """baseline.py v2 tests. The seam is the command line: init a temporary repo, then run the copy in .baseline/."""
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -57,6 +58,7 @@ class InitCheckTests(unittest.TestCase):
         self.init()
         written = sorted(p.relative_to(self.repo).as_posix() for p in self.repo.rglob("*") if p.is_file())
         self.assertEqual(written, [".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
+                                   ".claude/hooks/check.py", ".claude/settings.json",
                                    ".gitattributes", ".github/pull_request_template.md", "AGENTS.md", "CLAUDE.md",
                                    "REVIEW.md"])
         self.assertEqual((self.repo / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n")
@@ -287,6 +289,104 @@ class RunBudgetTests(unittest.TestCase):
         with open(self.repo / "REVIEW.md", "a", encoding="utf-8") as f:
             f.write("x" * 13000 + "\n")
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
+
+HOOK = ROOT / "core/.claude/hooks/check.py"
+# Stands in for .baseline/baseline.py: logs where `run check` ran, fails while FAIL exists.
+FAKE_BASELINE = """import os, pathlib, sys
+with open(os.environ["HOOK_LOG"], "a") as log:
+    log.write(" ".join(sys.argv[1:]) + " @ " + os.getcwd() + "\\n")
+if pathlib.Path("FAIL").exists():
+    sys.exit("check: FAIL가 있다")
+"""
+
+
+class StopHookTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name).resolve()
+        self.repo, self.log = base / "repo", base / "log"
+        self.repo.mkdir()
+        self.git("init", "-q")
+        (self.repo / ".baseline").mkdir()
+        (self.repo / ".baseline/baseline.py").write_text(FAKE_BASELINE)
+        (self.repo / "a.txt").write_text("a")
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "init")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def git(self, *args, cwd=None):
+        subprocess.run(["git", *args], cwd=cwd or self.repo, check=True, capture_output=True)
+
+    def hook(self, cwd=None, **fields):
+        data = json.dumps({"hook_event_name": "Stop", "cwd": str(cwd or self.repo), "stop_hook_active": False,
+                           **fields})
+        return subprocess.run([sys.executable, "-I", str(HOOK)], input=data, capture_output=True, text=True,
+                              env={"PATH": os.environ["PATH"], "HOOK_LOG": str(self.log)})
+
+    def runs(self):
+        return self.log.read_text().splitlines() if self.log.exists() else []
+
+    def test_passing_check_exits_0_and_runs_check_only(self):
+        result = self.hook()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.runs(), [f"run check @ {self.repo}"])
+
+    def test_failing_check_exits_2_with_the_reason_on_stderr(self):
+        (self.repo / "FAIL").write_text("")
+        result = self.hook()
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("FAIL가 있다", result.stderr)
+
+    def test_unchanged_tree_does_not_run_again(self):
+        self.assertEqual(self.hook().returncode, 0)
+        self.assertEqual(self.hook().returncode, 0)
+        self.assertEqual(len(self.runs()), 1)
+
+    def test_edit_new_file_and_commit_each_run_again(self):
+        self.hook()
+        (self.repo / "a.txt").write_text("b")
+        self.hook()
+        (self.repo / "new.txt").write_text("n")
+        self.hook()
+        (self.repo / "new.txt").write_text("m")
+        self.hook()
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "c")
+        self.hook()
+        self.assertEqual(len(self.runs()), 5)
+
+    def test_failure_is_not_remembered(self):
+        (self.repo / "FAIL").write_text("")
+        self.assertEqual(self.hook().returncode, 2)
+        self.assertEqual(self.hook().returncode, 2)
+
+    def test_stop_hook_active_does_not_block_again(self):
+        (self.repo / "FAIL").write_text("")
+        result = self.hook(stop_hook_active=True)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(self.runs(), [])
+
+    def test_worktree_runs_in_its_own_root_and_keeps_its_own_fingerprint(self):
+        tree = self.repo.parent / "tree"
+        self.git("worktree", "add", "-q", str(tree))
+        (tree / "sub").mkdir()
+        self.assertEqual(self.hook(cwd=tree / "sub").returncode, 0)
+        self.assertEqual(self.hook().returncode, 0)
+        self.assertEqual(self.runs(), [f"run check @ {tree}", f"run check @ {self.repo}"])
+        self.assertFalse(list(self.repo.glob("baseline-*")) + list(tree.glob("baseline-*")))
+
+    def test_outside_a_baseline_repo_does_nothing(self):
+        (self.repo / ".baseline/baseline.py").unlink()
+        self.assertEqual(self.hook().returncode, 0)
+        self.assertEqual(self.hook(cwd=self.repo.parent).returncode, 0)
+        self.assertEqual(self.runs(), [])
+
+    def test_bad_input_is_a_non_blocking_error(self):
+        result = subprocess.run([sys.executable, "-I", str(HOOK)], input="{", capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1)
 
 
 class SourceTests(unittest.TestCase):
