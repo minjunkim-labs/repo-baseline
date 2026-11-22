@@ -225,6 +225,15 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(".gitattributes: 없거나 일반 파일이 아니다", result.stderr)
 
+    def test_check_refuses_a_symlinked_parent_folder(self):
+        # .github/pull_request_template.md is managed; a linked .github would pass on the right bytes.
+        github = self.repo / ".github"
+        github.rename(self.repo / "gh")
+        github.symlink_to("gh")
+        result = cli("check", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn(".github/pull_request_template.md: 없거나 일반 파일이 아니다", result.stderr)
+
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])
         self.assertNotEqual(cli("run", "test", script=self.copy).returncode, 0)
@@ -254,6 +263,20 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
 
 
+    def test_budget_counts_the_reviewer_reading(self):
+        result = cli("budget", script=self.copy)
+        size = sum((self.repo / rel).stat().st_size for rel in ("AGENTS.md", "REVIEW.md"))
+        self.assertIn(f"리뷰어 읽기 {size}바이트", result.stdout)
+        (self.repo / "prompts").mkdir()
+        (self.repo / "prompts/review.md").write_bytes(b"x" * 100)
+        self.assertIn(f"리뷰어 읽기 {size + 100}바이트", cli("budget", script=self.copy).stdout)
+
+    def test_budget_fails_over_13000_reviewer_bytes(self):
+        with open(self.repo / "REVIEW.md", "a", encoding="utf-8") as f:
+            f.write("x" * 13000 + "\n")
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
+
 class SourceTests(unittest.TestCase):
     def test_embedded_hashes_match_core(self):
         import baseline as b
@@ -280,6 +303,300 @@ class SourceTests(unittest.TestCase):
         review = text.split("## Review\n", 1)[1].splitlines()
         for field in ("리뷰한 head:", "등급:", "남은 지적:"):
             self.assertEqual([line for line in review if line.startswith(field)], [field], field)
+
+
+    def test_core_reviewer_reading_fits_the_budget(self):
+        import baseline as b
+        size = sum(len((ROOT / rel).read_bytes()) for rel in ("core/AGENTS.md", "core/REVIEW.md", "prompts/review.md"))
+        self.assertLessEqual(size, b.REVIEW_BYTES)
+
+
+BOT = "dependabot[bot]"
+BASE, HEAD = "b" * 40, "c" * 40
+PR_URL = "https://github.com/o/r/pull/7"
+
+
+class FakeGitHub:
+    """Answers `gh api` like GitHub REST. Every other program call fails, and every call is kept."""
+
+    def __init__(self, base, head, author="owner", fork=False):
+        import baseline as b
+        self.b = b
+        self.calls, self.raw, self.moved = [], {}, False
+        self.author, self.fork, self.commits = author, fork, {HEAD: sorted(set(base) ^ set(head) | {
+            p for p in set(base) & set(head) if base[p] != head[p]})}
+        self.pushes = [{"actor": {"login": author}, "after": HEAD}]
+        self.patches = {}
+        for ref, files in ((BASE, base), (HEAD, head)):
+            for path, data in files.items():
+                self.raw[("o/r", path, ref)] = data
+        self.base, self.head = base, head
+
+    def files(self):
+        out = []
+        for path in sorted(set(self.base) | set(self.head)):
+            old, new = self.base.get(path), self.head.get(path)
+            if old == new:
+                continue
+            status = "added" if old is None else "removed" if new is None else "modified"
+            patch = self.patches.get(path)
+            if patch is None and old is not None and new is not None:
+                import difflib
+                patch = "".join(difflib.unified_diff(old.decode().splitlines(True), new.decode().splitlines(True), n=1))
+                patch = patch.split("\n", 2)[2] if patch else ""
+            out.append({"filename": path, "status": status, "patch": patch})
+        return out
+
+    def answer(self, path):
+        from urllib.parse import unquote, urlsplit
+        url = urlsplit(path)
+        query = dict(part.split("=", 1) for part in url.query.split("&") if part)
+        if query.get("page", "1") != "1":
+            return []
+        route = url.path
+        if route == "repos/o/r/pulls/7":
+            head = "d" * 40 if self.moved and self.calls_to(route) > 1 else HEAD
+            return {"number": 7, "user": {"login": self.author},
+                    "head": {"sha": head, "ref": "topic", "repo": {"full_name": "x/r" if self.fork else "o/r"}},
+                    "base": {"sha": BASE, "ref": "main", "repo": {"full_name": "o/r"}}}
+        if route == "repos/o/r/pulls/7/files":
+            return self.files()
+        if route == "repos/o/r/pulls/7/commits":
+            return [{"sha": sha} for sha in self.commits]
+        if route.startswith("repos/o/r/commits/"):
+            return {"files": [{"filename": p} for p in self.commits[route.rsplit("/", 1)[1]]]}
+        if route == "repos/o/r/activity":
+            return self.pushes if query.get("ref") == "topic" else []
+        raise KeyError(route)
+
+    def calls_to(self, route):
+        return sum(1 for argv in self.calls if argv[-1].split("?")[0] == route)
+
+    def run(self, argv, **kwargs):
+        from urllib.parse import unquote, urlsplit
+        self.calls.append(list(argv))
+        if argv[:2] != ["gh", "api"]:
+            return subprocess.CompletedProcess(argv, 1, b"", b"not gh api")
+        path = argv[-1]
+        if "/contents/" in path:
+            url = urlsplit(path)
+            repo, rel = url.path.split("/contents/", 1)
+            data = self.raw.get((repo.removeprefix("repos/"), unquote(rel), unquote(url.query.split("ref=", 1)[1])))
+            if data is None:
+                return subprocess.CompletedProcess(argv, 1, b"", b"gh: Not Found (HTTP 404)\n")
+            return subprocess.CompletedProcess(argv, 0, data, b"")
+        try:
+            return subprocess.CompletedProcess(argv, 0, json.dumps(self.answer(path)).encode(), b"")
+        except KeyError:
+            return subprocess.CompletedProcess(argv, 1, b"", b"gh: Not Found (HTTP 404)\n")
+
+
+def core_tree():
+    import baseline as b
+    tree = {rel: (ROOT / "core" / rel).read_bytes() for rel in b.MANAGED}
+    tree[".baseline/baseline.py"] = (ROOT / "baseline.py").read_bytes()
+    tree[".baseline/baseline.json"] = b.dump_json({"version": b.VERSION, "profiles": [], "managed": b.MANAGED})
+    tree["README.md"] = b"# r\n"
+    return tree
+
+
+class PreflightTests(unittest.TestCase):
+    def preflight(self, gh, *extra):
+        import baseline as b
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        out, err = StringIO(), StringIO()
+        with mock.patch.object(b.subprocess, "run", gh.run), redirect_stdout(out), redirect_stderr(err):
+            code = b.main(["review-preflight", PR_URL, "--json", *extra])
+        report = json.loads(out.getvalue()) if out.getvalue() else None
+        return code, report, err.getvalue()
+
+    def grade(self, head_changes, base=None, **kwargs):
+        base = base or core_tree()
+        head = dict(base, **head_changes)
+        for path in [p for p, v in head.items() if v is None]:
+            del head[path]
+        code, report, err = self.preflight(FakeGitHub(base, head, **kwargs))
+        self.assertEqual(code, 0, err)
+        return report["grade"], report["reasons"]
+
+    def test_docs_only_is_docs(self):
+        self.assertEqual(self.grade({"README.md": b"# r2\n", "docs/a.md": b"a\n"})[0], "문서")
+
+    def test_instructions_prompts_and_skills_are_not_docs(self):
+        tree = core_tree()
+        cases = {
+            "AGENTS.md": tree["AGENTS.md"] + b"\nmore\n",
+            "sub/CLAUDE.md": b"x\n",
+            "prompts/review.md": b"x\n",
+            "skills/tdd/SKILL.md": b"x\n",
+            "notes/SKILL.md": b"x\n",
+        }
+        for path, data in cases.items():
+            self.assertEqual(self.grade({path: data})[0], "쉬움", path)
+
+    def test_managed_files_and_sensitive_paths_are_hard(self):
+        tree = core_tree()
+        cases = {
+            ".github/pull_request_template.md": tree[".github/pull_request_template.md"] + b"x\n",
+            "REVIEW.md": tree["REVIEW.md"].replace(b"## \xec\x9e\x85\xeb\xa0\xa5", b"## x"),
+            ".github/workflows/ci.yml": b"x\n",
+            ".claude/skills/tdd/SKILL.md": b"x\n",
+            ".baseline/commands.json": b"{}\n",
+            "app/package.json": b"{}\n",
+            ".mcp.json": b"{}\n",
+            ".mise.toml": b"x\n",
+        }
+        for path, data in cases.items():
+            grade, reasons = self.grade({path: data})
+            self.assertEqual(grade, "어려움", path)
+            self.assertTrue(any(path in reason for reason in reasons), (path, reasons))
+
+    def test_a_managed_block_counts_and_the_project_cells_do_not(self):
+        tree = core_tree()
+        agents = tree["AGENTS.md"]
+        self.assertEqual(self.grade({"AGENTS.md": agents.replace("한 줄로".encode(), b"x")})[0], "쉬움")
+        self.assertEqual(self.grade({"AGENTS.md": agents.replace("고치지 않는다".encode(), b"x")})[0], "어려움")
+        self.assertEqual(self.grade({"AGENTS.md": agents.replace(b"<!-- baseline:end -->\n", b"")})[0], "어려움")
+
+    def test_grade_inputs_come_from_base(self):
+        tree = core_tree()
+        listed = tree["REVIEW.md"].replace("- 아직 없음.\n\n## 코딩".encode(), "- `src/auth/**` 인증\n\n## 코딩".encode())
+        base = dict(tree, **{"REVIEW.md": listed})
+        self.assertEqual(self.grade({"src/auth/a.py": b"x\n"}, base=base)[0], "어려움")
+        # Removing the line in the same PR does not lower the grade, and the removal itself is hard.
+        self.assertEqual(self.grade({"REVIEW.md": tree["REVIEW.md"], "src/auth/a.py": b"x\n"}, base=base)[0],
+                         "어려움")
+        self.assertEqual(self.grade({"REVIEW.md": tree["REVIEW.md"]}, base=base)[0], "어려움")
+        # A sensitive path the PR itself lists counts only from the next PR on.
+        self.assertEqual(self.grade({"REVIEW.md": listed})[0], "쉬움")
+
+    def test_widening_the_standing_instruction_is_hard(self):
+        agents = core_tree()["AGENTS.md"]
+        line = "- 상시 지시: 문서·쉬움 PR은".encode()
+        self.assertEqual(self.grade({"AGENTS.md": agents.replace(line, "- 상시 지시: 모든 PR은".encode())})[0],
+                         "어려움")
+        removed = b"".join(l for l in agents.splitlines(True) if not l.startswith(line))
+        self.assertEqual(self.grade({"AGENTS.md": removed})[0], "쉬움")
+
+    def test_uses_rest_only(self):
+        tree = core_tree()
+        gh = FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}))
+        self.assertEqual(self.preflight(gh)[0], 0)
+        self.assertTrue(gh.calls)
+        for argv in gh.calls:
+            self.assertEqual(argv[:2], ["gh", "api"], argv)
+            self.assertFalse(any("graphql" in arg.lower() for arg in argv), argv)
+
+    def test_env_names_in_any_commit_stop_the_review(self):
+        tree = core_tree()
+        gh = FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}))
+        gh.commits["e" * 40] = ["app/.env"]
+        code, report, _ = self.preflight(gh)
+        self.assertEqual(code, 1)
+        self.assertEqual(report["secret_hits"], ["app/.env"])
+        self.assertIsNone(report["diff_argv"])
+
+    def test_head_moving_during_the_run_fails(self):
+        tree = core_tree()
+        gh = FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}))
+        gh.moved = True
+        code, report, err = self.preflight(gh)
+        self.assertEqual(code, 2)
+        self.assertIsNone(report)
+        self.assertIn("head", err)
+
+    def test_fork_and_diff_command(self):
+        tree = core_tree()
+        code, report, _ = self.preflight(FakeGitHub(tree, dict(tree, **{"docs/a.md": b"a\n"}), fork=True))
+        self.assertEqual(code, 0)
+        self.assertTrue(report["fork"])
+        self.assertEqual(report["diff_argv"], ["git", "diff", f"{BASE}...{HEAD}", "--", ".", ":!.env*", ":!**/.env*"])
+
+    # upgrade exception
+
+    def upgrade(self, version="2.0.1", tag_core=None, extra=None, tag_version=None):
+        """Base is this core; head is the core of a tag whose AGENTS.md block says `tag_core`."""
+        import baseline as b
+        base = core_tree()
+        agents = base["AGENTS.md"].replace("고치지 않는다".encode(), (tag_core or "고치지 않는다2").encode())
+        managed = dict(b.MANAGED, **{"AGENTS.md": {"block_sha256": b.digest(agents, "block_sha256")}})
+        source = base[".baseline/baseline.py"].decode()
+        source = source.replace(f'VERSION = "{b.VERSION}"', f'VERSION = "{tag_version or version}"')
+        source = source.replace(b.MANAGED["AGENTS.md"]["block_sha256"], managed["AGENTS.md"]["block_sha256"])
+        head = dict(base, **{"AGENTS.md": agents, ".baseline/baseline.py": source.encode(),
+                             ".baseline/baseline.json": b.dump_json({"version": version, "profiles": [],
+                                                                     "managed": managed})})
+        gh = FakeGitHub(base, dict(head, **(extra or {})))
+        gh.raw[(b.BASELINE_REPO, "baseline.py", f"v{version}")] = source.encode()
+        code, report, err = self.preflight(gh)
+        self.assertEqual(code, 0, err)
+        return report["grade"], report["reasons"]
+
+    def test_upgrade_with_the_tag_bytes_is_easy(self):
+        self.assertEqual(self.upgrade()[0], "쉬움")
+
+    def test_upgrade_with_a_different_byte_is_hard(self):
+        base = core_tree()
+        changed = base["AGENTS.md"].replace("고치지 않는다".encode(), "고치지 않는다3".encode())
+        self.assertEqual(self.upgrade(extra={"AGENTS.md": changed})[0], "어려움")
+        self.assertEqual(self.upgrade(extra={".baseline/baseline.py": b"x\n"})[0], "어려움")
+
+    def test_upgrade_with_project_cells_or_other_files_is_hard(self):
+        tree = core_tree()
+        agents = tree["AGENTS.md"].replace("고치지 않는다".encode(), "고치지 않는다2".encode())
+        self.assertEqual(self.upgrade(extra={"AGENTS.md": agents.replace("한 줄로".encode(), b"x")})[0], "어려움")
+        self.assertEqual(self.upgrade(extra={"src/app.py": b"x\n"})[0], "어려움")
+        self.assertEqual(self.upgrade(extra={".baseline/commands.json": b"{}\n"})[0], "어려움")
+
+    def test_upgrade_without_the_tag_is_hard(self):
+        import baseline as b
+        tree = core_tree()
+        head = dict(tree, **{".baseline/baseline.json": b.dump_json({"version": "9.9.9", "profiles": [],
+                                                                     "managed": b.MANAGED})})
+        code, report, _ = self.preflight(FakeGitHub(tree, head))
+        self.assertEqual((code, report["grade"]), (0, "어려움"))
+
+    # Dependabot exception
+
+    def bump(self, old, new, author=BOT, pushers=(BOT,), path="package-lock.json"):
+        base = dict(core_tree(), **{path: old.encode()})
+        gh = FakeGitHub(base, dict(base, **{path: new.encode()}), author=author)
+        gh.pushes = [{"actor": {"login": login}, "after": HEAD if i == 0 else "f" * 40}
+                     for i, login in enumerate(pushers)]
+        code, report, err = self.preflight(gh)
+        self.assertEqual(code, 0, err)
+        return report["grade"], report["reasons"]
+
+    LOCK = ('{\n  "packages": {\n    "node_modules/a": {\n      "version": "1.2.3",\n'
+            '      "integrity": "sha512-AAAA=="\n    }\n  }\n}\n')
+
+    def test_dependabot_minor_and_patch_is_easy(self):
+        new = self.LOCK.replace("1.2.3", "1.3.0").replace("sha512-AAAA==", "sha512-BBBB==")
+        self.assertEqual(self.bump(self.LOCK, new)[0], "쉬움")
+
+    def test_dependabot_major_is_hard(self):
+        self.assertEqual(self.bump(self.LOCK, self.LOCK.replace("1.2.3", "2.0.0"))[0], "어려움")
+
+    def test_dependabot_new_dependency_is_hard(self):
+        new = self.LOCK.replace('    "node_modules/a"', '    "node_modules/b": {\n      "version": "1.0.0"\n    },\n'
+                                '    "node_modules/a"')
+        self.assertEqual(self.bump(self.LOCK, new)[0], "어려움")
+
+    def test_dependabot_change_outside_versions_is_hard(self):
+        new = self.LOCK.replace("1.2.3", "1.2.4").replace('"version"', '"resolved": "https://x", "version"')
+        self.assertEqual(self.bump(self.LOCK, new)[0], "어려움")
+        self.assertEqual(self.bump("a\n", "b\n", path="src/app.py")[0], "쉬움")  # not the exception: general rules
+
+    def test_dependabot_pushed_by_someone_else_is_hard(self):
+        new = self.LOCK.replace("1.2.3", "1.2.4")
+        self.assertEqual(self.bump(self.LOCK, new, pushers=(BOT, "owner"))[0], "어려움")
+        self.assertEqual(self.bump(self.LOCK, new, pushers=())[0], "어려움")
+
+    def test_dependabot_is_the_pr_author_login_not_a_git_name(self):
+        new = self.LOCK.replace("1.2.3", "1.2.4")
+        self.assertEqual(self.bump(self.LOCK, new, author="owner")[0], "어려움")
 
 
 if __name__ == "__main__":

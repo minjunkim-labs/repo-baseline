@@ -4,12 +4,16 @@ Python 3.9+ standard library only. Run with `python3 -I`. In a consumer repo eve
 runs from the pinned copy `.baseline/baseline.py`.
 """
 import argparse
+import ast
+import fnmatch
 import hashlib
 import json
 from pathlib import Path
+import re
 import shlex
 import subprocess
 import sys
+from urllib.parse import quote
 
 VERSION = "2.0.0-dev"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
@@ -32,13 +36,39 @@ DEFAULT_COMMANDS = {
 # Shell syntax only through `sh -c`, so every command runs the same on macOS, Linux and WSL2.
 OTHER_SHELLS = {"bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh"}
 BUDGET_LINES, BUDGET_BYTES = 60, 4000
+# What an easy-PR reviewer reads before the diff. prompts/review.md lives in repo-baseline only.
+REVIEW_READ, REVIEW_BYTES = ("AGENTS.md", "REVIEW.md", "prompts/review.md"), 13000
 MAX_READ = 1 << 20
 
+# review-preflight
+BASELINE_REPO, TAG = "minjunkim-labs/repo-baseline", "v{}"
+BOT = "dependabot[bot]"
+INSTRUCTIONS = {"AGENTS.MD", "CLAUDE.MD", "REVIEW.MD"}
+DOC_SUFFIXES = (".md", ".mdx", ".rst", ".txt", ".adoc")
+AGENT_DIRS = {".claude", ".agents", ".codex", ".cursor"}
+# shortcut: common manifest and lockfile names only; add a name when a repo's Dependabot touches another.
+MANIFESTS = {
+    "package.json", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml", "bun.lock",
+    "pyproject.toml", "poetry.lock", "uv.lock", "Pipfile", "Pipfile.lock", "setup.py", "setup.cfg",
+    "Gemfile", "Gemfile.lock", "go.mod", "go.sum", "Cargo.toml", "Cargo.lock", "composer.json", "composer.lock",
+    "pom.xml", "build.gradle", "build.gradle.kts", "gradle.lockfile", "libs.versions.toml",
+    "gradle-wrapper.properties", "Package.swift", "Package.resolved", "Podfile", "Podfile.lock",
+    "pubspec.yaml", "pubspec.lock", "mix.exs", "mix.lock", "packages.lock.json", "Directory.Packages.props",
+}
+HASH_RE = re.compile(r"\b[0-9a-f]{32,}\b|sha(?:1|256|384|512)-[A-Za-z0-9+/]+=*")
+VERSION_RE = re.compile(r"\d+(?:\.\d+)+")
 
-def read_file(path):
+
+def read_file(root, rel):
     """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
-    git ignores a symlinked .gitattributes, and a link to /dev/zero never ends."""
-    if path.is_symlink() or not path.is_file():
+    No symlink anywhere on the way: git ignores a symlinked .gitattributes, a linked .github moves the
+    PR template, and a link to /dev/zero never ends."""
+    path = root
+    for part in Path(rel).parts:
+        path = path / part
+        if path.is_symlink():
+            raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
+    if not path.is_file():
         raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
     with path.open("rb") as f:
         data = f.read(MAX_READ + 1)
@@ -94,7 +124,7 @@ def command_line(name, value):
 def load_commands(root):
     """(commands, problems). Problems are messages; commands is None when the file is unusable."""
     try:
-        commands = json.loads(read_file(root / ".baseline/commands.json"))
+        commands = json.loads(read_file(root, ".baseline/commands.json"))
     except (OSError, ValueError) as error:
         return None, [f"commands.json을 읽지 못했다: {error}"]
     if not isinstance(commands, dict):
@@ -143,7 +173,7 @@ def cmd_check(args):
     root = repo_root()
     problems = []
     try:
-        recorded = json.loads(read_file(root / ".baseline/baseline.json"))
+        recorded = json.loads(read_file(root, ".baseline/baseline.json"))
     except (OSError, ValueError) as error:
         problems.append(f"baseline.json을 읽지 못했다: {error}")
     else:
@@ -156,7 +186,7 @@ def cmd_check(args):
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
         try:
-            got = digest(read_file(root / rel), kind)
+            got = digest(read_file(root, rel), kind)
         except OSError as error:
             problems.append(f"{rel}: {error}")
             continue
@@ -168,7 +198,7 @@ def cmd_check(args):
     problems += command_problems
     if commands is not None:
         try:
-            lines = read_file(root / "AGENTS.md").decode("utf-8").splitlines()
+            lines = read_file(root, "AGENTS.md").decode("utf-8").splitlines()
         except (OSError, ValueError):
             lines = []
         for name in COMMANDS:
@@ -207,15 +237,322 @@ def cmd_run(args):
 
 
 def cmd_budget(args):
-    try:
-        data = read_file(repo_root() / "AGENTS.md")
-    except OSError as error:
-        sys.exit(f"budget: AGENTS.md: {error}")
+    root = repo_root()
+    read = {}
+    for rel in REVIEW_READ:
+        if rel.startswith("prompts/") and not (root / rel).exists() and not (root / rel).is_symlink():
+            continue
+        try:
+            read[rel] = read_file(root, rel)
+        except OSError as error:
+            sys.exit(f"budget: {rel}: {error}")
+    data = read["AGENTS.md"]
     lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+    reviewer = sum(map(len, read.values()))
     print(f"budget: AGENTS.md {lines}줄(상한 {BUDGET_LINES}), {len(data)}바이트(상한 {BUDGET_BYTES})")
-    if lines > BUDGET_LINES or len(data) > BUDGET_BYTES:
+    print(f"budget: 리뷰어 읽기 {reviewer}바이트(상한 {REVIEW_BYTES}): {', '.join(read)}")
+    if lines > BUDGET_LINES or len(data) > BUDGET_BYTES or reviewer > REVIEW_BYTES:
         print("budget: 상한을 넘었다", file=sys.stderr)
         return 1
+    return 0
+
+
+def gh_api(path, raw=False):
+    """GitHub REST through `gh api`. Never GraphQL: the cloud sessions' proxy blocks it.
+    raw returns file bytes, or None when the file is not there."""
+    accept = "application/vnd.github.raw+json" if raw else "application/vnd.github+json"
+    result = subprocess.run(["gh", "api", "-H", f"Accept: {accept}", path], capture_output=True)
+    if result.returncode:
+        if raw and b"(HTTP 404)" in result.stderr:
+            return None
+        raise OSError(f"gh api {path}: {result.stderr.decode('utf-8', 'replace').strip()}")
+    if len(result.stdout) > MAX_READ * 32:
+        raise OSError(f"gh api {path}: 응답이 너무 크다")
+    if raw:
+        if len(result.stdout) > MAX_READ:
+            raise OSError(f"{path}: {MAX_READ}바이트를 넘는다")
+        return result.stdout
+    return json.loads(result.stdout)
+
+
+def pages(path, key=None):
+    """Every item of a paginated REST list (key: the list inside an object response)."""
+    items, page = [], 1
+    while True:
+        data = gh_api(f"{path}{'&' if '?' in path else '?'}per_page=100&page={page}")
+        chunk = data.get(key) if key else data
+        if not isinstance(chunk, list):
+            raise ValueError(f"{path}: 목록이 아니다")
+        items += chunk
+        if len(chunk) < 100:
+            return items
+        page += 1
+
+
+def contents(repo, rel, ref):
+    return gh_api(f"repos/{repo}/contents/{quote(rel)}?ref={quote(ref)}", raw=True)
+
+
+def secret_names(paths):
+    """(hits, examples): any folder or file name starting with .env is a hit, except .env.example files."""
+    hits, examples = set(), set()
+    for path in paths:
+        *folders, name = path.split("/")
+        if any(f.startswith(".env") for f in folders) or (name.startswith(".env") and name != ".env.example"):
+            hits.add(path)
+        elif name == ".env.example":
+            examples.add(path)
+    return sorted(hits), sorted(examples)
+
+
+def is_manifest(name):
+    return name in MANIFESTS or fnmatch.fnmatchcase(name, "requirements*.txt") or name.endswith(".csproj")
+
+
+def is_sensitive(path, patterns):
+    parts = path.split("/")
+    return (path.startswith((".github/", ".baseline/")) or parts[-1] in {".mcp.json", ".mise.toml", "CODEOWNERS"}
+            or any(part in AGENT_DIRS for part in parts) or is_manifest(parts[-1])
+            or any(path.startswith(p.rstrip("*")) if p.endswith(("/", "/**")) else fnmatch.fnmatchcase(path, p)
+                   for p in patterns))
+
+
+def is_doc(path):
+    name = path.rsplit("/", 1)[-1]
+    return (name.endswith(DOC_SUFFIXES) and name.upper() not in INSTRUCTIONS and name != "SKILL.md"
+            and path not in MANAGED and not path.startswith("prompts/") and "skills" not in path.split("/"))
+
+
+def outside(data):
+    """The bytes around the managed block, which the project writes."""
+    if data is None or block(data) is None:
+        return data
+    lines = data.splitlines(keepends=True)
+    return b"".join(lines[:lines.index(START) + 1] + lines[lines.index(END):])
+
+
+def section(data, title):
+    """Non-empty lines of a `## title` section outside the managed block."""
+    found, inside = [], False
+    for line in (outside(data) or b"").decode("utf-8", "replace").splitlines():
+        if line.startswith("## "):
+            inside = line == f"## {title}"
+        elif inside and line.strip():
+            found.append(line.strip())
+    return found
+
+
+def sensitive_patterns(review):
+    """The `path` globs listed in REVIEW.md 「민감한 파일」."""
+    return [p for line in section(review, "민감한 파일") if line.startswith("- ")
+            for p in re.findall(r"`([^`]+)`", line)]
+
+
+def embedded_managed(source):
+    """MANAGED of a baseline.py, read with ast. The tag's code is never run."""
+    try:
+        tree = ast.parse(source)
+    except (SyntaxError, ValueError):
+        return None
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and [getattr(t, "id", None) for t in node.targets] == ["MANAGED"]:
+            try:
+                value = ast.literal_eval(node.value)
+            except ValueError:
+                return None
+            if isinstance(value, dict) and all(isinstance(v, dict) and len(v) == 1 and
+                                               next(iter(v)) in ("sha256", "block_sha256") for v in value.values()):
+                return value
+    return None
+
+
+def upgrade_problem(paths, old, new):
+    """None when every changed path holds the bytes recorded by the baseline tag that the PR's
+    baseline.json names. old/new read a path at base/head."""
+    try:
+        before, after = json.loads(old(".baseline/baseline.json") or b""), json.loads(new(".baseline/baseline.json") or b"")
+    except ValueError:
+        return "baseline.json을 읽지 못했다"
+    if not isinstance(before, dict) or not isinstance(after, dict) or not isinstance(after.get("version"), str):
+        return "baseline.json이 객체가 아니거나 판이 없다"
+    tag = TAG.format(after["version"])
+    source = contents(BASELINE_REPO, "baseline.py", tag)
+    managed = embedded_managed(source) if source is not None else None
+    if managed is None:
+        return f"{BASELINE_REPO}의 태그 {tag}에서 baseline.py의 관리 해시를 읽지 못했다"
+    want = {".baseline/baseline.py": source,
+            ".baseline/baseline.json": dump_json(dict(before, version=after["version"], managed=managed))}
+    for path in sorted(paths):
+        data = new(path)
+        if path in want:
+            same = data == want[path]
+        elif path in managed and data is not None:
+            (kind, hash_), = managed[path].items()
+            same = digest(data, kind) == hash_ and (kind == "sha256" or outside(data) == outside(old(path)))
+        else:
+            same = False
+        if not same:
+            return f"{path}: 태그 {tag}의 기록과 다르다"
+    return None
+
+
+def bump_problem(patch):
+    """None when each changed line only swaps a version or a hash and no major version changes."""
+    if not patch:
+        return "diff가 없다(바이너리이거나 너무 크다)"
+    removed, added = [], []
+
+    def pair():
+        if len(removed) != len(added):
+            return "더하거나 지운 줄이 있다(새 의존성 등)"
+        for old, new in zip(removed, added):
+            old, new = HASH_RE.sub("#", old), HASH_RE.sub("#", new)
+            before, after = VERSION_RE.findall(old), VERSION_RE.findall(new)
+            if VERSION_RE.sub("V", old) != VERSION_RE.sub("V", new) or len(before) != len(after):
+                return f"버전·해시 밖의 변경: {new.strip()}"
+            if any(a.split(".")[0] != b.split(".")[0] for a, b in zip(before, after)):
+                return f"major 업데이트: {new.strip()}"
+        removed.clear()
+        added.clear()
+        return None
+
+    for line in patch.splitlines() + [""]:
+        if line.startswith("-") and not added:
+            removed.append(line[1:])
+            continue
+        if line.startswith("+"):
+            added.append(line[1:])
+            continue
+        problem = pair()
+        if problem:
+            return problem
+        if line.startswith("-"):
+            removed.append(line[1:])
+    return None
+
+
+def dependabot_problem(repo, pr, fork, files):
+    """None when the PR author login and every push to the head branch are dependabot[bot] (git author
+    names are free text, so they do not count) and the PR only bumps minor or patch versions."""
+    if pr["user"]["login"] != BOT:
+        return f"작성자가 {BOT}이 아니다"
+    if fork:
+        return "fork PR이다"
+    pushes = pages(f"repos/{repo}/activity?ref={quote(pr['head']['ref'], safe='')}")
+    if not any(p.get("after") == pr["head"]["sha"] for p in pushes) or any(
+            (p.get("actor") or {}).get("login") != BOT for p in pushes):
+        return f"head 브랜치에 {BOT}이 아닌 push가 있거나 head를 push한 기록이 없다"
+    for f in files:
+        name = f["filename"].rsplit("/", 1)[-1]
+        if not is_manifest(name) or f.get("status") != "modified":
+            return f"{f['filename']}: manifest·lockfile 수정이 아니다"
+        problem = bump_problem(f.get("patch"))
+        if problem:
+            return f"{f['filename']}: {problem}"
+    return None
+
+
+def pr_target(pr, remote):
+    match = re.fullmatch(r"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)/?", pr)
+    if match:
+        return match.group(1), match.group(2)
+    if not pr.isdigit():
+        raise ValueError("PR은 번호나 https://github.com/<owner>/<repo>/pull/<번호>다")
+    url = subprocess.run(["git", "remote", "get-url", remote], capture_output=True, text=True).stdout.strip()
+    match = re.search(r"github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?/?$", url)
+    if not match:
+        raise ValueError(f"remote {remote}가 GitHub 저장소가 아니다: {url!r}")
+    return match.group(1), pr
+
+
+def preflight(repo, number, remote):
+    """The report, or None when the head moved during the run."""
+    pr = gh_api(f"repos/{repo}/pulls/{number}")
+    head, base = pr["head"]["sha"], pr["base"]["sha"]
+    fork = (pr["head"].get("repo") or {}).get("full_name") != pr["base"]["repo"]["full_name"]
+    files = pages(f"repos/{repo}/pulls/{number}/files")
+    commits = pages(f"repos/{repo}/pulls/{number}/commits")
+    if len(files) >= 3000 or len(commits) >= 250:
+        raise OSError("REST가 보여 주는 한도(파일 3000개, 커밋 250개)에 닿아 다 볼 수 없다")
+    paths = {p for f in files for p in (f["filename"], f.get("previous_filename")) if p}
+    names = set(paths)
+    for commit in commits:  # a .env added and renamed inside the PR shows only in its commit
+        names |= {p for f in pages(f"repos/{repo}/commits/{commit['sha']}", "files")
+                  for p in (f["filename"], f.get("previous_filename")) if p}
+    hits, examples = secret_names(names)
+    report = {"pr": int(number), "fork": fork, "head": head, "base": base, "branch": pr["head"]["ref"],
+              "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
+              "fetch_argv": None, "diff_argv": None}
+    if not hits:
+        # Grade inputs come from base: the PR cannot list itself out of the sensitive paths.
+        cache = {}
+
+        def read(ref):
+            def get(rel):
+                if (rel, ref) not in cache:
+                    cache[rel, ref] = contents(repo, rel, ref)
+                return cache[rel, ref]
+            return get
+        old, new = read(base), read(head)
+        patterns = sensitive_patterns(old("REVIEW.md"))
+        reasons = [f"민감한 파일: {p}" for p in sorted(paths) if is_sensitive(p, patterns)]
+        for rel, spec in MANAGED.items():
+            (kind, _), = spec.items()
+            if rel in paths and (kind == "sha256" or old(rel) is None or new(rel) is None
+                                 or block(old(rel)) != block(new(rel))):
+                reasons.append(f"관리 {'블록' if kind == 'block_sha256' else '파일'}: {rel}")
+        if "AGENTS.md" in paths:
+            before = set((old("AGENTS.md") or b"").decode("utf-8", "replace").splitlines())
+            if any(("enqueue" in line or "상시 지시" in line) and line not in before
+                   for line in (new("AGENTS.md") or b"").decode("utf-8", "replace").splitlines()):
+                reasons.append("상시 지시 줄을 만들거나 바꿨다: AGENTS.md")
+        if "REVIEW.md" in paths and set(patterns) - set(sensitive_patterns(new("REVIEW.md"))):
+            reasons.append("「민감한 파일」 경로를 지웠다: REVIEW.md")
+        exceptions = []
+        if reasons and ".baseline/baseline.json" in paths:
+            exceptions.append(("upgrade", upgrade_problem(paths, old, new)))
+        if reasons and pr["user"]["login"] == BOT:
+            exceptions.append(("Dependabot", dependabot_problem(repo, pr, fork, files)))
+        passed = [name for name, problem in exceptions if problem is None]
+        if passed:
+            report["grade"], reasons = "쉬움", [f"{passed[0]} 예외"]
+        else:
+            report["grade"] = "어려움" if reasons else "문서" if all(map(is_doc, paths)) else "쉬움"
+            reasons += [f"{name} 예외 아님: {problem}" for name, problem in exceptions]
+        report["reasons"] = reasons
+        report["fetch_argv"] = ["git", "fetch", "--no-tags", remote, base,
+                                f"+refs/pull/{number}/head:refs/review-preflight/{remote}/pr/{number}"]
+        report["diff_argv"] = ["git", "diff", f"{base}...{head}", "--", ".", ":!.env*", ":!**/.env*"]
+    if gh_api(f"repos/{repo}/pulls/{number}")["head"]["sha"] != head:
+        return None
+    return report
+
+
+def cmd_review_preflight(args):
+    try:
+        report = preflight(*pr_target(args.pr, args.remote), args.remote)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"review-preflight: 실행 실패: {error}", file=sys.stderr)
+        return 2
+    if report is None:
+        print("review-preflight: head가 실행 중에 바뀌었다. 다시 실행한다.", file=sys.stderr)
+        return 2
+    code = 1 if report["secret_hits"] else 0
+    if args.json:
+        print(json.dumps(report))  # ASCII only, so a non-UTF-8 stdout cannot fail after the checks
+        return code
+    print(f"PR: {report['pr']}  fork: {'예' if report['fork'] else '아니요'}  branch: {report['branch']}")
+    print(f"head: {report['head']}")
+    print(f"base: {report['base']}")
+    print("미검토(.env.example): " + (", ".join(report["unreviewed_examples"]) or "없음"))
+    if code:
+        print("리뷰 미완(비밀값 파일): " + ", ".join(report["secret_hits"]))
+        return code
+    print(f"등급: {report['grade']}")
+    for reason in report["reasons"]:
+        print(f"이유: {reason}")
+    print("fetch: " + shlex.join(report["fetch_argv"]))
+    print("diff: " + shlex.join(report["diff_argv"]) + "  (저장소 루트에서)")
     return 0
 
 
@@ -225,9 +562,14 @@ def main(argv=None):
     sub.add_parser("init", help="빈 저장소에 코어를 복사한다").add_argument("path")
     sub.add_parser("check", help="관리 파일·블록과 명령 칸이 이 판과 같은지 본다")
     sub.add_parser("run", help="commands.json의 명령을 돌린다").add_argument("name", choices=COMMANDS)
-    sub.add_parser("budget", help="AGENTS.md의 줄 수와 바이트를 잰다")
+    sub.add_parser("budget", help="AGENTS.md와 리뷰어가 읽는 글의 크기를 잰다")
+    preflight_parser = sub.add_parser("review-preflight", help="REST로 PR의 등급과 리뷰 전 확인을 출력한다")
+    preflight_parser.add_argument("pr", help="PR URL 또는 번호")
+    preflight_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
+    preflight_parser.add_argument("--json", action="store_true", help="JSON 한 개로 출력한다")
     args = parser.parse_args(argv)
-    return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget}[args.command](args)
+    return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget,
+            "review-preflight": cmd_review_preflight}[args.command](args)
 
 
 if __name__ == "__main__":
