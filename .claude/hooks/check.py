@@ -64,13 +64,18 @@ def main():
         # but only run the project's own code: the root must be one of the project's worktrees.
         # A hand-made `.git` file pointing at the project's git dir is not in that list.
         root = git(cwd, "rev-parse", "--show-toplevel").decode().rstrip("\n")
-        trees = git(project, "worktree", "list", "--porcelain", "-z").split(b"\0")
-        if os.path.realpath(root) not in {os.path.realpath(os.fsdecode(t[9:])) for t in trees
-                                          if t.startswith(b"worktree ")}:
-            return 0
         stamp = Path(git(cwd, "rev-parse", "--absolute-git-dir").decode().rstrip("\n")) / "baseline-check"
     except (OSError, subprocess.CalledProcessError):
         return 0  # not a git repo
+    try:
+        # No -z: it needs git 2.36, and Ubuntu 22.04 ships 2.34. A path with a newline is not matched.
+        trees = git(project, "worktree", "list", "--porcelain").splitlines()
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"check.py: 프로젝트의 worktree 목록을 읽지 못했다: {error}", file=sys.stderr)
+        return 1
+    if os.path.realpath(root) not in {os.path.realpath(os.fsdecode(t[9:])) for t in trees
+                                      if t.startswith(b"worktree ")}:
+        return 0
     script = Path(root) / ".baseline/baseline.py"
     if not script.is_file():
         return 0

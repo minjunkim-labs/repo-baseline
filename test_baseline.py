@@ -322,10 +322,10 @@ class StopHookTests(unittest.TestCase):
     def git(self, *args, cwd=None):
         subprocess.run(["git", *args], cwd=cwd or self.repo, check=True, capture_output=True)
 
-    def hook(self, cwd=None, project=None, writes=False, **fields):
+    def hook(self, cwd=None, project=None, writes=False, path=None, **fields):
         data = json.dumps({"hook_event_name": "Stop", "cwd": str(cwd or self.repo), "stop_hook_active": False,
                            **fields})
-        env = {"PATH": os.environ["PATH"], "HOOK_LOG": str(self.log), "CLAUDE_PROJECT_DIR": "" if project == "" else str(project or self.repo),
+        env = {"PATH": path or os.environ["PATH"], "HOOK_LOG": str(self.log), "CLAUDE_PROJECT_DIR": "" if project == "" else str(project or self.repo),
                "CHECK_WRITES": "1" if writes else ""}
         return subprocess.run([sys.executable, "-I", str(HOOK)], input=data, capture_output=True, text=True,
                               env={k: v for k, v in env.items() if v})
@@ -446,6 +446,20 @@ class StopHookTests(unittest.TestCase):
         self.hook()
         self.assertEqual(len(self.runs()), 1)
         self.assertEqual(target.read_text(), "keep")
+
+    def test_git_before_2_36_still_blocks(self):
+        # `git worktree list -z` needs git 2.36; this stand-in refuses it like an older git.
+        bin_ = self.repo.parent / "bin"
+        bin_.mkdir()
+        real = subprocess.run(["git", "--exec-path"], capture_output=True, text=True).stdout.strip() + "/git"
+        (bin_ / "git").write_text(f'#!/bin/sh\ncase " $* " in *" worktree "*" -z "*) exit 129;; esac\nexec "{real}" "$@"\n')
+        (bin_ / "git").chmod(0o755)
+        (self.repo / "FAIL").write_text("")
+        self.assertEqual(self.hook(path=f"{bin_}:{os.environ['PATH']}").returncode, 2)
+
+    def test_a_project_without_git_is_a_non_blocking_error(self):
+        self.assertEqual(self.hook(project=self.repo.parent).returncode, 1)
+        self.assertEqual(self.runs(), [])
 
     def test_bad_input_is_a_non_blocking_error(self):
         result = subprocess.run([sys.executable, "-I", str(HOOK)], input="{", capture_output=True, text=True)
