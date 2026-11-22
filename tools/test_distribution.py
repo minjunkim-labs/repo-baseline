@@ -82,6 +82,11 @@ class DistributionTests(unittest.TestCase):
     def test_policy_stays_one_page(self):
         self.assertLessEqual(len((ROOT / "POLICY.md").read_text(encoding="utf-8")), 10000)
 
+    def test_policy_has_no_pipeline_standing_path(self):
+        text = (ROOT / "POLICY.md").read_text(encoding="utf-8")
+        for word in ("repo-office", "파이프라인", "stages.json", "sync_consumers"):
+            self.assertNotIn(word, text)
+
     def test_relative_links_resolve(self):
         missing = []
         for path in docs():

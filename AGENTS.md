@@ -33,7 +33,7 @@
 - `POLICY.md`를 따른다. 기준 브랜치는 `main` 하나, 병합은 squash다. 에이전트는 §5의 조건을 만족하는 되돌리기 쉬움 PR만, 소유자가 지시할 때 병합한다.
 - 시작 전에 완료 기준을 정하고 PR 본문 Summary에 적는다. 완료 주장은 위 test 명령의 실제 출력이다.
 - PR 본문은 `.github/pull_request_template.md`를, 리뷰와 회고는 `prompts/review.md`·`prompts/retro.md`를 따른다. PR 본문 작성·코드 리뷰·회고를 하는 다른 스킬이 있어도 이 규칙이 먼저다.
-- PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 파일 하나를 더한다. 날짜는 작성일, slug는 영문 소문자·숫자·`-`다. 내용은 `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮겨야 하는 변경이면 그 일을 적는다. `CHANGELOG.md`는 고치지 않는다. 열린 PR들이 같은 줄을 고쳐 충돌하지 않게 하려는 것이다.
+- PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 파일 하나를 더한다. 날짜는 작성일, slug는 영문 소문자·숫자·`-`다. 내용은 `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮겨야 하는 변경이면 그 일을 적는다. `CHANGELOG.md`는 고치지 않는다. 열린 PR들이 같은 줄을 고쳐 충돌하지 않게 하려는 것이다. v2부터는 태그를 낼 때 지난 태그 뒤의 항목을 그 태그의 GitHub 릴리스 노트로 모으고, 같은 PR에서 모은 파일을 지운다. 소비 레포의 `upgrade` PR은 그 릴리스 노트를 가리킨다.
 - 같은 사실을 여러 문서에 적었으면(README, `docs/start.md`, `prompts/setup.md`) 함께 고친다.
 - hash-copy 파일이나 관리 블록(예: ops 「켜기」)의 원본을 바꾼 PR이 병합되면, 깨끗한 `origin/main` checkout에서 `python3 tools/sync_consumers.py --open-prs`를 돌린다. 소비 레포 CI가 끝나면 `--enqueue`를 돌린다. `--enqueue`는 파이프라인이 `tools/consumers.json`의 상시 지시를 실행하는 것이고(POLICY §5), 아래 「하지 않는 것」의 에이전트 병합이 아니다. 이전 PR과 동기화 전용이 아닌 PR은 리뷰를 거친다.
 - 에이전트 도구의 문서를 근거로 쓰면 공식 문서 링크와 확인일을 적는다.
