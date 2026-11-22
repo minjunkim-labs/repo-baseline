@@ -296,6 +296,8 @@ HOOK = ROOT / "core/.claude/hooks/check.py"
 FAKE_BASELINE = """import os, pathlib, sys
 with open(os.environ["HOOK_LOG"], "a") as log:
     log.write(" ".join(sys.argv[1:]) + " @ " + os.getcwd() + "\\n")
+if os.environ.get("CHECK_WRITES"):
+    pathlib.Path("a.txt").write_text("written by check")
 if pathlib.Path("FAIL").exists():
     sys.exit("check: FAIL가 있다")
 """
@@ -320,10 +322,11 @@ class StopHookTests(unittest.TestCase):
     def git(self, *args, cwd=None):
         subprocess.run(["git", *args], cwd=cwd or self.repo, check=True, capture_output=True)
 
-    def hook(self, cwd=None, project=None, **fields):
+    def hook(self, cwd=None, project=None, writes=False, **fields):
         data = json.dumps({"hook_event_name": "Stop", "cwd": str(cwd or self.repo), "stop_hook_active": False,
                            **fields})
-        env = {"PATH": os.environ["PATH"], "HOOK_LOG": str(self.log), "CLAUDE_PROJECT_DIR": "" if project == "" else str(project or self.repo)}
+        env = {"PATH": os.environ["PATH"], "HOOK_LOG": str(self.log), "CLAUDE_PROJECT_DIR": "" if project == "" else str(project or self.repo),
+               "CHECK_WRITES": "1" if writes else ""}
         return subprocess.run([sys.executable, "-I", str(HOOK)], input=data, capture_output=True, text=True,
                               env={k: v for k, v in env.items() if v})
 
@@ -361,6 +364,12 @@ class StopHookTests(unittest.TestCase):
         self.hook()
         self.assertEqual(len(self.runs()), 5)
 
+    def test_a_tree_changed_while_check_ran_is_not_remembered(self):
+        self.hook(writes=True)
+        (self.repo / "a.txt").write_text("a")
+        self.hook()
+        self.assertEqual(len(self.runs()), 2)
+
     def test_failure_is_not_remembered(self):
         (self.repo / "FAIL").write_text("")
         self.assertEqual(self.hook().returncode, 2)
@@ -395,6 +404,14 @@ class StopHookTests(unittest.TestCase):
         (other / ".baseline/baseline.py").write_text(FAKE_BASELINE)
         self.assertEqual(self.hook(cwd=other).returncode, 0)
         self.assertEqual(self.hook(project="").returncode, 0)  # no CLAUDE_PROJECT_DIR: do nothing
+        self.assertEqual(self.runs(), [])
+
+    def test_a_handmade_gitfile_into_the_project_is_not_run(self):
+        evil = self.repo / "tmp/evil"
+        (evil / ".baseline").mkdir(parents=True)
+        (evil / ".git").write_text("gitdir: ../../.git\n")
+        (evil / ".baseline/baseline.py").write_text(FAKE_BASELINE)
+        self.assertEqual(self.hook(cwd=evil).returncode, 0)
         self.assertEqual(self.runs(), [])
 
     def test_repo_without_a_commit_runs_again_after_an_edit(self):

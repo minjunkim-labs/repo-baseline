@@ -61,11 +61,13 @@ def main():
         return 0
     try:
         # CLAUDE_PROJECT_DIR points at the first checkout even inside a worktree, so start from cwd,
-        # but only run the project's own code: cwd must be in the same repo (same common git dir).
-        common = ("rev-parse", "--path-format=absolute", "--git-common-dir")
-        if git(cwd, *common) != git(project, *common):
-            return 0
+        # but only run the project's own code: the root must be one of the project's worktrees.
+        # A hand-made `.git` file pointing at the project's git dir is not in that list.
         root = git(cwd, "rev-parse", "--show-toplevel").decode().rstrip("\n")
+        trees = git(project, "worktree", "list", "--porcelain", "-z").split(b"\0")
+        if os.path.realpath(root) not in {os.path.realpath(os.fsdecode(t[9:])) for t in trees
+                                          if t.startswith(b"worktree ")}:
+            return 0
         stamp = Path(git(cwd, "rev-parse", "--absolute-git-dir").decode().rstrip("\n")) / "baseline-check"
     except (OSError, subprocess.CalledProcessError):
         return 0  # not a git repo
@@ -86,6 +88,8 @@ def main():
         print("check.py: check가 실패했다")
         print(result.stdout + result.stderr, end="", file=sys.stderr)
         return 2
+    if fingerprint(root) != now:
+        return 0  # the tree changed while check ran; check it again next turn
     temp = stamp.with_name(stamp.name + ".tmp")
     temp.unlink(missing_ok=True)
     temp.write_text(now)
