@@ -1,0 +1,1 @@
+- `baseline.py check`·`budget`·`run`이 읽는 파일은 저장소 루트부터 그 파일까지 경로의 모든 구성 요소가 symlink가 아니어야 한다. 소비 레포는 `.baseline/baseline.py`를 새 판으로 바꾸고, 관리 파일이 링크된 폴더 아래에 있으면 일반 폴더로 바꾼다.

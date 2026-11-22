@@ -225,6 +225,15 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn(".gitattributes: 없거나 일반 파일이 아니다", result.stderr)
 
+    def test_check_refuses_a_symlinked_folder_on_the_way(self):
+        # A linked folder above a managed file must fail even when the bytes behind it are right.
+        github = self.repo / ".github"
+        github.rename(self.repo / "real-github")
+        github.symlink_to("real-github", target_is_directory=True)
+        result = cli("check", script=self.copy)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("없거나 일반 파일이 아니다", result.stderr)
+
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])
         self.assertNotEqual(cli("run", "test", script=self.copy).returncode, 0)

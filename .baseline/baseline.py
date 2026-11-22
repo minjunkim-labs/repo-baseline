@@ -35,10 +35,22 @@ BUDGET_LINES, BUDGET_BYTES = 60, 4000
 MAX_READ = 1 << 20
 
 
-def read_file(path):
+def symlinks_on(root, rel):
+    """Every symlink from root down to root/rel, root included; a broken link counts."""
+    path, links = Path(root), []
+    for part in (".", *Path(rel).parts):
+        path = path / part
+        if path.is_symlink():
+            links.append(path.as_posix())
+    return links
+
+
+def read_file(root, rel):
     """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
-    git ignores a symlinked .gitattributes, and a link to /dev/zero never ends."""
-    if path.is_symlink() or not path.is_file():
+    git ignores a symlinked .gitattributes, and a link to /dev/zero never ends.
+    Every folder on the way counts too: a linked .github would lead out of the tree."""
+    path = root / rel
+    if symlinks_on(root, rel) or not path.is_file():
         raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
     with path.open("rb") as f:
         data = f.read(MAX_READ + 1)
@@ -94,7 +106,7 @@ def command_line(name, value):
 def load_commands(root):
     """(commands, problems). Problems are messages; commands is None when the file is unusable."""
     try:
-        commands = json.loads(read_file(root / ".baseline/commands.json"))
+        commands = json.loads(read_file(root, ".baseline/commands.json"))
     except (OSError, ValueError) as error:
         return None, [f"commands.json을 읽지 못했다: {error}"]
     if not isinstance(commands, dict):
@@ -119,14 +131,7 @@ def cmd_init(args):
     files[".baseline/commands.json"] = dump_json(DEFAULT_COMMANDS)
     files[".baseline/baseline.json"] = dump_json({"version": VERSION, "profiles": [], "managed": MANAGED})
     # Writing through a symlink (even a broken one) lands outside the repo, so stop before any write.
-    links = set()
-    for rel in files:
-        path = target
-        for part in (".", *Path(rel).parts):
-            path = path / part
-            if path.is_symlink():
-                links.add(path.as_posix())
-    links = sorted(links)
+    links = sorted({link for rel in files for link in symlinks_on(target, rel)})
     if links:
         sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
     existing = sorted(rel for rel in files if (target / rel).exists())
@@ -143,7 +148,7 @@ def cmd_check(args):
     root = repo_root()
     problems = []
     try:
-        recorded = json.loads(read_file(root / ".baseline/baseline.json"))
+        recorded = json.loads(read_file(root, ".baseline/baseline.json"))
     except (OSError, ValueError) as error:
         problems.append(f"baseline.json을 읽지 못했다: {error}")
     else:
@@ -156,7 +161,7 @@ def cmd_check(args):
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
         try:
-            got = digest(read_file(root / rel), kind)
+            got = digest(read_file(root, rel), kind)
         except OSError as error:
             problems.append(f"{rel}: {error}")
             continue
@@ -168,7 +173,7 @@ def cmd_check(args):
     problems += command_problems
     if commands is not None:
         try:
-            lines = read_file(root / "AGENTS.md").decode("utf-8").splitlines()
+            lines = read_file(root, "AGENTS.md").decode("utf-8").splitlines()
         except (OSError, ValueError):
             lines = []
         for name in COMMANDS:
@@ -208,7 +213,7 @@ def cmd_run(args):
 
 def cmd_budget(args):
     try:
-        data = read_file(repo_root() / "AGENTS.md")
+        data = read_file(repo_root(), "AGENTS.md")
     except OSError as error:
         sys.exit(f"budget: AGENTS.md: {error}")
     lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
