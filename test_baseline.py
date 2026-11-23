@@ -1823,6 +1823,18 @@ class DoctorTests(unittest.TestCase):
     def test_a_matching_machine_passes(self):
         self.assertEqual(self.problems(), "")
 
+    def test_an_unreadable_version_is_not_copied_into_the_command(self):
+        text = self.problems(want={"python": "3.12; echo x"})
+        self.assertIn("python 기준 판을 읽을 수 없다", text)
+        self.assertNotIn("echo x", text)
+        self.assertNotIn("mise install python@", text)
+
+    def test_an_unsafe_skill_entry_is_not_removed(self):
+        text = self.problems(skills_repo=["tdd"], skills_user=[{"entry": "../../.ssh", "names": ["tdd"]}])
+        self.assertIn("고치는 명령을 만들지 못했다", text)
+        self.assertNotIn("rm -rf", text)
+        self.assertNotIn(".ssh", text)
+
     def test_stdin_facts_print_the_fix_command(self):
         import json
         facts = {"versions": {"python": "3.9.6", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"},

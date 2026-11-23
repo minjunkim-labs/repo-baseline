@@ -1268,6 +1268,14 @@ def cmd_skills_bump(args):
 DOCTOR_TOOLS = ("python", "git", "gh", "claude", "mise")
 
 
+def doctor_version(value):
+    return value if isinstance(value, str) and VERSION_RE.fullmatch(value) else None
+
+
+def skill_entry_name(value):
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) else None
+
+
 def doctor_install(name, expected, os_name):
     if name in ("python", "mise"):
         return f"mise install {name}@{expected}" if expected else f"mise install {name}"
@@ -1301,7 +1309,10 @@ def doctor_problems(facts):
     os_name = facts.get("os") if isinstance(facts.get("os"), str) else ""
     for name in DOCTOR_TOOLS:
         got = versions.get(name)
-        expected = want.get(name) if isinstance(want.get(name), str) else None
+        raw_expected = want.get(name)
+        expected = doctor_version(raw_expected)
+        if isinstance(raw_expected, str) and expected is None:
+            problems.append(f"doctor: {name} 기준 판을 읽을 수 없다")
         if not isinstance(got, str) or not got:
             problems.append(f"doctor: {name}이 없다\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
         elif expected and not version_matches(got, expected):
@@ -1322,15 +1333,22 @@ def doctor_problems(facts):
             item = {"entry": item, "names": [item]}
         if not isinstance(item, dict):
             continue
-        names = {name for name in item.get("names") or [] if isinstance(name, str)}
-        entry = item.get("entry") if isinstance(item.get("entry"), str) else None
-        hit = sorted(names & repo_skills)
-        if not hit or not entry:
+        names = {skill_entry_name(name) for name in item.get("names") or []}
+        names.discard(None)
+        repo_names = {skill_entry_name(name) for name in repo_skills}
+        repo_names.discard(None)
+        entry = skill_entry_name(item.get("entry"))
+        hit = sorted(names & repo_names)
+        if not hit:
+            continue
+        guide = "doctor: 다른 저장소에서도 쓰려면 플러그인으로 설치한다. 플러그인 스킬은 플러그인:스킬로 이름이 나뉜다"
+        if not entry:
+            problems.append(f"doctor: 개인 스킬 {hit[0]}이 저장소 사본과 같은 이름이다. 개인 스킬이 프로젝트 스킬보다 먼저 돈다\n"
+                            "doctor: 고치는 명령을 만들지 못했다\n" + guide)
             continue
         problems.append(
             f"doctor: 개인 스킬 {hit[0]}이 저장소 사본과 같은 이름이다. 개인 스킬이 프로젝트 스킬보다 먼저 돈다\n"
-            f"doctor: 고치는 명령: rm -rf ~/.claude/skills/{shlex.quote(entry)}\n"
-            "doctor: 다른 저장소에서도 쓰려면 플러그인으로 설치한다. 플러그인 스킬은 플러그인:스킬로 이름이 나뉜다")
+            f"doctor: 고치는 명령: rm -rf ~/.claude/skills/{shlex.quote(entry)}\n" + guide)
     org = facts.get("org") if isinstance(facts.get("org"), str) else None
     environment = facts.get("environment") if isinstance(facts.get("environment"), list) else []
     if org and not org_allowed(org, environment):
