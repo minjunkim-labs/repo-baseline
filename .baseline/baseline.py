@@ -1265,6 +1265,202 @@ def cmd_skills_bump(args):
     return skills_bump(root, args.check, datetime.now(timezone.utc))
 
 
+DOCTOR_TOOLS = ("python", "git", "gh", "claude", "mise")
+
+
+def doctor_install(name, expected, os_name):
+    if name in ("python", "mise"):
+        return f"mise install {name}@{expected}" if expected else f"mise install {name}"
+    if name == "claude":
+        return "claude update" if expected else "claude 를 설치한다"
+    package = "gh" if name == "gh" else "git"
+    return f"brew install {package}" if os_name == "darwin" else f"sudo apt install {package}"
+
+
+def version_matches(got, expected):
+    return got == expected or got.startswith(expected + ".")
+
+
+def org_allowed(org, environment):
+    needle = f"github.com/{org}"
+    for item in environment:
+        if not isinstance(item, str):
+            continue
+        if item in (org, needle) or item.startswith(needle + "/") or item.endswith("/" + org):
+            return True
+    return False
+
+
+def doctor_problems(facts):
+    """Failures and the command that fixes each one. facts is the simulated or gathered machine."""
+    if not isinstance(facts, dict):
+        return ["doctor: 사실이 객체가 아니다"]
+    problems = []
+    versions = facts.get("versions") if isinstance(facts.get("versions"), dict) else {}
+    want = facts.get("want") if isinstance(facts.get("want"), dict) else {}
+    os_name = facts.get("os") if isinstance(facts.get("os"), str) else ""
+    for name in DOCTOR_TOOLS:
+        got = versions.get(name)
+        expected = want.get(name) if isinstance(want.get(name), str) else None
+        if not isinstance(got, str) or not got:
+            problems.append(f"doctor: {name}이 없다\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
+        elif expected and not version_matches(got, expected):
+            problems.append(f"doctor: {name} 판이 다르다. 지금 {got}, 기준 {expected}\n"
+                            f"doctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
+    if facts.get("wsl"):
+        if facts.get("wsl_version") != 2:
+            problems.append("doctor: WSL1이다\ndoctor: 고치는 명령: wsl --set-default-version 2")
+        repo = facts.get("repo") if isinstance(facts.get("repo"), str) else ""
+        if repo.startswith("/mnt/"):
+            problems.append("doctor: 저장소가 /mnt/ 아래다\ndoctor: 고치는 명령: 저장소를 ~ 아래에 클론한다")
+        git_path = facts.get("git_path") if isinstance(facts.get("git_path"), str) else ""
+        if git_path.endswith(".exe") or "/mnt/" in git_path.replace("\\", "/"):
+            problems.append("doctor: Windows git이다\ndoctor: 고치는 명령: sudo apt install git")
+    repo_skills = set(facts.get("skills_repo") or [])
+    for item in facts.get("skills_user") or []:
+        if isinstance(item, str):
+            item = {"entry": item, "names": [item]}
+        if not isinstance(item, dict):
+            continue
+        names = {name for name in item.get("names") or [] if isinstance(name, str)}
+        entry = item.get("entry") if isinstance(item.get("entry"), str) else None
+        hit = sorted(names & repo_skills)
+        if not hit or not entry:
+            continue
+        problems.append(
+            f"doctor: 개인 스킬 {hit[0]}이 저장소 사본과 같은 이름이다. 개인 스킬이 프로젝트 스킬보다 먼저 돈다\n"
+            f"doctor: 고치는 명령: rm -rf ~/.claude/skills/{shlex.quote(entry)}\n"
+            "doctor: 다른 저장소에서도 쓰려면 플러그인으로 설치한다. 플러그인 스킬은 플러그인:스킬로 이름이 나뉜다")
+    org = facts.get("org") if isinstance(facts.get("org"), str) else None
+    environment = facts.get("environment") if isinstance(facts.get("environment"), list) else []
+    if org and not org_allowed(org, environment):
+        snippet = json.dumps({"autoMode": {"environment": [f"github.com/{org}"]}}, ensure_ascii=False, separators=(", ", ": "))
+        problems.append(f"doctor: autoMode.environment에 조직 {org}이 없다. 사용자 설정에만 넣는다. 자동으로 쓰지 않는다\n"
+                        f"doctor: 고치는 명령: {snippet}")
+    mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
+    if mise_toml and not facts.get("mise_trusted"):
+        problems.append(f"doctor: .mise.toml이 신뢰되지 않았다\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
+    if facts.get("sandbox") and (os_name == "linux" or facts.get("wsl_version") == 2):
+        if not facts.get("have_bubblewrap"):
+            problems.append("doctor: 샌드박스에 bubblewrap이 없다\ndoctor: 고치는 명령: sudo apt install bubblewrap")
+        if not facts.get("have_socat"):
+            problems.append("doctor: 샌드박스에 socat이 없다\ndoctor: 고치는 명령: sudo apt install socat")
+    return problems
+
+
+def tool_version(argv):
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    line = ((result.stdout or result.stderr).strip().splitlines() or [""])[0]
+    match = re.search(r"(\d+\.\d+(?:\.\d+)?)", line)
+    return match.group(1) if match else None
+
+
+def skill_entries(folder):
+    if not folder.is_dir():
+        return []
+    entries = []
+    for path in sorted(folder.iterdir(), key=lambda item: item.name):
+        if path.name.startswith("."):
+            continue
+        names = {path.name}
+        if path.is_symlink():
+            try:
+                names.add(path.resolve().name)
+            except OSError:
+                pass
+        entries.append({"entry": path.name, "names": sorted(names)})
+    return entries
+
+
+def github_org(url):
+    match = re.search(r"github\.com[:/]([^/]+)/", url or "")
+    return match.group(1) if match else None
+
+
+def gather_doctor(root=None):
+    root = Path(root) if root is not None else repo_root()
+    versions = {
+        "python": tool_version([sys.executable, "--version"]),
+        "git": tool_version(["git", "--version"]),
+        "gh": tool_version(["gh", "--version"]),
+        "claude": tool_version(["claude", "--version"]),
+        "mise": tool_version(["mise", "--version"]),
+    }
+    want = {}
+    commands, _ = load_commands(root)
+    pinned = commands.get("doctor_versions") if isinstance(commands, dict) else None
+    if isinstance(pinned, dict):
+        want = {name: value for name, value in pinned.items() if isinstance(name, str) and isinstance(value, str)}
+    version_text = ""
+    proc = Path("/proc/version")
+    if proc.is_file():
+        try:
+            version_text = proc.read_text(encoding="utf-8", errors="replace").lower()
+        except OSError:
+            version_text = ""
+    wsl = "microsoft" in version_text
+    wsl_version = 2 if wsl and "wsl2" in version_text else (1 if wsl else None)
+    git_path = shutil.which("git") or ""
+    user_settings = Path.home() / ".claude/settings.json"
+    environment = []
+    sandbox = False
+    try:
+        settings = json.loads(user_settings.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        settings = {}
+    if isinstance(settings, dict):
+        auto = settings.get("autoMode")
+        if isinstance(auto, dict) and isinstance(auto.get("environment"), list):
+            environment = auto["environment"]
+        sandbox_settings = settings.get("sandbox")
+        sandbox = isinstance(sandbox_settings, dict) and bool(sandbox_settings.get("enabled"))
+    remote = ""
+    try:
+        result = subprocess.run(["git", "remote", "get-url", "origin"], cwd=root, capture_output=True, text=True, timeout=15)
+        remote = result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        remote = ""
+    mise_toml = root / ".mise.toml"
+    trusted = True
+    if mise_toml.is_file():
+        trusted = False
+        try:
+            show = subprocess.run(["mise", "trust", "--show"], cwd=root, capture_output=True, text=True, timeout=15)
+        except (OSError, subprocess.TimeoutExpired):
+            show = None
+        if show is not None:
+            text = show.stdout + show.stderr
+            trusted = "No trusted config files" not in text and str(mise_toml.resolve()) in text
+    return {
+        "versions": versions, "want": want, "os": sys.platform if sys.platform != "win32" else "windows",
+        "wsl": wsl, "wsl_version": wsl_version, "repo": str(root), "git_path": git_path,
+        "skills_repo": sorted({name for item in skill_entries(root / ".claude/skills") for name in item["names"]}),
+        "skills_user": skill_entries(Path.home() / ".claude/skills"),
+        "org": github_org(remote), "environment": environment,
+        "mise_toml": str(mise_toml) if mise_toml.is_file() else None, "mise_trusted": trusted,
+        "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,
+        "have_socat": shutil.which("socat") is not None,
+    }
+
+
+def cmd_doctor(args):
+    raw = "" if sys.stdin.isatty() else sys.stdin.read()
+    try:
+        facts = json.loads(raw) if raw.strip() else gather_doctor()
+    except ValueError as error:
+        print(f"doctor: 사실을 읽지 못했다: {error}", file=sys.stderr)
+        return 2
+    problems = doctor_problems(facts)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return 1
+    print("doctor: 통과")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="baseline.py", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1283,10 +1479,11 @@ def main(argv=None):
     enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     bump_parser = sub.add_parser("skills-bump", help="스킬 출처마다 7일 지난 새 판으로 사본을 바꾼다(repo-baseline 전용)")
     bump_parser.add_argument("--check", action="store_true", help="바꾸지 않고 새 판이 있는지만 본다(있으면 1)")
+    sub.add_parser("doctor", help="로컬 기기와 기준이 다른 곳을 보고 고치는 명령을 출력한다")
     args = parser.parse_args(argv)
     return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
             "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue,
-            "skills-bump": cmd_skills_bump}[args.command](args)
+            "skills-bump": cmd_skills_bump, "doctor": cmd_doctor}[args.command](args)
 
 
 if __name__ == "__main__":

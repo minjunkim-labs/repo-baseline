@@ -1761,5 +1761,80 @@ class SkillsBumpTests(unittest.TestCase):
         self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
 
+class DoctorTests(unittest.TestCase):
+    def problems(self, **facts):
+        import baseline as b
+        base = {"versions": {name: "1.0.0" for name in b.DOCTOR_TOOLS}, "want": {}, "os": "linux",
+                "wsl": False, "wsl_version": None, "repo": "/home/u/repo", "git_path": "/usr/bin/git",
+                "skills_repo": [], "skills_user": [], "org": "acme",
+                "environment": ["github.com/acme"], "mise_toml": None, "mise_trusted": True,
+                "sandbox": False, "have_bubblewrap": True, "have_socat": True}
+        base.update(facts)
+        return "\n".join(b.doctor_problems(base))
+
+    def test_a_different_version_prints_the_install_command(self):
+        text = self.problems(versions={"python": "3.9.6", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"},
+                             want={"python": "3.12"})
+        self.assertIn("python 판이 다르다. 지금 3.9.6, 기준 3.12", text)
+        self.assertIn("고치는 명령: mise install python@3.12", text)
+
+    def test_a_missing_tool_prints_the_install_command(self):
+        versions = {"python": "3.12.0", "git": None, "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"}
+        self.assertIn("고치는 명령: sudo apt install git", self.problems(versions=versions))
+        self.assertIn("고치는 명령: brew install git", self.problems(versions=versions, os="darwin"))
+
+    def test_wsl1_mnt_and_windows_git_print_fix_commands(self):
+        text = self.problems(wsl=True, wsl_version=1, repo="/mnt/c/src/repo", git_path="/mnt/c/Program Files/Git/cmd/git.exe")
+        self.assertIn("고치는 명령: wsl --set-default-version 2", text)
+        self.assertIn("고치는 명령: 저장소를 ~ 아래에 클론한다", text)
+        self.assertIn("고치는 명령: sudo apt install git", text)
+
+    def test_wsl_checks_stay_quiet_off_wsl(self):
+        text = self.problems(wsl=False, repo="/mnt/c/src/repo", git_path="/mnt/c/Program Files/Git/cmd/git.exe")
+        self.assertNotIn("WSL1", text)
+        self.assertNotIn("/mnt/", text)
+        self.assertNotIn("Windows git", text)
+
+    def test_the_same_personal_skill_name_prints_rm_and_plugin_guidance(self):
+        text = self.problems(skills_repo=["tdd"], skills_user=[{"entry": "my-tdd", "names": ["my-tdd", "tdd"]}])
+        self.assertIn("개인 스킬 tdd이 저장소 사본과 같은 이름이다", text)
+        self.assertIn("고치는 명령: rm -rf ~/.claude/skills/my-tdd", text)
+        self.assertIn("플러그인:스킬", text)
+
+    def test_a_missing_org_prints_json_and_does_not_write(self):
+        text = self.problems(org="acme", environment=["github.com/other"])
+        self.assertIn("자동으로 쓰지 않는다", text)
+        self.assertIn('고치는 명령: {"autoMode": {"environment": ["github.com/acme"]}}', text)
+
+    def test_an_untrusted_mise_toml_prints_mise_trust(self):
+        text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)
+        self.assertIn("고치는 명령: mise trust /home/u/repo/.mise.toml", text)
+
+    def test_sandbox_on_linux_or_wsl2_requires_bubblewrap_and_socat(self):
+        text = self.problems(sandbox=True, os="linux", have_bubblewrap=False, have_socat=False)
+        self.assertIn("고치는 명령: sudo apt install bubblewrap", text)
+        self.assertIn("고치는 명령: sudo apt install socat", text)
+        quiet = self.problems(sandbox=True, os="darwin", have_bubblewrap=False, have_socat=False)
+        self.assertNotIn("bubblewrap", quiet)
+        wsl = self.problems(sandbox=True, os="linux", wsl=True, wsl_version=2, have_bubblewrap=True, have_socat=False)
+        self.assertIn("socat", wsl)
+        self.assertNotIn("bubblewrap", wsl)
+
+    def test_a_matching_machine_passes(self):
+        self.assertEqual(self.problems(), "")
+
+    def test_stdin_facts_print_the_fix_command(self):
+        import json
+        facts = {"versions": {"python": "3.9.6", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"},
+                 "want": {"mise": "2026.11.0"}, "os": "linux", "wsl": False, "repo": "/home/u/repo",
+                 "git_path": "/usr/bin/git", "skills_repo": [], "skills_user": [], "org": "acme",
+                 "environment": ["github.com/acme"], "mise_toml": None, "mise_trusted": True,
+                 "sandbox": False, "have_bubblewrap": True, "have_socat": True}
+        result = subprocess.run([sys.executable, "-I", str(ROOT / "baseline.py"), "doctor"],
+                                input=json.dumps(facts), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("고치는 명령: mise install mise@2026.11.0", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
