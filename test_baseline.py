@@ -1402,6 +1402,18 @@ class SkillsBumpTests(unittest.TestCase):
         self.assertEqual(self.read(".claude/skills/grilling/notes.md"), b"untracked\n")
         self.assertEqual(self.read("skills/skills.lock.json"), lock)
 
+    def test_an_edit_git_status_hides_is_not_written_over(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        for flag, rel in (("--assume-unchanged", "skills/grill/SKILL.md"), ("--skip-worktree", ".claude/skills/grilling/SKILL.md")):
+            self.git("update-index", flag, rel)
+            (self.root / rel).write_bytes(b"hidden edit\n")
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIn("skills/grill/SKILL.md", out)
+        self.assertIn(".claude/skills/grilling/SKILL.md", out)
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"hidden edit\n")
+        self.assertEqual(self.read(".claude/skills/grilling/SKILL.md"), b"hidden edit\n")
+
     def test_a_linked_write_target_outside_the_skill_folders_stops_every_write(self):
         self.m_release("2" * 40, 10, "1.1.0")
         outside = Path(self.tmp.name + "-outside.json")

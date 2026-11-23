@@ -1013,6 +1013,11 @@ def skills_bump(root, check, now):
             raise OSError("git status 실패: " + status.stderr.decode(errors="replace").strip())
         if status.stdout.strip():
             raise OSError("커밋하지 않은 변경이 있어 쓰지 않는다: " + "; ".join(status.stdout.decode(errors="replace").splitlines()))
+        # status does not show edits to assume-unchanged (lowercase tag) or skip-worktree (S) files.
+        flags = subprocess.run(["git", "ls-files", "-v", "--", *folders], cwd=root, capture_output=True)
+        hidden = [line for line in flags.stdout.decode(errors="replace").splitlines() if not line.startswith("H ")]
+        if flags.returncode or hidden:
+            raise OSError("git이 변경을 숨기는 파일이 있어 쓰지 않는다: " + "; ".join(hidden or [flags.stderr.decode(errors="replace").strip()]))
         writes = {}  # download and verify everything before the first write
         for name, src, (tag, commit), names, files in updates:
             for rel, (path, entry) in files.items():
