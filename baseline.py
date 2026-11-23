@@ -1407,6 +1407,13 @@ def doctor_problems(facts):
     return problems
 
 
+def version_binary(name):
+    """A single tool name to ask `--version`, or None. Paths are not names."""
+    if not skill_entry_name(name):
+        return None
+    return "python3" if name == "python" else name
+
+
 def tool_version(argv):
     try:
         result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
@@ -1485,14 +1492,19 @@ def version_at_least(installed, minimum):
 def pins_from(doctor_versions, mise_text, installed_mise):
     """Version pins doctor compares. .mise.toml [tools] wins. min_version is a floor for mise."""
     want = {name: value for name, value in (doctor_versions or {}).items()
-            if isinstance(name, str) and isinstance(value, str) and value}
+            if skill_entry_name(name) and isinstance(value, str) and value}
     min_version, tools = parse_mise_pins(mise_text)
     for name, requested in tools.items():
         concrete = next((item for item in requested if doctor_version(item)), None)
-        if isinstance(name, str) and concrete:
+        if skill_entry_name(name) and concrete:
             want[name] = concrete
-    if doctor_version(min_version) and (not installed_mise or not version_at_least(installed_mise, min_version)):
-        want["mise"] = min_version
+    if doctor_version(min_version):
+        pinned_mise = want.get("mise")
+        pin_low = (isinstance(pinned_mise, str) and doctor_version(pinned_mise)
+                   and not version_at_least(pinned_mise, min_version))
+        installed_low = not installed_mise or not version_at_least(installed_mise, min_version)
+        if pin_low or installed_low:
+            want["mise"] = min_version
     return want
 
 
@@ -1604,8 +1616,10 @@ def gather_doctor(root=None):
             mise_data = None
     want = pins_from(pinned, "" if mise_unreadable else mise_body, versions.get("mise"))
     for name in want:
-        if name not in versions:
-            binary = "python3" if name == "python" else name
+        if name in versions:
+            continue
+        binary = version_binary(name)
+        if binary:
             versions[name] = tool_version([binary, "--version"])
     release = kernel_text()
     wsl = "microsoft" in release or "wsl" in release
