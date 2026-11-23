@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 
+REAL_RUN = subprocess.run  # tests patch subprocess.run; git still runs for real
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
@@ -1237,6 +1238,8 @@ class FakeSources:
     def run(self, argv, **kwargs):
         from urllib.parse import unquote, urlsplit
         self.calls.append(list(argv))
+        if argv[:1] == ["git"]:
+            return REAL_RUN(argv, **kwargs)
         if argv[:2] != ["gh", "api"]:
             return subprocess.CompletedProcess(argv, 1, b"", b"not gh api")
         url = urlsplit(argv[-1])
@@ -1290,8 +1293,14 @@ class SkillsBumpTests(unittest.TestCase):
                 "grilling": {"source": "m", "path": "s/grilling", "requires": []},
                 "blast": {"source": "p", "path": "pstack/skills/blast", "requires": []}}}
         self.write_lock()
+        self.git("init", "-q")
         code, out = self.bump()  # the copies of the pins
         self.assertEqual(code, 0, out)
+        self.git("add", "-A")
+        self.git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "pins")
+
+    def git(self, *args):
+        subprocess.run(["git", *args], cwd=self.root, check=True, capture_output=True)
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -1379,6 +1388,32 @@ class SkillsBumpTests(unittest.TestCase):
         code, out = self.bump("--check")
         self.assertEqual(code, 0, out)
         self.assertIn("새 판이 없다", out)
+
+    def test_a_skill_folder_with_uncommitted_changes_is_not_written(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        (self.root / "skills/grill/SKILL.md").write_bytes(b"local edit\n")
+        (self.root / ".claude/skills/grilling/notes.md").write_bytes(b"untracked\n")
+        lock = self.read("skills/skills.lock.json")
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIn("skills/grill/SKILL.md", out)
+        self.assertIn(".claude/skills/grilling/notes.md", out)
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"local edit\n")
+        self.assertEqual(self.read(".claude/skills/grilling/notes.md"), b"untracked\n")
+        self.assertEqual(self.read("skills/skills.lock.json"), lock)
+
+    def test_a_linked_write_target_outside_the_skill_folders_stops_every_write(self):
+        self.m_release("2" * 40, 10, "1.1.0")
+        outside = Path(self.tmp.name + "-outside.json")
+        outside.write_bytes(b"{}\n")
+        self.addCleanup(outside.unlink)
+        (self.root / ".baseline/baseline.json").unlink()
+        (self.root / ".baseline/baseline.json").symlink_to(outside)
+        code, out = self.bump()
+        self.assertEqual(code, 2, out)
+        self.assertIn(".baseline/baseline.json", out)
+        self.assertEqual(outside.read_bytes(), b"{}\n")
+        self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # nothing written
 
     def test_a_linked_skill_folder_is_not_written_through(self):
         self.m_release("2" * 40, 10, "1.1.0")

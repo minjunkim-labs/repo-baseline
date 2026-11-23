@@ -1000,9 +1000,19 @@ def skills_bump(root, check, now):
                   f"({src['repo']}, 스킬: {', '.join(names)})")
         if check:
             return 1
-        links = [base + n for base in ("skills/", SKILLS) for update in updates for n in update[3] if linked(root, base + n)]
+        folders = [base + n for base in ("skills/", SKILLS) for update in updates for n in update[3]]
+        targets = folders + ["skills/skills.lock.json", "baseline.py", ".baseline/baseline.py", ".baseline/baseline.json",
+                             "core/.claude/settings.json", ".claude/settings.json"]
+        links = [rel for rel in targets if linked(root, rel)]
         if links:  # rmtree(ignore_errors) would leave the link and write through it
             raise OSError(f"symlink가 있는 경로에 쓰지 않는다: {', '.join(links)}")
+        # rmtree drops local edits without a trace, so a dirty folder (untracked and ignored files too) stops the bump.
+        status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=all", "--ignored", "--", *folders],
+                                cwd=root, capture_output=True)
+        if status.returncode:
+            raise OSError("git status 실패: " + status.stderr.decode(errors="replace").strip())
+        if status.stdout.strip():
+            raise OSError("커밋하지 않은 변경이 있어 쓰지 않는다: " + "; ".join(status.stdout.decode(errors="replace").splitlines()))
         writes = {}  # download and verify everything before the first write
         for name, src, (tag, commit), names, files in updates:
             for rel, (path, entry) in files.items():
