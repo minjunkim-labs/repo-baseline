@@ -213,6 +213,12 @@ def repo_rel(rel):
     return "skills/" + rel[len(SKILLS):] if rel.startswith(SKILLS) else "core/" + rel
 
 
+def managed_rel_ok(rel):
+    """Refuse path escape in managed keys (.github / .gitattributes stay allowed)."""
+    return (isinstance(rel, str) and rel.isprintable() and "\\" not in rel and not rel.startswith("/")
+            and not any(part in ("", ".", "..") for part in rel.split("/")))
+
+
 def repo_root():
     # No resolve(): a symlinked .baseline/baseline.py must not move the root (check then refuses it).
     here = Path(os.path.abspath(__file__)).parent
@@ -521,11 +527,12 @@ def pristine_block_file(rel, version, want):
     """Bytes of a managed block file as recorded for `version`, for the stop-and-diff path."""
     home = source_root()
     if home is not None:
-        path = home / "skills" / rel[len(SKILLS):] if rel.startswith(SKILLS) else home / "core" / rel
-        if path.is_file():
-            data = path.read_bytes()
-            if digest(data, "block_sha256") == want:
-                return data
+        try:
+            data = read_file(home, repo_rel(rel))
+        except OSError:
+            data = None
+        if data is not None and digest(data, "block_sha256") == want:
+            return data
     match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
     if not match:
         raise OSError(f"{rel}: 판 {version!r}의 원본 관리 블록을 찾지 못했다")
@@ -533,7 +540,6 @@ def pristine_block_file(rel, version, want):
     if data is None or digest(data, "block_sha256") != want:
         raise OSError(f"{rel}: 원본 관리 블록을 읽지 못했다")
     return data
-
 
 def upgrade(root, tag_name):
     """Replace managed blocks, managed files and skill copies with the tag's bytes; refresh baseline.json."""
@@ -556,6 +562,9 @@ def upgrade(root, tag_name):
         raise OSError(f"{BASELINE_REPO}의 태그 {tag}에서 baseline.py의 관리 해시를 읽지 못했다")
     if embedded_assign(source, "VERSION") != version:
         raise OSError(f"태그 {tag}의 VERSION이 {version!r}이 아니다")
+    bad = sorted({rel for rel in list(managed) + list(recorded["managed"]) if not managed_rel_ok(rel)})
+    if bad:
+        raise OSError("쓸 수 없는 관리 경로: " + ", ".join(bad))
     # Stop before any write when a managed block was edited in the consumer.
     for rel, spec in sorted(recorded["managed"].items()):
         if "block_sha256" not in spec:
@@ -584,26 +593,32 @@ def upgrade(root, tag_name):
         if digest(data, kind) != want:
             raise OSError(f"{repo_rel(rel)}: 태그 {tag}의 기록과 다르다")
         files[rel] = data
-    writes = {".baseline/baseline.py": source,
-              ".baseline/baseline.json": dump_json(dict(recorded, version=version, managed=managed))}
+    # baseline.json last so a mid-write failure does not record the new version.
+    writes = {".baseline/baseline.py": source}
     for rel, data in files.items():
         (kind, _), = managed[rel].items()
         if kind == "sha256":
             writes[rel] = data
             continue
-        try:
-            local = read_file(root, rel)
-        except OSError:
+        if not (root / rel).exists() and not linked(root, rel):
             writes[rel] = data
             continue
+        local = read_file(root, rel)
         if block(local) is None:
             raise OSError(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         writes[rel] = replace_block(local, block(data))
-    skill_names = sorted({rel[len(SKILLS):].split("/")[0] for rel in managed if rel.startswith(SKILLS)})
-    targets = list(writes) + [SKILLS + name for name in skill_names]
+    settings = ".claude/settings.json"
+    touch_settings = (root / settings).exists() or linked(root, settings)
+    skill_names = sorted({rel[len(SKILLS):].split("/")[0]
+                          for rel in list(managed) + list(recorded["managed"]) if rel.startswith(SKILLS)})
+    targets = list(writes) + ([settings] if touch_settings else []) + [SKILLS + name for name in skill_names]
     links = [rel for rel in targets if linked(root, rel)]
     if links:
         raise OSError("symlink는 따라가지 않는다: " + ", ".join(links))
+    if touch_settings:
+        writes[settings] = re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"',
+                                  b'\\g<1>' + sha256(source).encode() + b'"', read_file(root, settings))
+    writes[".baseline/baseline.json"] = dump_json(dict(recorded, version=version, managed=managed))
     for rel, data in writes.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -620,7 +635,6 @@ def upgrade(root, tag_name):
             elif path.is_dir() and not any(path.iterdir()):
                 path.rmdir()
     return 0
-
 
 def cmd_upgrade(args):
     root = repo_root()
@@ -664,19 +678,27 @@ def upgrade_problem(paths, old, new):
         return f"{BASELINE_REPO}의 태그 {tag}에서 baseline.py의 관리 해시를 읽지 못했다"
     want = {".baseline/baseline.py": source,
             ".baseline/baseline.json": dump_json(dict(before, version=after["version"], managed=managed))}
+    old_managed = before.get("managed") if isinstance(before.get("managed"), dict) else {}
+    skill_names = {rel[len(SKILLS):].split("/")[0]
+                   for rel in list(managed) + list(old_managed) if isinstance(rel, str) and rel.startswith(SKILLS)}
     for path in sorted(paths):
         data = new(path)
         if path in want:
             same = data == want[path]
+        elif path == ".claude/settings.json" and data is not None and old(path) is not None:
+            pin = sha256(source).encode()
+            same = data == re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + pin + b'"', old(path))
         elif path in managed and data is not None:
             (kind, hash_), = managed[path].items()
             same = digest(data, kind) == hash_ and (kind == "sha256" or outside(data) == outside(old(path)))
+        elif data is None and path.startswith(SKILLS):
+            name = path[len(SKILLS):].split("/")[0]
+            same = name in skill_names and path not in managed
         else:
             same = False
         if not same:
             return f"{path}: 태그 {tag}의 기록과 다르다"
     return None
-
 
 def bump_problem(patch):
     """None when each changed line only swaps a version or a hash and no major version changes."""

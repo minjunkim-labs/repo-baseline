@@ -983,20 +983,53 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), edited)
         self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
 
+    def test_read_failure_on_existing_block_file_does_not_replace_it(self):
+        path = self.repo / "REVIEW.md"
+        before = path.read_bytes()
+        from unittest import mock
+        real = self.b.read_file
+        seen = {"n": 0}
+
+        def boom(root, rel):
+            if rel == "REVIEW.md":
+                seen["n"] += 1
+                if seen["n"] > 1:  # stop-check already read once; fail on the write pass
+                    raise OSError(f"{self.b.MAX_READ}바이트를 넘는다")
+            return real(root, rel)
+
+        with mock.patch.object(self.b, "read_file", boom):
+            code, out = self.run_upgrade()
+        self.assertEqual(code, 2, out)
+        self.assertEqual(path.read_bytes(), before)
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
+
     def test_upgrade_result_is_easy_for_review_preflight(self):
+        extra = self.repo / ".claude/skills/code-review/local.md"
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_bytes(b"local\n")
+        settings = b'{"args": ["--sha256", "' + (b"0" * 64) + b'"]}\n'
+        (self.repo / ".claude/settings.json").write_bytes(settings)
         code, out = self.run_upgrade()
         self.assertEqual(code, 0, out)
         agents = (self.repo / "AGENTS.md").read_bytes()
         self.assertIn("# 내 앱".encode(), agents)
         self.assertEqual(self.b.digest(agents, "block_sha256"), self.after_managed["AGENTS.md"]["block_sha256"])
         self.assertEqual((self.repo / ".baseline/baseline.py").read_bytes(), self.after_source)
+        self.assertFalse(extra.exists())
+        pin = self.b.sha256(self.after_source).encode()
+        self.assertIn(pin, (self.repo / ".claude/settings.json").read_bytes())
         recorded = json.loads((self.repo / ".baseline/baseline.json").read_bytes())
         self.assertEqual((recorded["version"], recorded["profiles"], recorded["managed"]),
                          ("2.0.1", ["keep"], self.after_managed))
-        head = dict(self.base)
-        for rel in list(self.after_managed) + [".baseline/baseline.py", ".baseline/baseline.json"]:
+        base = dict(self.base)
+        base[".claude/skills/code-review/local.md"] = b"local\n"
+        base[".claude/settings.json"] = settings
+        head = dict(base)
+        for rel in list(self.after_managed) + [".baseline/baseline.py", ".baseline/baseline.json",
+                                               ".claude/settings.json"]:
             head[rel] = (self.repo / rel).read_bytes()
-        gh = FakeGitHub(self.base, head)
+        del head[".claude/skills/code-review/local.md"]
+        gh = FakeGitHub(base, head)
         gh.raw[(self.b.BASELINE_REPO, "baseline.py", self.sha)] = self.after_source
         gh.extra[f"repos/{self.b.BASELINE_REPO}/git/ref/tags/v2.0.1"] = {
             "object": {"type": "commit", "sha": self.sha}}
