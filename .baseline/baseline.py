@@ -1276,15 +1276,18 @@ def skill_entry_name(value):
     return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) else None
 
 
-def doctor_install(name, expected, os_name):
+def doctor_install(name, expected, os_name, present=False):
     if name == "claude":
-        return "claude update" if expected else "claude를 설치한다"
+        return "claude update" if present else "claude를 설치한다"
+    # mise cannot install itself. These are the documented install commands.
+    if name == "mise" and not present:
+        return "brew install mise" if os_name == "darwin" else "curl -fsSL https://mise.run | sh"
     if expected and name in DOCTOR_TOOLS:
         return f"mise install {name}@{expected}"
     if expected:
         return f"AGENTS.md 길잡이의 설치법으로 {name} {expected}을 설치한다"
-    if name in ("python", "mise"):
-        return f"mise install {name}"
+    if name == "python":
+        return "mise install python"
     package = "gh" if name == "gh" else "git" if name == "git" else name
     return f"brew install {package}" if os_name == "darwin" else f"sudo apt install {package}"
 
@@ -1348,7 +1351,7 @@ def doctor_problems(facts):
             problems.append(f"doctor: {name}이 없다\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
         elif expected and not version_matches(got, expected):
             problems.append(f"doctor: {name} 판이 다르다. 지금 {got}, 기준 {expected}\n"
-                            f"doctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
+                            f"doctor: 고치는 명령: {doctor_install(name, expected, os_name, present=True)}")
     if facts.get("wsl"):
         if facts.get("wsl_version") != 2:
             problems.append("doctor: WSL1이다\n"
@@ -1390,9 +1393,12 @@ def doctor_problems(facts):
         snippet = json.dumps({"autoMode": {"environment": [f"github.com/{org}"]}}, ensure_ascii=False, separators=(", ", ": "))
         problems.append(f"doctor: autoMode.environment에 조직 {org}이 없다. 사용자 설정에만 넣는다. 자동으로 쓰지 않는다\n"
                         f"doctor: 고치는 명령: {snippet}")
-    mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
-    if mise_toml and not facts.get("mise_trusted"):
-        problems.append(f"doctor: .mise.toml이 신뢰되지 않았다\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
+    if facts.get("mise_unreadable"):
+        problems.append("doctor: .mise.toml을 읽지 못했다")
+    else:
+        mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
+        if mise_toml and not facts.get("mise_trusted"):
+            problems.append(f"doctor: .mise.toml이 신뢰되지 않았다\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
     if facts.get("sandbox") and (os_name == "linux" or facts.get("wsl_version") == 2):
         if not facts.get("have_bubblewrap"):
             problems.append("doctor: 샌드박스에 bubblewrap이 없다\ndoctor: 고치는 명령: sudo apt install bubblewrap")
@@ -1490,6 +1496,11 @@ def pins_from(doctor_versions, mise_text, installed_mise):
     return want
 
 
+def show_is_trusted(returncode, show_text, root):
+    """Trust only a successful `mise trust --show` whose line for this directory says trusted."""
+    return returncode == 0 and mise_config_trusted(show_text, root)
+
+
 def mise_config_trusted(show_text, root):
     """True only when `mise trust --show` lists this directory as trusted."""
     try:
@@ -1509,12 +1520,29 @@ def mise_config_trusted(show_text, root):
     return False
 
 
-def read_json_object(path):
-    """(dict or None, unreadable). A missing file is (None, False)."""
-    if not path.is_file():
+def repo_bytes(root, rel):
+    """(bytes or None, refused). A missing file is (None, False).
+
+    Same rule as read_file: no symlink on the way, at most MAX_READ bytes.
+    """
+    root = Path(root)
+    if not (root / rel).exists() and not linked(root, rel):
         return None, False
     try:
-        raw = path.read_bytes()
+        return read_file(root, rel), False
+    except OSError:
+        return None, True
+
+
+def read_json_object(path):
+    """(dict or None, unreadable). A missing file is (None, False). At most MAX_READ bytes."""
+    try:
+        if path.is_symlink() and not path.is_file():
+            return None, True
+        if not path.is_file():
+            return None, False
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_READ + 1)
     except OSError:
         return None, True
     if len(raw) > MAX_READ:
@@ -1566,14 +1594,15 @@ def gather_doctor(root=None):
     pinned = commands.get("doctor_versions") if isinstance(commands, dict) else None
     if not isinstance(pinned, dict):
         pinned = {}
-    mise_path = root / ".mise.toml"
+    mise_data, mise_unreadable = repo_bytes(root, ".mise.toml")
     mise_body = ""
-    if mise_path.is_file():
+    if mise_data is not None:
         try:
-            mise_body = mise_path.read_text(encoding="utf-8")
-        except OSError:
-            mise_body = ""
-    want = pins_from(pinned, mise_body, versions.get("mise"))
+            mise_body = mise_data.decode("utf-8")
+        except ValueError:
+            mise_unreadable = True
+            mise_data = None
+    want = pins_from(pinned, "" if mise_unreadable else mise_body, versions.get("mise"))
     for name in want:
         if name not in versions:
             binary = "python3" if name == "python" else name
@@ -1594,8 +1623,14 @@ def gather_doctor(root=None):
             environment = auto["environment"]
     sandbox = sandbox_enabled(user_data)
     for rel in (".claude/settings.json", ".claude/settings.local.json"):
-        data, _ = read_json_object(root / rel)
-        sandbox = sandbox or sandbox_enabled(data)
+        data, refused = repo_bytes(root, rel)
+        if refused or not data:
+            continue
+        try:
+            parsed = json.loads(data.decode("utf-8"))
+        except ValueError:
+            continue
+        sandbox = sandbox or sandbox_enabled(parsed)
     remote = ""
     try:
         result = subprocess.run(["git", "remote", "get-url", "origin"], cwd=root, capture_output=True, text=True, timeout=15)
@@ -1603,12 +1638,12 @@ def gather_doctor(root=None):
     except (OSError, subprocess.TimeoutExpired):
         remote = ""
     trusted = True
-    if mise_path.is_file():
+    if mise_data is not None:
         trusted = False
         if shutil.which("mise"):
             try:
                 show = subprocess.run(["mise", "trust", "--show"], cwd=root, capture_output=True, text=True, timeout=15)
-                trusted = mise_config_trusted((show.stdout or "") + "\n" + (show.stderr or ""), root)
+                trusted = show_is_trusted(show.returncode, (show.stdout or "") + "\n" + (show.stderr or ""), root)
             except (OSError, subprocess.TimeoutExpired):
                 trusted = False
     return {
@@ -1617,14 +1652,21 @@ def gather_doctor(root=None):
         "git_version": git_text, "skills_repo": repo_skill_names(root),
         "skills_user": skill_entries(Path.home() / ".claude/skills"),
         "org": github_org(remote), "environment": environment, "settings_unreadable": settings_unreadable,
-        "mise_toml": root.joinpath(".mise.toml").as_posix() if mise_path.is_file() else None, "mise_trusted": trusted,
+        "mise_toml": root.joinpath(".mise.toml").as_posix() if mise_data is not None else None,
+        "mise_trusted": trusted, "mise_unreadable": mise_unreadable,
         "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,
         "have_socat": shutil.which("socat") is not None,
     }
 
 
 def cmd_doctor(args):
-    raw = "" if sys.stdin.isatty() else sys.stdin.read()
+    if sys.stdin.isatty():
+        raw = ""
+    else:
+        raw = sys.stdin.read(MAX_READ + 1)
+        if len(raw) > MAX_READ:
+            print("doctor: 사실을 읽지 못했다: 너무 크다", file=sys.stderr)
+            return 2
     try:
         facts = json.loads(raw) if raw.strip() else gather_doctor()
     except ValueError as error:

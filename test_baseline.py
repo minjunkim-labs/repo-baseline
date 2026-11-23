@@ -1824,6 +1824,21 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("자동으로 쓰지 않는다", text)
         self.assertIn('고치는 명령: {"autoMode": {"environment": ["github.com/acme"]}}', text)
 
+    def test_a_missing_claude_or_mise_does_not_require_itself(self):
+        missing = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": None, "mise": "2026.1.0"}
+        text = self.problems(versions=missing, want={"claude": "2.1.0"})
+        self.assertIn("고치는 명령: claude를 설치한다", text)
+        self.assertNotIn("claude update", text)
+        mismatch = self.problems(want={"claude": "2.1.0"})
+        self.assertIn("고치는 명령: claude update", mismatch)
+        no_mise = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": None}
+        mac = self.problems(versions=no_mise, os="darwin", want={"mise": "2026.11.0"})
+        self.assertIn("고치는 명령: brew install mise", mac)
+        self.assertNotIn("mise install mise", mac)
+        linux = self.problems(versions=no_mise, os="linux")
+        self.assertIn("고치는 명령: curl -fsSL https://mise.run | sh", linux)
+        self.assertNotIn("mise install mise", linux)
+
     def test_an_untrusted_mise_toml_prints_mise_trust(self):
         text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)
         self.assertIn("고치는 명령: mise trust /home/u/repo/.mise.toml", text)
@@ -1877,6 +1892,8 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(b.mise_config_trusted(f"{folder}: untrusted\n", folder))
         self.assertTrue(b.mise_config_trusted(f"{folder}: trusted\n", folder))
         self.assertFalse(b.mise_config_trusted(f"{folder}/.mise.toml: untrusted\n", folder))
+        self.assertFalse(b.show_is_trusted(1, f"{folder}: trusted\n", folder))
+        self.assertTrue(b.show_is_trusted(0, f"{folder}: trusted\n", folder))
         text = 'min_version = "2026.11.0"\n\n[tools]\npython = "3.12"\n'
         self.assertEqual(b.pins_from({}, text, "2026.11.9"), {"python": "3.12"})
         self.assertEqual(b.pins_from({}, text, "2026.10.0")["mise"], "2026.11.0")
@@ -1896,6 +1913,39 @@ class DoctorTests(unittest.TestCase):
                                 input=json.dumps(facts), capture_output=True, text=True)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("고치는 명령: mise install mise@2026.11.0", result.stderr)
+
+    def test_a_linked_or_unreadable_mise_file_is_not_parsed(self):
+        import baseline as b
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        secret = folder / "secret.toml"
+        secret.write_text('min_version = "9.9.9"\n[tools]\npython = "9.8.7"\n', encoding="utf-8")
+        (folder / ".mise.toml").symlink_to(secret)
+        (folder / ".claude").mkdir()
+        target = folder / "other.json"
+        target.write_text('{"sandbox": {"enabled": true}}\n', encoding="utf-8")
+        (folder / ".claude/settings.json").symlink_to(target)
+        self.assertEqual(b.repo_bytes(folder, ".mise.toml"), (None, True))
+        self.assertEqual(b.repo_bytes(folder, ".claude/settings.json"), (None, True))
+        facts = b.gather_doctor(folder)
+        self.assertTrue(facts["mise_unreadable"])
+        self.assertNotIn("9.9.9", facts["want"].get("mise", ""))
+        self.assertNotEqual(facts["want"].get("python"), "9.8.7")
+        text = "\n".join(b.doctor_problems(facts))
+        self.assertIn(".mise.toml을 읽지 못했다", text)
+        self.assertNotIn("9.8.7", text)
+        (folder / ".mise.toml").unlink()
+        (folder / ".mise.toml").write_bytes(b"\xff")
+        self.assertTrue(b.gather_doctor(folder)["mise_unreadable"])
+        (folder / ".mise.toml").write_bytes(b"x" * (b.MAX_READ + 1))
+        self.assertTrue(b.gather_doctor(folder)["mise_unreadable"])
+
+    def test_oversized_stdin_is_refused(self):
+        import baseline as b
+        result = subprocess.run([sys.executable, "-I", str(ROOT / "baseline.py"), "doctor"],
+                                input="x" * (b.MAX_READ + 1), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("너무 크다", result.stderr)
 
 
 if __name__ == "__main__":
