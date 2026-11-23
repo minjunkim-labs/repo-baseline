@@ -1806,7 +1806,8 @@ class DoctorTests(unittest.TestCase):
         quiet = self.problems(org="acme", environment=["Source control: github.com/acme and all repos under it"])
         self.assertNotIn("autoMode", quiet)
         self.assertNotIn("autoMode", self.problems(org="acme", environment=["https://github.com/acme/repo"]))
-        for item in ("Source control: github.com/acme-other", "Source control: notgithub.com/acme", "gitlab.com/acme"):
+        for item in ("Source control: github.com/acme-other", "Source control: notgithub.com/acme",
+                     "gitlab.com/acme", "Source control: https://gitlab.com/github.com/acme"):
             text = self.problems(org="acme", environment=[item])
             self.assertIn("조직 acme이 없다", text, item)
 

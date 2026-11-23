@@ -1299,7 +1299,7 @@ def version_matches(got, expected):
 def org_mentioned(text, org):
     """A prose autoMode entry names the org when `github.com/<org>` has a boundary on both sides.
 
-    `github.com/acme-other` does not name `acme`, and neither does `notgithub.com/acme`.
+    `github.com/acme-other` does not name `acme`, and neither does `notgithub.com/acme` or a path on another host.
     Official entries are sentences, not only exact URLs (code.claude.com auto-mode-config, 2026-11-23).
     """
     needle = f"github.com/{org}"
@@ -1308,9 +1308,13 @@ def org_mentioned(text, org):
         index = text.find(needle, start)
         if index < 0:
             return False
-        if index > 0 and (text[index - 1].isalnum() or text[index - 1] in "-."):
-            start = index + 1
-            continue
+        if index > 0:
+            prev = text[index - 1]
+            scheme = index >= 3 and text[index - 3:index] == "://"
+            path_slash = prev == "/" and not scheme
+            if prev.isalnum() or prev in "-." or path_slash:
+                start = index + 1
+                continue
         after = index + len(needle)
         if after >= len(text) or not (text[after].isalnum() or text[after] == "-"):
             return True
