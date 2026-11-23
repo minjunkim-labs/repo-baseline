@@ -1098,6 +1098,33 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), edited)
         self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0-dev")
 
+    def test_missing_markers_do_not_skip_edit_check_when_tag_switches_to_sha256(self):
+        """None == None must not skip the stop; a finished sha256 write may resume."""
+        path = self.repo / "AGENTS.md"
+        stripped = b"project only, no managed markers\n"
+        path.write_bytes(stripped)
+        whole = b"tag whole file\n"
+        after_managed = {rel: ( {"sha256": self.b.sha256(whole)} if rel == "AGENTS.md" else spec)
+                         for rel, spec in self.after_managed.items()}
+        source = self.after_source.decode()
+        # Replace MANAGED via the live module helper used by skills-bump-style rewrites is heavy;
+        # build a tiny baseline.py the way other upgrade tests embed MANAGED.
+        source = (f'VERSION = "2.0.1"\nMANAGED = {after_managed!r}\n').encode()
+        self.gh.raw[(self.b.BASELINE_REPO, "baseline.py", self.sha)] = source
+        self.gh.raw[(self.b.BASELINE_REPO, "core/AGENTS.md", self.sha)] = whole
+        for rel, data in self.after_remote.items():
+            if rel not in ("baseline.py", "core/AGENTS.md"):
+                self.gh.raw[(self.b.BASELINE_REPO, rel, self.sha)] = data
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 1, out)
+        self.assertIn("관리 블록이 고쳐져 있다", out)
+        self.assertEqual(path.read_bytes(), stripped)
+        path.write_bytes(whole)
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(path.read_bytes(), whole)
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.1")
+
     def test_a_cleanup_failure_does_not_record_the_version_and_retry_finishes(self):
         extra = self.repo / ".claude/skills/code-review/local.md"
         extra.parent.mkdir(parents=True, exist_ok=True)

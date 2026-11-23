@@ -575,8 +575,12 @@ def upgrade(root, tag_name):
         except OSError as error:
             raise OSError(f"{rel}: {error}") from error
         local_hash = digest(local, "block_sha256")
-        if local_hash == want or (managed.get(rel) or {}).get("block_sha256") == local_hash:
+        new_spec = managed.get(rel) or {}
+        # local_hash is None when markers are gone — do not treat None == None as "already applied".
+        if local_hash is not None and (local_hash == want or new_spec.get("block_sha256") == local_hash):
             continue  # recorded, or a partial upgrade that already wrote the tag block
+        if "sha256" in new_spec and digest(local, "sha256") == new_spec["sha256"]:
+            continue  # partial upgrade already wrote the whole-file tag bytes
         try:
             expected = pristine_block_file(rel, str(recorded.get("version")), want)
         except OSError as error:
