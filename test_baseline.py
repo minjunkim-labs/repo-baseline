@@ -1835,6 +1835,38 @@ class DoctorTests(unittest.TestCase):
         self.assertNotIn("rm -rf", text)
         self.assertNotIn(".ssh", text)
 
+    def test_a_longer_installed_version_matches_the_pin(self):
+        versions = {"python": "3.12.16", "git": "2.45.1", "gh": "2.60.0", "claude": "2.1.330", "mise": "2026.11.9"}
+        self.assertEqual(self.problems(versions=versions, want={"python": "3.12"}), "")
+
+    def test_a_pinned_git_and_another_tool_print_their_own_commands(self):
+        text = self.problems(want={"git": "2.45", "godot": "4.3"},
+                             versions={"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0",
+                                       "mise": "2026.1.0", "godot": "4.2.0"})
+        self.assertIn("고치는 명령: mise install git@2.45", text)
+        self.assertIn("고치는 명령: AGENTS.md 길잡이의 설치법으로 godot 4.3을 설치한다", text)
+
+    def test_windows_git_version_string_on_wsl(self):
+        text = self.problems(wsl=True, wsl_version=2, git_version="git version 2.40.0.windows.1")
+        self.assertIn("고치는 명령: sudo apt install git", text)
+        quiet = self.problems(wsl=False, git_version="git version 2.40.0.windows.1")
+        self.assertNotIn("Windows git", quiet)
+
+    def test_mise_pins_and_trust_show(self):
+        import baseline as b
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        self.assertFalse(b.mise_config_trusted(f"{folder}: untrusted\n", folder))
+        self.assertTrue(b.mise_config_trusted(f"{folder}: trusted\n", folder))
+        self.assertFalse(b.mise_config_trusted(f"{folder}/.mise.toml: untrusted\n", folder))
+        text = 'min_version = "2026.11.0"\n\n[tools]\npython = "3.12"\n'
+        self.assertEqual(b.pins_from({}, text, "2026.11.9"), {"python": "3.12"})
+        self.assertEqual(b.pins_from({}, text, "2026.10.0")["mise"], "2026.11.0")
+        self.assertEqual(b.pins_from({"claude": "2.1.283"}, "", "2026.11.9"), {"claude": "2.1.283"})
+        (folder / ".claude/skills/tdd").mkdir(parents=True)
+        (folder / ".claude/skills/mine").mkdir()
+        self.assertEqual(b.repo_skill_names(folder), ["tdd"])
+
     def test_stdin_facts_print_the_fix_command(self):
         import json
         facts = {"versions": {"python": "3.9.6", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"},
