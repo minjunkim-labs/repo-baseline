@@ -1043,6 +1043,83 @@ class UpgradeTests(unittest.TestCase):
         self.assertEqual(preflight, 0, stderr.getvalue())
         self.assertEqual(json.loads(stdout.getvalue())["grade"], "쉬움")
 
+    def test_a_new_block_file_matches_the_tag_and_other_bytes_stay_hard(self):
+        notes = "제목\n<!-- baseline:start -->\n본문\n<!-- baseline:end -->\n꼬리\n".encode()
+        digest = self.b.digest(notes, "block_sha256")
+        source = self.after_source.replace(
+            b"MANAGED = {\n",
+            b'MANAGED = {\n    "NOTES.md": {"block_sha256": "%s"},\n' % digest.encode(),
+            1)
+        self.gh.raw[(self.b.BASELINE_REPO, "baseline.py", self.sha)] = source
+        self.gh.raw[(self.b.BASELINE_REPO, "core/NOTES.md", self.sha)] = notes
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.repo / "NOTES.md").read_bytes(), notes)
+        base = dict(self.base)
+        head = dict(base)
+        for rel in list(self.b.embedded_managed(source)) + [".baseline/baseline.py", ".baseline/baseline.json"]:
+            head[rel] = (self.repo / rel).read_bytes()
+
+        def grade(tree):
+            gh = FakeGitHub(base, tree)
+            gh.raw[(self.b.BASELINE_REPO, "baseline.py", self.sha)] = source
+            gh.raw[(self.b.BASELINE_REPO, "core/NOTES.md", self.sha)] = notes
+            gh.extra[f"repos/{self.b.BASELINE_REPO}/git/ref/tags/v2.0.1"] = {
+                "object": {"type": "commit", "sha": self.sha}}
+            gh.extra[f"repos/{self.b.BASELINE_REPO}/compare/{self.sha}...main"] = {"status": "ahead"}
+            from contextlib import redirect_stderr, redirect_stdout
+            from io import StringIO
+            from unittest import mock
+            stdout, stderr = StringIO(), StringIO()
+            with mock.patch.object(self.b.subprocess, "run", gh.run), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                preflight = self.b.main(["review-preflight", PR_URL, "--json"])
+            self.assertEqual(preflight, 0, stderr.getvalue())
+            return json.loads(stdout.getvalue())["grade"]
+
+        self.assertEqual(grade(head), "쉬움")
+        changed = dict(head)
+        changed["NOTES.md"] = "다른 바깥\n<!-- baseline:start -->\n본문\n<!-- baseline:end -->\n꼬리\n".encode()
+        self.assertEqual(self.b.digest(changed["NOTES.md"], "block_sha256"), digest)
+        self.assertEqual(grade(changed), "어려움")
+
+    def test_an_edited_block_on_a_dev_version_stops_without_a_tree(self):
+        recorded = json.loads((self.repo / ".baseline/baseline.json").read_bytes())
+        recorded["version"] = "2.0.0-dev"
+        (self.repo / ".baseline/baseline.json").write_bytes(self.b.dump_json(recorded))
+        path = self.repo / "AGENTS.md"
+        edited = path.read_bytes().replace("고치지 않는다".encode(), "고치지 않는다!".encode())
+        path.write_bytes(edited)
+        from unittest import mock
+        with mock.patch.object(self.b, "source_root", lambda: None):
+            code, out = self.run_upgrade()
+        self.assertEqual(code, 1, out)
+        self.assertIn("관리 블록이 고쳐져 있다", out)
+        self.assertEqual(path.read_bytes(), edited)
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0-dev")
+
+    def test_a_cleanup_failure_does_not_record_the_version_and_retry_finishes(self):
+        extra = self.repo / ".claude/skills/code-review/local.md"
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_bytes(b"local\n")
+        real = Path.unlink
+
+        def boom(self, *args, **kwargs):
+            if self.name == "local.md":
+                raise OSError("cleanup")
+            return real(self, *args, **kwargs)
+
+        from unittest import mock
+        with mock.patch.object(Path, "unlink", boom):
+            code, out = self.run_upgrade()
+        self.assertEqual(code, 2, out)
+        self.assertTrue(extra.exists())
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertFalse(extra.exists())
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.1")
+
 
 REPORT = ("## Summary\n완료 기준: x\n\n## Review\n리뷰어(구현과 다른 컨텍스트): 하위 에이전트\n리뷰한 head: {head}\n"
           "등급: {grade}\n고친 것: 없음\n남은 지적: {left}\n외부 리뷰 판정: 없음\n\n## Summary by CodeRabbit\n등급: 문서\n")

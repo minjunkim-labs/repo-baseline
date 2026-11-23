@@ -574,9 +574,15 @@ def upgrade(root, tag_name):
             local = read_file(root, rel)
         except OSError as error:
             raise OSError(f"{rel}: {error}") from error
-        if digest(local, "block_sha256") == want:
-            continue
-        expected = pristine_block_file(rel, str(recorded.get("version")), want)
+        local_hash = digest(local, "block_sha256")
+        if local_hash == want or (managed.get(rel) or {}).get("block_sha256") == local_hash:
+            continue  # recorded, or a partial upgrade that already wrote the tag block
+        try:
+            expected = pristine_block_file(rel, str(recorded.get("version")), want)
+        except OSError as error:
+            print(f"upgrade: {rel}: 관리 블록이 고쳐져 있다", file=sys.stderr)
+            print(f"upgrade: {error}", file=sys.stderr)
+            return 1
         before = (block(expected) or b"").decode("utf-8", "replace").splitlines(True)
         after = (block(local) or b"").decode("utf-8", "replace").splitlines(True)
         diff = "".join(difflib.unified_diff(before, after, fromfile=f"a/{rel}", tofile=f"b/{rel}"))
@@ -593,7 +599,6 @@ def upgrade(root, tag_name):
         if digest(data, kind) != want:
             raise OSError(f"{repo_rel(rel)}: 태그 {tag}의 기록과 다르다")
         files[rel] = data
-    # baseline.json last so a mid-write failure does not record the new version.
     writes = {".baseline/baseline.py": source}
     for rel, data in files.items():
         (kind, _), = managed[rel].items()
@@ -611,14 +616,15 @@ def upgrade(root, tag_name):
     touch_settings = (root / settings).exists() or linked(root, settings)
     skill_names = sorted({rel[len(SKILLS):].split("/")[0]
                           for rel in list(managed) + list(recorded["managed"]) if rel.startswith(SKILLS)})
-    targets = list(writes) + ([settings] if touch_settings else []) + [SKILLS + name for name in skill_names]
+    targets = (list(writes) + [".baseline/baseline.json"] + ([settings] if touch_settings else [])
+               + [SKILLS + name for name in skill_names])
     links = [rel for rel in targets if linked(root, rel)]
     if links:
         raise OSError("symlink는 따라가지 않는다: " + ", ".join(links))
     if touch_settings:
         writes[settings] = re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"',
                                   b'\\g<1>' + sha256(source).encode() + b'"', read_file(root, settings))
-    writes[".baseline/baseline.json"] = dump_json(dict(recorded, version=version, managed=managed))
+    record = dump_json(dict(recorded, version=version, managed=managed))
     for rel, data in writes.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -634,6 +640,11 @@ def upgrade(root, tag_name):
                 path.unlink()
             elif path.is_dir() and not any(path.iterdir()):
                 path.rmdir()
+    # After every other write, so a failure does not record a version the tree does not match.
+    path = root / ".baseline/baseline.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(record)
+    print("upgrade: .baseline/baseline.json")
     return 0
 
 def cmd_upgrade(args):
@@ -690,7 +701,15 @@ def upgrade_problem(paths, old, new):
             same = data == re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + pin + b'"', old(path))
         elif path in managed and data is not None:
             (kind, hash_), = managed[path].items()
-            same = digest(data, kind) == hash_ and (kind == "sha256" or outside(data) == outside(old(path)))
+            if digest(data, kind) != hash_:
+                same = False
+            elif kind == "sha256":
+                same = True
+            elif old(path) is None:
+                tagged = contents(BASELINE_REPO, repo_rel(path), target["sha"])
+                same = tagged is not None and data == tagged
+            else:
+                same = outside(data) == outside(old(path))
         elif data is None and path.startswith(SKILLS):
             name = path[len(SKILLS):].split("/")[0]
             same = name in skill_names and path not in managed
