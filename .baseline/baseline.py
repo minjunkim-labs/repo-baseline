@@ -5,6 +5,7 @@ runs from the pinned copy `.baseline/baseline.py`.
 """
 import argparse
 import ast
+from datetime import datetime, timedelta, timezone
 import fnmatch
 import hashlib
 import json
@@ -12,6 +13,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from urllib.parse import quote
@@ -28,7 +30,78 @@ MANAGED = {
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
+    "docs/agents/issue-tracker.md": {"sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
+    "docs/agents/triage-labels.md": {"sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
+    "docs/agents/domain.md": {"sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
+    "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/arena/SKILL.md": {"sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"},
+    ".claude/skills/blast-radius/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/blast-radius/SKILL.md": {"sha256": "4248d03e22365207d2e5f90c9542720f80a88a6b42fd542ef88dde3cf9f9223f"},
+    ".claude/skills/code-review/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/code-review/SKILL.md": {"sha256": "9c921a8d88138a41401d8897ca1bb852088ab1b7b605cdd04edc13e3e8aab6dd"},
+    ".claude/skills/code-review/agents/openai.yaml": {"sha256": "8229ca854e11dc8e6aef2131ee03f31fb1561cf905fab9ccc325180cf3331352"},
+    ".claude/skills/codebase-design/DEEPENING.md": {"sha256": "f3dd099ce99289bd213914d8ee3e2429b78309c3957ca4583f7659551b1d53c1"},
+    ".claude/skills/codebase-design/DESIGN-IT-TWICE.md": {"sha256": "c222ab5a82e0405672eb9062d62496139a08828e45d07fc5f18e4952c10fac1a"},
+    ".claude/skills/codebase-design/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/codebase-design/SKILL.md": {"sha256": "2c20617f87ec8af6a434859f381b2f061a69b530444e74eb39e78bb016a6d1e2"},
+    ".claude/skills/codebase-design/agents/openai.yaml": {"sha256": "edebc9e4fcfe102114012575eaa9600b9b5fd08c311664f389c36e7bc717740f"},
+    ".claude/skills/create-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/create-verification-skill/SKILL.md": {"sha256": "d353973547bf8ad8977eca645f4cd4feaed0d32f4b43d1448f906b0a76c4d694"},
+    ".claude/skills/create-verification-skill/references/feature-map-example/README.md": {"sha256": "cb7bd782cf89968a4ba3d58a5151db837430db92d19a6f52a906973b77b516ba"},
+    ".claude/skills/create-verification-skill/references/feature-map-example/create-note.md": {"sha256": "644a44c74f35d38c2feb7cd05a0121fdebbb623e8dc376c185b565a581d1ccf7"},
+    ".claude/skills/create-verification-skill/references/feature-map-example/search.md": {"sha256": "6e87b9e7f2791a7776ba1bb83f371cd285c306c67f19d245cc4dd6ca3015c823"},
+    ".claude/skills/diagnosing-bugs/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/diagnosing-bugs/SKILL.md": {"sha256": "849198df88cdb65fd0d97236604c1fca7ff2f22d2f705f9724a800d0266b118d"},
+    ".claude/skills/diagnosing-bugs/agents/openai.yaml": {"sha256": "3e430dbe4334a87597488c060cb3dc3786bb00c9182877d6f5ec41f62490e90b"},
+    ".claude/skills/diagnosing-bugs/scripts/hitl-loop.template.sh": {"sha256": "35103539fc36873eea36074769ad454f9379d6fc8b2dc0e26ce987fd3bfe5503"},
+    ".claude/skills/domain-modeling/ADR-FORMAT.md": {"sha256": "944c92aa790e8fbdc9199640b170979abb8a34ba8d0fe18c2a01a63bce140ca0"},
+    ".claude/skills/domain-modeling/GLOSSARY-FORMAT.md": {"sha256": "21dcc40cdec8e151a829b98ab1517c1867bc444e3665134a98c6983411996801"},
+    ".claude/skills/domain-modeling/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/domain-modeling/SKILL.md": {"sha256": "7b925d7b1e341a2eeae33ad68a8a8c0ab889a38ddd22a7598e4c240e5a7556a3"},
+    ".claude/skills/domain-modeling/agents/openai.yaml": {"sha256": "f6bf2aa996c6e6f53fdd0708e18a0d16a56aed8322cca59fedbe3c0d2c75f06b"},
+    ".claude/skills/grill-with-docs/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/grill-with-docs/SKILL.md": {"sha256": "7de372c13488f1ee96cc11cd8907b56b6809cc93eef776eeddd37de6b6cbe3fe"},
+    ".claude/skills/grill-with-docs/agents/openai.yaml": {"sha256": "94cd0ab161fb468a836349f5ed482ba58ce8e709a05c57ce533d739dbd35cca9"},
+    ".claude/skills/grilling/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/grilling/SKILL.md": {"sha256": "a146842ed93ca43d833550fa9adf02e58cb63c83fea9d4b4522995b82242d4e2"},
+    ".claude/skills/grilling/agents/openai.yaml": {"sha256": "1411d7df7d99b7e621a1ff8283c8133cc2464be63d064e52d8ce169c6800ee9b"},
+    ".claude/skills/in-your-own-words/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/in-your-own-words/SKILL.md": {"sha256": "fa8ba74e27d7be371dc270ec78bbf816411477d0dfab185356c861ac8dd413ad"},
+    ".claude/skills/interrogate/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/interrogate/SKILL.md": {"sha256": "3f3c2e9b8cf6b180dba9f32a4aff85e5691b09805232468e37a0ba45437a9984"},
+    ".claude/skills/maintain-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/maintain-verification-skill/SKILL.md": {"sha256": "515c0eaa054b3f6be1b1fb06f2c2f173c80fddb58bbcac57576f89c479bc68e8"},
+    ".claude/skills/pr/CREDITS.md": {"sha256": "a7a087127665d7298a72280ef6e19c41ad8404523712a788c8dc3ab414bc2497"},
+    ".claude/skills/pr/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/pr/SKILL.md": {"sha256": "ab63f1cf78647389edcd386c9427c5dfca27ed2836930c24773ffee834c19bcd"},
+    ".claude/skills/pr/agents/openai.yaml": {"sha256": "2295b586624db4ef546f3fd4695492f039d941a46d8a1593a702ce3ca511b8ad"},
+    ".claude/skills/prototype/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/prototype/LOGIC.md": {"sha256": "f61c7d249e786a79ef289018901c348271e1798dd0b0bc5607b5c6f4d4a01ab9"},
+    ".claude/skills/prototype/SKILL.md": {"sha256": "714de632d116bb73f65cdb5a882db15b9369a6713b9a47c0fad827848f0bfbe3"},
+    ".claude/skills/prototype/UI.md": {"sha256": "723211e878acbc7b6ff09755263f3295cde724ba902ff0064da41eed51d45ad3"},
+    ".claude/skills/prototype/agents/openai.yaml": {"sha256": "5af65e43ab41a350436697b81e27b7f848d36782043b73c322bb2c9fa9cc55dc"},
+    ".claude/skills/research/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/research/SKILL.md": {"sha256": "1f629e18ab899412683bc6a1c4efb4339999e27c2fdac328f26ee10a8c031d33"},
+    ".claude/skills/research/agents/openai.yaml": {"sha256": "9b4c470d63221c1f68f22df70b83e2f12401b317babe0d1b7b5f24a974474d0d"},
+    ".claude/skills/tdd/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/tdd/SKILL.md": {"sha256": "5505d25bbaa8fc14a79e4d20163936958992a2995b7f1dd1d6197edc9ed722e0"},
+    ".claude/skills/tdd/agents/openai.yaml": {"sha256": "ea6f01cf1b8c06a4b0f5b649d74b1b8ce8685e72af1b38d70d877693e092af0b"},
+    ".claude/skills/tdd/mocking.md": {"sha256": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef"},
+    ".claude/skills/tdd/tests.md": {"sha256": "859f9e592c188fda4fc7277dd180e4ce9c7a2e13f6efe1f6f29eccc9d28c106a"},
+    ".claude/skills/to-spec/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/to-spec/SKILL.md": {"sha256": "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"},
+    ".claude/skills/to-spec/agents/openai.yaml": {"sha256": "1c5b4d1e3d8e52287ef19cc2742fdbbfae1914ac75d33af3e4c8174f08cc55bb"},
+    ".claude/skills/to-tickets/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/to-tickets/SKILL.md": {"sha256": "56ec23c5b2782785d4e65bff9e315b6d3aeb4ef977c174a219e99489fada1995"},
+    ".claude/skills/to-tickets/agents/openai.yaml": {"sha256": "21bc6215fffcd7614e9f772bb1760e87cc5fc7dcc707e7d282bc9414267a6090"},
+    ".claude/skills/unslop/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/unslop/SKILL.md": {"sha256": "ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f"},
+    ".claude/skills/wayfinder/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/wayfinder/SKILL.md": {"sha256": "0c9fa96791aebf3b7d654cf35c6aadde97d81f57c17b07d13b27c14d9c46561f"},
+    ".claude/skills/wayfinder/agents/openai.yaml": {"sha256": "88bc81a11a6d52ac67aeaa76b8b619e387020d47c5133a4dd4927fd15c4ad073"},
 }
+SKILLS = ".claude/skills/"  # skill copies: managed files whose source is skills/ (skills-bump)
 COMMANDS = ("setup", "check", "test", "build")
 DEFAULT_COMMANDS = {
     "setup": "N/A: 아직 정하지 않았다",
@@ -72,16 +145,22 @@ HASH_RE = re.compile(r"\b[0-9a-f]{32,}\b|sha(?:1|256|384|512)-[A-Za-z0-9+/]+=*")
 VERSION_RE = re.compile(r"\d+(?:\.\d+)+")
 
 
-def read_file(root, rel):
-    """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
-    No symlink anywhere on the way: git ignores a symlinked .gitattributes, a linked .github moves the
-    PR template, and a link to /dev/zero never ends."""
+def linked(root, rel):
+    """Is any part of root/rel a symlink?"""
     path = root
     for part in Path(rel).parts:
         path = path / part
         if path.is_symlink():
-            raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
-    if not path.is_file():
+            return True
+    return False
+
+
+def read_file(root, rel):
+    """check and budget read a PR tree in CI: regular files only, at most MAX_READ bytes.
+    No symlink anywhere on the way: git ignores a symlinked .gitattributes, a linked .github moves the
+    PR template, and a link to /dev/zero never ends."""
+    path = root / rel
+    if linked(root, rel) or not path.is_file():
         raise OSError("없거나 일반 파일이 아니다(symlink는 안 된다)")
     with path.open("rb") as f:
         data = f.read(MAX_READ + 1)
@@ -113,6 +192,12 @@ def digest(data, kind):
         return sha256(data)
     inner = block(data)
     return None if inner is None else sha256(inner)
+
+
+def source(rel):
+    """Where repo-baseline keeps a managed file: skill copies in skills/, the rest in core/."""
+    here = Path(__file__).resolve().parent
+    return here / "skills" / rel[len(SKILLS):] if rel.startswith(SKILLS) else here / "core" / rel
 
 
 def repo_root():
@@ -159,6 +244,7 @@ def cmd_init(args):
     if not core.is_dir():
         sys.exit("init: core/가 없다. repo-baseline 클론의 baseline.py로 돌린다")
     files = {p.relative_to(core).as_posix(): p.read_bytes() for p in sorted(core.rglob("*")) if p.is_file()}
+    files.update({rel: source(rel).read_bytes() for rel in MANAGED if rel.startswith(SKILLS)})
     files[".baseline/baseline.py"] = Path(__file__).read_bytes()
     files[".baseline/commands.json"] = dump_json(DEFAULT_COMMANDS)
     files[".baseline/baseline.json"] = dump_json({"version": VERSION, "profiles": [], "managed": MANAGED})
@@ -213,6 +299,15 @@ def cmd_check(args):
             problems.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         elif got != want:
             problems.append(f"{rel}: {'관리 블록이' if kind == 'block_sha256' else '파일이'} 이 판과 다르다")
+    # A file added to a skill copy changes the skill too. Other folders in .claude/skills/ are the project's.
+    for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
+        if linked(root, SKILLS + name):  # os.walk opens a linked top folder; read_file above already reported it
+            continue
+        for folder, dirs, names in os.walk(root / SKILLS / name):
+            for entry in names + [d for d in dirs if Path(folder, d).is_symlink()]:
+                rel = Path(folder, entry).relative_to(root).as_posix()
+                if rel not in MANAGED:
+                    problems.append(f"{rel}: 이 판의 스킬 사본에 없는 파일이다")
     commands, command_problems = load_commands(root)
     problems += command_problems
     if commands is not None:
@@ -773,6 +868,191 @@ def cmd_enqueue(args):
     return 0
 
 
+def blob_sha(data):
+    """The git blob id, so files can be compared with a REST tree without downloading them."""
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def tag_version(name):
+    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", name or "")
+    return tuple(map(int, match.groups())) if match else None
+
+
+def lock_problems(lock):
+    if not isinstance(lock, dict) or not isinstance(lock.get("sources"), dict) or not isinstance(lock.get("skills"), dict):
+        return ["skills.lock.json에 sources·skills 객체가 없다"]
+    problems = []
+    for name, src in lock["sources"].items():
+        if not (isinstance(src, dict) and re.fullmatch(r"[\w.-]+/[\w.-]+", str(src.get("repo")))
+                and src.get("update") in ("tag", "commit") and isinstance(src.get("days"), int) and src["days"] >= 7
+                and all(isinstance(src.get(k), str) for k in ("license", "plugin"))
+                and (src["update"] == "tag" or isinstance(src.get("branch"), str))):
+            problems.append(f"출처 {name}: repo, update(tag·commit), days(7 이상), license, plugin"
+                            "(commit이면 branch)가 있어야 한다")
+    for name, skill in lock["skills"].items():
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", name) or not isinstance(skill, dict) \
+                or skill.get("source") not in lock["sources"] or not isinstance(skill.get("path"), str) \
+                or ".." in skill["path"].split("/") or not isinstance(skill.get("requires"), list):
+            problems.append(f"{name}: 이름(소문자·숫자·-), source, path, requires가 맞지 않다")
+            continue
+        for need in skill["requires"]:  # one source moves as one pin, so its skills change together
+            if (lock["skills"].get(need) or {}).get("source") != skill["source"]:
+                problems.append(f"{name}: 의존 스킬 {need}가 lock에 없거나 출처가 다르다")
+    return problems
+
+
+def newest_pin(src, cutoff):
+    """(tag or None, commit) of the newest version older than the cutoff that is newer than the pin, or None."""
+    repo = src["repo"]
+
+    def ahead(sha):  # never back, never sideways: a new tag can name an old commit
+        return not src.get("commit") or gh_api(f"repos/{repo}/compare/{src['commit']}...{sha}")["status"] == "ahead"
+    if src["update"] == "commit":
+        found = gh_api(f"repos/{repo}/commits?sha={quote(src['branch'], safe='')}"
+                       f"&until={cutoff:%Y-%m-%dT%H:%M:%SZ}&per_page=1")
+        if not found:
+            return None
+        return (None, found[0]["sha"]) if ahead(found[0]["sha"]) else None
+    current = tag_version(src.get("tag"))
+    for tag in sorted({t["name"] for t in pages(f"repos/{repo}/tags") if tag_version(t["name"])},
+                      key=tag_version, reverse=True):
+        if current and tag_version(tag) <= current:
+            return None
+        target = gh_api(f"repos/{repo}/git/ref/tags/{quote(tag, safe='')}")["object"]
+        if target["type"] != "tag":  # a lightweight tag has no date of its own: an old commit can get a new tag
+            continue
+        annotated = gh_api(f"repos/{repo}/git/tags/{target['sha']}")
+        date, target = annotated["tagger"]["date"], annotated["object"]
+        if target["type"] != "commit":
+            raise ValueError(f"{repo} {tag}: 커밋을 가리키지 않는다")
+        if datetime.fromisoformat(date.replace("Z", "+00:00")) <= cutoff and ahead(target["sha"]):
+            return tag, target["sha"]
+    return None
+
+
+def snapshot(src, names, skills, commit):
+    """{"<skill>/<rel>": (path in the source, tree entry)} at the commit, with the source LICENSE in each skill."""
+    repo = src["repo"]
+    tree = gh_api(f"repos/{repo}/git/trees/{commit}?recursive=1")
+    if tree.get("truncated"):
+        raise OSError(f"{repo}@{commit[:7]}: 트리가 커서 REST가 다 보여 주지 않는다")
+    entries = {e["path"]: e for e in tree["tree"]}
+    out = {}
+    for name in names:
+        prefix = skills[name]["path"].rstrip("/") + "/"
+        found = {p[len(prefix):]: p for p, e in entries.items() if p.startswith(prefix) and e.get("type") != "tree"}
+        if "SKILL.md" not in found or "LICENSE" in found:
+            raise OSError(f"{repo}@{commit[:7]} {prefix}: SKILL.md가 없거나 LICENSE가 이미 있다")
+        found["LICENSE"] = src["license"]
+        for rel, path in found.items():
+            entry = entries.get(path) or {}
+            if (not rel.isprintable() or "\\" in rel or any(part in ("", ".", "..") or part.lower().startswith(".git") for part in rel.split("/"))
+                    or entry.get("type") != "blob" or entry.get("mode") not in ("100644", "100755")
+                    or not isinstance(entry.get("size"), int) or entry["size"] > MAX_READ):
+                raise OSError(f"{repo}@{commit[:7]} {json.dumps(path)}: 없거나 일반 파일이 아니다(symlink·submodule, "
+                              f"{MAX_READ}바이트 넘음, 쓸 수 없는 이름)")
+            out[f"{name}/{rel}"] = (path, entry)
+    return out
+
+
+def local_shas(root, names):
+    found = {}
+    for name in names:
+        for path in sorted((root / "skills" / name).rglob("*")):
+            if path.is_file():
+                found[path.relative_to(root / "skills").as_posix()] = blob_sha(path.read_bytes())
+    return found
+
+
+def write_managed(path, managed):
+    """Replace the MANAGED literal of a baseline.py, one entry per line."""
+    text = path.read_bytes().decode("utf-8")
+    node = next(n for n in ast.parse(text).body
+                if isinstance(n, ast.Assign) and [getattr(t, "id", None) for t in n.targets] == ["MANAGED"])
+    lines = text.splitlines(keepends=True)
+    lines[node.lineno - 1:node.end_lineno] = ["MANAGED = {\n"] + [
+        f"    {json.dumps(rel)}: {{{json.dumps(kind)}: {json.dumps(want)}}},\n"
+        for rel, spec in managed.items() for kind, want in spec.items()] + ["}\n"]
+    path.write_bytes("".join(lines).encode("utf-8"))
+
+
+def skills_bump(root, check, now):
+    """Move each skill source of skills/skills.lock.json to its newest version older than `days`."""
+    try:
+        lock = json.loads(read_file(root, "skills/skills.lock.json"))
+        problems = lock_problems(lock)
+        if problems:
+            raise ValueError("; ".join(problems))
+        updates = []
+        for name, src in lock["sources"].items():
+            # No newer version: still check the copies against the pin (a skill added to the lock).
+            pin = newest_pin(src, now - timedelta(days=src["days"])) or (
+                (src.get("tag"), src["commit"]) if src.get("commit") else None)
+            names = sorted(n for n, s in lock["skills"].items() if s["source"] == name)
+            files = snapshot(src, names, lock["skills"], pin[1]) if pin else None
+            if files and {rel: e["sha"] for rel, (_, e) in files.items()} != local_shas(root, names):
+                updates.append((name, src, pin, names, files))
+        if not updates:
+            print("skills-bump: 새 판이 없다")
+            return 0
+        for name, src, (tag, commit), names, _ in updates:
+            print(f"skills-bump: {name}: {src.get('tag') or (src.get('commit') or '없음')[:7]} → {tag or commit[:7]} "
+                  f"({src['repo']}, 스킬: {', '.join(names)})")
+        if check:
+            return 1
+        links = [base + n for base in ("skills/", SKILLS) for update in updates for n in update[3] if linked(root, base + n)]
+        if links:  # rmtree(ignore_errors) would leave the link and write through it
+            raise OSError(f"symlink가 있는 경로에 쓰지 않는다: {', '.join(links)}")
+        writes = {}  # download and verify everything before the first write
+        for name, src, (tag, commit), names, files in updates:
+            for rel, (path, entry) in files.items():
+                data = contents(src["repo"], path, commit)
+                if data is None or blob_sha(data) != entry["sha"]:
+                    raise OSError(f"{src['repo']}@{commit[:7]} {path}: 받은 바이트가 트리와 다르다")
+                writes[rel] = data
+            version = json.loads(contents(src["repo"], src["plugin"], commit) or b"null")
+            version = version.get("version") if isinstance(version, dict) else None
+            if not isinstance(version, str):
+                raise ValueError(f"{src['repo']}@{commit[:7]} {src['plugin']}: version이 없다")
+            src.update({"commit": commit, "version": version}, **({"tag": tag} if tag else {}))
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, StopIteration) as error:
+        print(f"skills-bump: 실행 실패: {error}", file=sys.stderr)
+        return 2
+    changed = [n for update in updates for n in update[3]]
+    for base in ("skills", SKILLS):
+        for name in changed:
+            shutil.rmtree(root / base / name, ignore_errors=True)
+        for rel, data in writes.items():
+            (root / base / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / base / rel).write_bytes(data)
+    (root / "skills/skills.lock.json").write_bytes(dump_json(lock))
+    managed = {rel: spec for rel, spec in embedded_managed((root / "baseline.py").read_bytes()).items()
+               if not rel.startswith(SKILLS)}
+    for name in sorted(lock["skills"]):
+        for path in sorted((root / "skills" / name).rglob("*")):
+            if path.is_file():
+                managed[SKILLS + path.relative_to(root / "skills").as_posix()] = {"sha256": sha256(path.read_bytes())}
+    write_managed(root / "baseline.py", managed)
+    after = sha256((root / "baseline.py").read_bytes())
+    for rel in ("core/.claude/settings.json", ".claude/settings.json"):  # the enqueue hook pins baseline.py
+        if (root / rel).is_file():
+            data = (root / rel).read_bytes()
+            (root / rel).write_bytes(re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + after.encode() + b'"', data))
+    shutil.copyfile(root / "baseline.py", root / ".baseline/baseline.py")
+    recorded = json.loads((root / ".baseline/baseline.json").read_bytes())
+    (root / ".baseline/baseline.json").write_bytes(dump_json(dict(recorded, managed=managed)))
+    print("skills-bump: skills/, .claude/skills/, skills.lock.json, baseline.py의 MANAGED, .baseline/을 바꿨다. "
+          "PR을 연다(소유자가 diff를 읽고 병합한다)")
+    return 0
+
+
+def cmd_skills_bump(args):
+    root = Path(__file__).resolve().parent
+    if not (root / "skills/skills.lock.json").is_file():
+        sys.exit("skills-bump: skills/skills.lock.json이 없다. repo-baseline 클론의 baseline.py로 돌린다")
+    return skills_bump(root, args.check, datetime.now(timezone.utc))
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="baseline.py", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -788,9 +1068,12 @@ def main(argv=None):
     enqueue_parser.add_argument("pr", help="PR URL 또는 번호")
     enqueue_parser.add_argument("sha", help="리뷰한 head(40자 SHA)")
     enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
+    bump_parser = sub.add_parser("skills-bump", help="스킬 출처마다 7일 지난 새 판으로 사본을 바꾼다(repo-baseline 전용)")
+    bump_parser.add_argument("--check", action="store_true", help="바꾸지 않고 새 판이 있는지만 본다(있으면 1)")
     args = parser.parse_args(argv)
     return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget,
-            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue}[args.command](args)
+            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue,
+            "skills-bump": cmd_skills_bump}[args.command](args)
 
 
 if __name__ == "__main__":

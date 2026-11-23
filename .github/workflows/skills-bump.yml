@@ -1,0 +1,63 @@
+name: Skills bump
+
+# Weekly: is there a skill version older than its lock `days`? A PR opened with GITHUB_TOKEN gets no
+# required CI (WORKFLOW.md), so this only opens or updates an Issue. A local session runs skills-bump.
+on:
+  schedule:
+    - cron: '23 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.x'
+      - name: new skill versions
+        id: bump
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          python3 -I baseline.py skills-bump --check > "$RUNNER_TEMP/bump.txt"
+          code=$?
+          set -e
+          cat "$RUNNER_TEMP/bump.txt"
+          test "$code" -le 1
+          echo "found=$code" >> "$GITHUB_OUTPUT"
+      - name: open or update the Issue
+        if: steps.bump.outputs.found == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: 'skills-bump: 새 스킬 판'
+        run: |
+          # shellcheck disable=SC2016 # the backticks are Markdown
+          {
+            echo '`python3 -I baseline.py skills-bump --check`의 출력:'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/bump.txt"
+            echo '```'
+            echo
+            echo '로컬 세션이 repo-baseline 클론에서 `python3 -I baseline.py skills-bump`를 돌리고 PR을 연다(WORKFLOW.md 「갱신하는 법」).'
+          } > "$RUNNER_TEMP/body.md"
+          number=$(gh api "repos/$GITHUB_REPOSITORY/issues?state=open&creator=github-actions%5Bbot%5D&per_page=100" \
+            --jq '[.[] | select(.title == env.TITLE and .pull_request == null)][0].number // empty')
+          if [ -n "$number" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/$number" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          else
+            gh api "repos/$GITHUB_REPOSITORY/issues" -f "title=$TITLE" -F "body=@$RUNNER_TEMP/body.md" > /dev/null
+          fi

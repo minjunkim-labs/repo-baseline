@@ -1,0 +1,145 @@
+{
+  "skills": {
+    "arena": {
+      "path": "pstack/skills/arena",
+      "requires": [],
+      "source": "pstack"
+    },
+    "blast-radius": {
+      "path": "pstack/skills/blast-radius",
+      "requires": [
+        "arena",
+        "unslop"
+      ],
+      "source": "pstack"
+    },
+    "code-review": {
+      "path": "skills/engineering/code-review",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "codebase-design": {
+      "path": "skills/engineering/codebase-design",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "create-verification-skill": {
+      "path": "pstack/skills/create-verification-skill",
+      "requires": [
+        "maintain-verification-skill"
+      ],
+      "source": "pstack"
+    },
+    "diagnosing-bugs": {
+      "path": "skills/engineering/diagnosing-bugs",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "domain-modeling": {
+      "path": "skills/engineering/domain-modeling",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "grill-with-docs": {
+      "path": "skills/engineering/grill-with-docs",
+      "requires": [
+        "domain-modeling",
+        "grilling"
+      ],
+      "source": "mattpocock"
+    },
+    "grilling": {
+      "path": "skills/productivity/grilling",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "in-your-own-words": {
+      "path": "pstack/skills/in-your-own-words",
+      "requires": [],
+      "source": "pstack"
+    },
+    "interrogate": {
+      "path": "pstack/skills/interrogate",
+      "requires": [
+        "arena",
+        "in-your-own-words"
+      ],
+      "source": "pstack"
+    },
+    "maintain-verification-skill": {
+      "path": "pstack/skills/maintain-verification-skill",
+      "requires": [],
+      "source": "pstack"
+    },
+    "pr": {
+      "path": "skills/engineering/pr",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "prototype": {
+      "path": "skills/engineering/prototype",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "research": {
+      "path": "skills/engineering/research",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "tdd": {
+      "path": "skills/engineering/tdd",
+      "requires": [
+        "code-review",
+        "codebase-design"
+      ],
+      "source": "mattpocock"
+    },
+    "to-spec": {
+      "path": "skills/engineering/to-spec",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "to-tickets": {
+      "path": "skills/engineering/to-tickets",
+      "requires": [],
+      "source": "mattpocock"
+    },
+    "unslop": {
+      "path": "pstack/skills/unslop",
+      "requires": [],
+      "source": "pstack"
+    },
+    "wayfinder": {
+      "path": "skills/engineering/wayfinder",
+      "requires": [
+        "domain-modeling",
+        "grilling",
+        "prototype",
+        "research"
+      ],
+      "source": "mattpocock"
+    }
+  },
+  "sources": {
+    "mattpocock": {
+      "commit": "d1478fcb140db0b93c0c8df17bcfd311844749d0",
+      "days": 7,
+      "license": "LICENSE",
+      "plugin": ".claude-plugin/plugin.json",
+      "repo": "mattpocock/skills",
+      "tag": "v1.3.2",
+      "update": "tag",
+      "version": "1.3.2"
+    },
+    "pstack": {
+      "branch": "main",
+      "commit": "bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7",
+      "days": 7,
+      "license": "pstack/LICENSE",
+      "plugin": "pstack/plugin.json",
+      "repo": "cursor/plugins",
+      "update": "commit",
+      "version": "0.15.42"
+    }
+  }
+}
