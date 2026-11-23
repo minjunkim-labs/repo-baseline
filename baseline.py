@@ -1293,12 +1293,33 @@ def version_matches(got, expected):
     return got == expected or got.startswith(expected + ".")
 
 
+def org_mentioned(text, org):
+    """A prose autoMode entry names the org when `github.com/<org>` has a boundary on both sides.
+
+    `github.com/acme-other` does not name `acme`, and neither does `notgithub.com/acme`.
+    Official entries are sentences, not only exact URLs (code.claude.com auto-mode-config, 2026-11-23).
+    """
+    needle = f"github.com/{org}"
+    start = 0
+    while True:
+        index = text.find(needle, start)
+        if index < 0:
+            return False
+        if index > 0 and (text[index - 1].isalnum() or text[index - 1] in "-."):
+            start = index + 1
+            continue
+        after = index + len(needle)
+        if after >= len(text) or not (text[after].isalnum() or text[after] == "-"):
+            return True
+        start = after
+
+
 def org_allowed(org, environment):
     needle = f"github.com/{org}"
     for item in environment:
         if not isinstance(item, str):
             continue
-        if item in (org, needle) or item.startswith(needle + "/") or item.endswith("/" + org):
+        if item in (org, needle) or item.startswith(needle + "/") or org_mentioned(item, org):
             return True
     return False
 
@@ -1330,7 +1351,9 @@ def doctor_problems(facts):
                             f"doctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
     if facts.get("wsl"):
         if facts.get("wsl_version") != 2:
-            problems.append("doctor: WSL1이다\ndoctor: 고치는 명령: wsl --set-default-version 2")
+            problems.append("doctor: WSL1이다\n"
+                            "doctor: 고치는 명령: wsl.exe --set-version <배포판> 2\n"
+                            "doctor: PowerShell에서 wsl.exe --list --verbose 로 배포판 이름을 본다")
         repo = facts.get("repo") if isinstance(facts.get("repo"), str) else ""
         if repo.startswith("/mnt/"):
             problems.append("doctor: 저장소가 /mnt/ 아래다\ndoctor: 고치는 명령: 저장소를 ~ 아래에 클론한다")
@@ -1399,7 +1422,7 @@ def skill_entries(folder):
         if path.is_symlink():
             try:
                 names.add(path.resolve().name)
-            except OSError:
+            except (OSError, RuntimeError):
                 pass
         entries.append({"entry": path.name, "names": sorted(names)})
     return entries

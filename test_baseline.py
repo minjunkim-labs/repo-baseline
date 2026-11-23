@@ -1785,7 +1785,8 @@ class DoctorTests(unittest.TestCase):
 
     def test_wsl1_mnt_and_windows_git_print_fix_commands(self):
         text = self.problems(wsl=True, wsl_version=1, repo="/mnt/c/src/repo", git_path="/mnt/c/Program Files/Git/cmd/git.exe")
-        self.assertIn("고치는 명령: wsl --set-default-version 2", text)
+        self.assertIn("고치는 명령: wsl.exe --set-version <배포판> 2", text)
+        self.assertNotIn("set-default-version", text)
         self.assertIn("고치는 명령: 저장소를 ~ 아래에 클론한다", text)
         self.assertIn("고치는 명령: sudo apt install git", text)
 
@@ -1800,6 +1801,23 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("개인 스킬 tdd이 저장소 사본과 같은 이름이다", text)
         self.assertIn("고치는 명령: rm -rf ~/.claude/skills/my-tdd", text)
         self.assertIn("플러그인:스킬", text)
+
+    def test_a_prose_environment_entry_names_the_org(self):
+        quiet = self.problems(org="acme", environment=["Source control: github.com/acme and all repos under it"])
+        self.assertNotIn("autoMode", quiet)
+        self.assertNotIn("autoMode", self.problems(org="acme", environment=["https://github.com/acme/repo"]))
+        for item in ("Source control: github.com/acme-other", "Source control: notgithub.com/acme", "gitlab.com/acme"):
+            text = self.problems(org="acme", environment=[item])
+            self.assertIn("조직 acme이 없다", text, item)
+
+    def test_a_symlink_loop_in_skills_does_not_crash(self):
+        import baseline as b
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "skills"
+            folder.mkdir()
+            link = folder / "loop"
+            link.symlink_to(link)
+            self.assertEqual([item["entry"] for item in b.skill_entries(folder)], ["loop"])
 
     def test_a_missing_org_prints_json_and_does_not_write(self):
         text = self.problems(org="acme", environment=["github.com/other"])
