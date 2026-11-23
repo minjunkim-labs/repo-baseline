@@ -909,6 +909,108 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(self.bump(self.LOCK, new, author="owner")[0], "어려움")
 
 
+def tagged_core(version, agents=None, profiles=None):
+    """A repo-baseline tag tree: contents paths + consumer paths with MANAGED hashes for `version`."""
+    import baseline as b
+    base = core_tree()
+    agents = agents if agents is not None else base["AGENTS.md"]
+    managed = dict(b.MANAGED, **{"AGENTS.md": {"block_sha256": b.digest(agents, "block_sha256")}})
+    source = base[".baseline/baseline.py"].decode()
+    source = source.replace(f'VERSION = "{b.VERSION}"', f'VERSION = "{version}"')
+    source = source.replace(b.MANAGED["AGENTS.md"]["block_sha256"], managed["AGENTS.md"]["block_sha256"])
+    source = source.encode()
+    remote = {b.repo_rel(rel): (agents if rel == "AGENTS.md" else base[rel]) for rel in managed}
+    remote["baseline.py"] = source
+    consumer = {rel: (agents if rel == "AGENTS.md" else base[rel]) for rel in managed}
+    consumer[".baseline/baseline.py"] = source
+    consumer[".baseline/baseline.json"] = b.dump_json({"version": version, "profiles": profiles or [], "managed": managed})
+    return remote, consumer, managed, source
+
+
+class UpgradeTests(unittest.TestCase):
+    """upgrade <tag> in a temporary consumer; GitHub REST is faked."""
+
+    def setUp(self):
+        import baseline as b
+        self.b = b
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        self.before_remote, self.before, _, _ = tagged_core("2.0.0", profiles=["keep"])
+        agents = core_tree()["AGENTS.md"].replace("고치지 않는다".encode(), "고치지 않는다2".encode())
+        self.after_remote, _, self.after_managed, self.after_source = tagged_core("2.0.1", agents, profiles=["keep"])
+        self.base = dict(self.before)
+        self.base["AGENTS.md"] = self.before["AGENTS.md"].replace("# 프로젝트 이름".encode(), "# 내 앱".encode(), 1)
+        for rel, data in self.base.items():
+            path = self.repo / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        self.sha, self.old = "t" * 40, "s" * 40
+        self.gh = FakeGitHub(self.base, self.base)
+        self.gh.raw.clear()
+        for rel, data in self.before_remote.items():
+            self.gh.raw[(b.BASELINE_REPO, rel, self.old)] = data
+        for rel, data in self.after_remote.items():
+            self.gh.raw[(b.BASELINE_REPO, rel, self.sha)] = data
+        self.gh.extra.update({
+            f"repos/{b.BASELINE_REPO}/git/ref/tags/v2.0.0": {"object": {"type": "commit", "sha": self.old}},
+            f"repos/{b.BASELINE_REPO}/git/ref/tags/v2.0.1": {"object": {"type": "commit", "sha": self.sha}},
+            f"repos/{b.BASELINE_REPO}/compare/{self.old}...main": {"status": "ahead"},
+            f"repos/{b.BASELINE_REPO}/compare/{self.sha}...main": {"status": "ahead"},
+        })
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_upgrade(self, tag="v2.0.1"):
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        out, err = StringIO(), StringIO()
+        with mock.patch.object(self.b.subprocess, "run", self.gh.run), \
+                mock.patch.object(self.b, "repo_root", lambda: self.repo), \
+                redirect_stdout(out), redirect_stderr(err):
+            code = self.b.main(["upgrade", tag])
+        return code, out.getvalue() + err.getvalue()
+
+    def test_stops_when_a_managed_block_was_edited(self):
+        path = self.repo / "AGENTS.md"
+        edited = path.read_bytes().replace("고치지 않는다".encode(), "고치지 않는다!".encode())
+        path.write_bytes(edited)
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 1, out)
+        self.assertIn("관리 블록이 고쳐져 있다", out)
+        self.assertIn("--- a/AGENTS.md", out)
+        self.assertEqual(path.read_bytes(), edited)
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
+
+    def test_upgrade_result_is_easy_for_review_preflight(self):
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        agents = (self.repo / "AGENTS.md").read_bytes()
+        self.assertIn("# 내 앱".encode(), agents)
+        self.assertEqual(self.b.digest(agents, "block_sha256"), self.after_managed["AGENTS.md"]["block_sha256"])
+        self.assertEqual((self.repo / ".baseline/baseline.py").read_bytes(), self.after_source)
+        recorded = json.loads((self.repo / ".baseline/baseline.json").read_bytes())
+        self.assertEqual((recorded["version"], recorded["profiles"], recorded["managed"]),
+                         ("2.0.1", ["keep"], self.after_managed))
+        head = dict(self.base)
+        for rel in list(self.after_managed) + [".baseline/baseline.py", ".baseline/baseline.json"]:
+            head[rel] = (self.repo / rel).read_bytes()
+        gh = FakeGitHub(self.base, head)
+        gh.raw[(self.b.BASELINE_REPO, "baseline.py", self.sha)] = self.after_source
+        gh.extra[f"repos/{self.b.BASELINE_REPO}/git/ref/tags/v2.0.1"] = {
+            "object": {"type": "commit", "sha": self.sha}}
+        gh.extra[f"repos/{self.b.BASELINE_REPO}/compare/{self.sha}...main"] = {"status": "ahead"}
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        stdout, stderr = StringIO(), StringIO()
+        with mock.patch.object(self.b.subprocess, "run", gh.run), redirect_stdout(stdout), redirect_stderr(stderr):
+            preflight = self.b.main(["review-preflight", PR_URL, "--json"])
+        self.assertEqual(preflight, 0, stderr.getvalue())
+        self.assertEqual(json.loads(stdout.getvalue())["grade"], "쉬움")
+
+
 REPORT = ("## Summary\n완료 기준: x\n\n## Review\n리뷰어(구현과 다른 컨텍스트): 하위 에이전트\n리뷰한 head: {head}\n"
           "등급: {grade}\n고친 것: 없음\n남은 지적: {left}\n외부 리뷰 판정: 없음\n\n## Summary by CodeRabbit\n등급: 문서\n")
 REPORTED = "2026-01-01T00:10:00Z"
