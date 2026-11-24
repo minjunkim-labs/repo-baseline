@@ -4,7 +4,7 @@ v2 저장소에서 단계마다 쓰는 스킬, 실행 위치마다 적용되는 
 
 ## 단계별 스킬
 
-Matt Pocock 스킬이 뼈대이고, pstack은 Matt가 비우는 칸에만 쓴다. (사람)은 사람만 부르는 스킬(`disable-model-invocation`)이다. 에이전트는 이름을 대고 실행을 권한다.
+Matt Pocock 스킬이 뼈대이고, pstack은 Matt가 비우는 칸에만 쓴다. (사람)은 사람만 부르는 스킬(`disable-model-invocation`)이다. 에이전트는 이름을 대고 실행을 권한다. 도구가 스킬을 불러오지 못하면 그 스킬의 `SKILL.md`를 직접 읽고 따른다. 사람만 부르는 스킬은 사람이 그렇게 시킨다.
 
 | 단계 | 쓸 스킬 | 쓰지 않는 것 |
 | --- | --- | --- |
@@ -46,18 +46,48 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 
 ## 실행 위치마다 적용되는 것
 
-| | 로컬 세션 | 저장소 하나인 클라우드 세션 | Projects 클라우드 스레드 | Projects의 내 컴퓨터 스레드(Remote Control) |
-| --- | --- | --- | --- | --- |
-| `CLAUDE.md`·`.claude/skills/` | 읽음 | 읽음 | 읽음 | 읽음 |
-| 저장소 `.claude/settings.json`의 deny·훅 | 적용 | 적용 | 적용 안 됨 | 적용 |
-| 저장소 settings의 플러그인 | 설치 | 설치 안 됨 | 불러오지 않음 | 설치 |
-| GitHub GraphQL(`gh pr`, `gh issue`, 큐 넣기) | 됨 | 프록시가 막음 | 프록시가 막음 | 됨 |
-| check | 훅 | 훅 | CI가 대신 | 훅 |
+도구는 고르지 않는다. 흐름은 어느 도구로 해도 막히지 않아야 하고, 실행 위치의 종류로 규칙을 정한다. 모든 단계는 로컬 하나만으로 끝낼 수 있어야 한다. 원격 연결·클라우드 단독·클라우드 다중은 같은 단계를 다른 곳에서 하는 선택이다. 도구에 어떤 위치가 없으면 그 단계를 로컬에서 한다.
 
-근거: [Claude projects](https://code.claude.com/docs/en/claude-projects), [Cloud environments](https://code.claude.com/docs/en/cloud-environments) 「GitHub proxy」, [Settings](https://code.claude.com/docs/en/settings) (2026-11-22 확인, #175).
+| 종류 | 뜻 |
+| --- | --- |
+| 로컬 | 내 기기에서 내 설정으로 돈다 |
+| 원격 연결 | 다른 곳(폰, 웹)에서 지시하고 실행은 내 기기에서 한다 |
+| 클라우드 단독 | 제공자의 환경이 저장소 하나를 받아 작업한다 |
+| 클라우드 다중 | 코디네이터가 세션 여러 개를 띄우고 추적한다 |
 
-- 기본 경로는 로컬 세션과 저장소 하나인 클라우드 세션이다. Projects 클라우드 스레드에는 deny와 훅이 없어서 서버(브랜치 보호, 필수 CI)와 판정 모델이 안전을 맡는다. 비밀값이 필요한 일과 큐 넣기는 내 컴퓨터 스레드나 로컬 세션에서 한다.
-- 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다. `enqueue`는 로컬 전용이다.
+### 도구별로 확인한 것
+
+`?`는 공식 문서에서 찾지 못한 것이다. 되는 것으로 보지 않는다.
+
+| 도구·위치 | 지침 파일 | 저장소 스킬 폴더 | 저장소 deny·훅 | GitHub | 비밀값 |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code 로컬·원격 연결 | `CLAUDE.md`(`@AGENTS.md`) | `.claude/skills/` | `.claude/settings.json` 적용 | 로컬 `gh` 전부 | 내 기기 |
+| Claude Code 클라우드 단독 | 같음 | 같음 | 적용 | push·REST 됨, GraphQL은 프록시가 막음 | 클라우드 환경 |
+| Claude Code 클라우드 다중(Projects 스레드) | 같음 | 같음. 이름이 `.`으로 시작하는 저장소가 있거나 자체 호스팅 환경이면 불러오지 않는다 | 적용 안 됨 | 같음 | 클라우드 환경 |
+| Codex 로컬·원격 연결 | `AGENTS.md`(`CLAUDE.md`는 fallback 설정 때만) | `.agents/skills/` | `.codex/`(신뢰한 프로젝트만) | 로컬 | 내 기기 |
+| Codex 클라우드 단독 | `AGENTS.md` | `.agents/skills/` | ? | push·PR 됨, `gh`·GraphQL ? | network secret은 자리표시자만 보임 |
+| Cursor 로컬 | `AGENTS.md`, `.cursor/rules/`(CLI는 `CLAUDE.md`도) | `.agents/`·`.cursor/`·`.claude/`·`.codex/`의 `skills/` | `.cursor/hooks.json`, `.cursor/cli.json` deny, `.cursor/sandbox.json` | 로컬 | 내 기기 |
+| Cursor 원격 연결(Remote Control, 자체 워커) | 로컬과 같음 | ? | 프로젝트 훅 실행 | 로컬 | 기기 인증 |
+| Cursor 클라우드 | `AGENTS.md` | ? | `.cursor/hooks.json`의 command 훅만, deny ? | push·PR 됨(좁은 토큰), GraphQL ? | 대시보드 Secrets. Environment Variable은 에이전트에 보임 |
+| Grok CLI 로컬 | `AGENTS.md`·`CLAUDE.md` 등 모두 | `.grok/`·`.agents/`·`.claude/`·`.cursor/`의 `skills/` | `.grok/` 설정·훅과 `.claude/settings.json` deny·훅(신뢰 폴더) | 로컬 | 환경 변수를 모두 물려받는 것이 기본 |
+| Grok 클라우드(Grok Bot) | ? | ? | 저장소 설정 없음(앱 설정의 규칙) | ?(코딩은 Cursor Cloud Agents에 넘김) | Vault·secret 카드, 모델에 안 보임 |
+| Antigravity 로컬 | `AGENTS.md`, `GEMINI.md`, `.agents/rules/` | `.agents/skills/` | `.agents/hooks.json`, deny는 전역 설정만 | ? | ? |
+| Gemini CLI 로컬 | `GEMINI.md`(`context.fileName`으로 `AGENTS.md`) | `.gemini/`·`.agents/`의 `skills/` | `.gemini/settings.json`·훅(신뢰 폴더) | ? | `.env`는 신뢰 폴더만 |
+| Antigravity 클라우드(Remote Agents) | ? | 내 기기 스킬은 안 감, 저장소 ? | permissions는 원격 설정 | OAuth로 clone, push·PR ? | OAuth 토큰만 |
+| Jules 클라우드 | `AGENTS.md` | ? | ? | GitHub 앱으로 브랜치 push, API로 PR, `gh` ? | 시크릿 설정 없음 |
+
+클라우드 다중은 도구마다 모양이 다르다. Claude는 Projects, Cursor는 Agents Window와 클라우드 하위 에이전트, Codex는 한 작업 안의 하위 에이전트, Grok Bot은 주 Bot이 다른 Bot을 조율, Antigravity는 remote project의 대화 목록이다. 코디네이터가 세션을 띄우고 추적한다고 문서가 밝힌 것은 Claude와 Grok Bot뿐이다.
+
+근거(2026-11-24 확인): Claude [Claude projects](https://code.claude.com/docs/en/claude-projects)·[Cloud environments](https://code.claude.com/docs/en/cloud-environments)·[Settings](https://code.claude.com/docs/en/settings). Codex [AGENTS.md](https://learn.chatgpt.com/docs/agent-configuration/agents-md)·[Skills](https://learn.chatgpt.com/docs/build-skills)·[Rules](https://learn.chatgpt.com/docs/agent-configuration/rules)·[Cloud environments](https://learn.chatgpt.com/docs/environments/cloud-environments)·[Remote connections](https://learn.chatgpt.com/docs/remote-connections). Cursor [Rules](https://cursor.com/docs/rules)·[Skills](https://cursor.com/docs/skills)·[Hooks](https://cursor.com/docs/hooks)·[CLI permissions](https://cursor.com/docs/cli/reference/permissions)·[Cloud agent setup](https://cursor.com/docs/cloud-agent/setup)·[GitHub](https://cursor.com/docs/integrations/github). Grok CLI에 딸린 사용자 가이드(`~/.grok/docs/user-guide/` 08·10·12·22번), [Grok Bot](https://docs.x.ai/grok-bot/how-grok-bot-works)·[승인과 보안](https://docs.x.ai/grok-bot/approvals-security-and-privacy). Google [Antigravity rules](https://antigravity.google/docs/rules)·[skills](https://antigravity.google/docs/skills)·[hooks](https://antigravity.google/docs/hooks)·[remote agents](https://antigravity.google/docs/remote-agents), [Gemini CLI GEMINI.md](https://geminicli.com/docs/cli/gemini-md/)·[skills](https://geminicli.com/docs/cli/skills/), [Jules](https://jules.google/docs/).
+
+### v2에 주는 뜻
+
+- 지침의 원본은 `AGENTS.md` 하나로 맞다. 표에서 확인된 도구는 모두 읽거나 읽게 설정할 수 있고, Gemini CLI만 `context.fileName` 설정이 필요하다. `?`인 곳(Grok Bot, Antigravity 클라우드)은 저장소 지침이 적용된다고 보지 않고 로컬에서 한다.
+- 스킬 사본은 `.claude/skills/`에만 있다. Codex, Antigravity, Gemini CLI는 이 폴더를 읽는다고 문서가 말하지 않는다. 이 도구들이 함께 읽는 곳은 `.agents/skills/`다. 사본을 어디에 둘지는 아직 정하지 않았다.
+- 저장소 deny·훅은 도구마다 형식이 다르고, 코어는 `.claude/settings.json`만 둔다. 로컬에서는 Claude Code와 Grok CLI만 이 파일을 적용하고, 클라우드는 대부분 적용하지 않거나 문서가 없다. 어느 위치에서나 남는 바닥은 서버(브랜치 보호, 필수 CI, 머지 큐)와 `enqueue` 자신의 검사다. 그래서 check는 CI가 반드시 다시 돌린다.
+- 클라우드에서 브랜치 push와 PR이 된다고 확인된 것은 Claude, Codex, Cursor, Jules다. Grok Bot과 Antigravity 클라우드는 문서가 없으니 로컬에서 한다. GraphQL은 Claude에서 막히고 다른 도구는 문서가 없다. `enqueue`는 로컬 전용으로 둔다. 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다.
+- 비밀값이 필요한 일과 큐 넣기는 로컬이나 원격 연결에서 한다. 클라우드에는 병합 권한이 없는 비밀값만 둔다(POLICY §7).
+- 흐름은 클라우드 다중에 기대지 않는다. 쓰더라도 스레드마다 위 클라우드 단독 행을 따른다.
 
 ## 클라우드 환경 설정
 
