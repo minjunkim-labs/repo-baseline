@@ -1848,10 +1848,12 @@ class DoctorTests(unittest.TestCase):
                 self.assertIn("mise_dir=$(mktemp -d) && curl -fsSL https://mise.run", text)
                 self.assertIn('MISE_VERSION=v2026.10.4 MISE_INSTALL_PATH="$mise_dir/mise" sh', text)
         windows_mise = self.problems(versions=no_mise, os="win32", want={"mise": "2026.10.4"})
-        self.assertIn("$env:MISE_VERSION = '2026.10.4'", windows_mise)
+        self.assertIn("Start-Job -ArgumentList '2026.10.4', (Get-Location).Path -ScriptBlock {", windows_mise)
+        self.assertIn("$env:MISE_VERSION = $release", windows_mise)
         self.assertIn("$env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'", windows_mise)
         self.assertIn("$env:MISE_INSTALL_MODIFY_PATH = '0'", windows_mise)
         self.assertIn("irm https://mise.run/powershell | iex", windows_mise)
+        self.assertIn("python -I .baseline/baseline.py doctor\n} | Receive-Job -Wait -AutoRemoveJob", windows_mise)
 
     def test_a_version_prefix_instructions_require_a_matching_full_release(self):
         text = self.problems(want={"mise": "2026.10"})

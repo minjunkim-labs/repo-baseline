@@ -1287,15 +1287,21 @@ def doctor_install_mise_separately(expected, os_name):
     release, guide = doctor_release(expected)
     if os_name == "win32":
         # https://mise.jdx.dev/installing-mise.html#windows (2026-11-24)
-        return (f"{guide}PowerShell에서 별도 디렉터리에 설치한다\n"
-                '$miseDir = Join-Path $env:TEMP "repo-baseline-mise-$([guid]::NewGuid())"\n'
-                "if (New-Item -ItemType Directory -Path $miseDir -ErrorAction Stop) {\n"
-                f"  $env:MISE_VERSION = '{release}'\n"
+        return (f"{guide}PowerShell의 별도 프로세스에서 설치하고 다시 검사한다\n"
+                f"Start-Job -ArgumentList '{release}', (Get-Location).Path -ScriptBlock {{\n"
+                "  param($release, $repo)\n"
+                "  $ErrorActionPreference = 'Stop'\n"
+                '  $miseDir = Join-Path $env:TEMP "repo-baseline-mise-$([guid]::NewGuid())"\n'
+                "  $null = New-Item -ItemType Directory -Path $miseDir\n"
+                "  $env:MISE_VERSION = $release\n"
                 "  $env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'\n"
                 "  $env:MISE_INSTALL_MODIFY_PATH = '0'\n"
                 "  irm https://mise.run/powershell | iex\n"
-                "}\n"
-                'doctor: 이 PowerShell 세션에서 사용한다: $env:Path = "$miseDir;$env:Path"')
+                "  if (!(Test-Path -LiteralPath $env:MISE_INSTALL_PATH -PathType Leaf)) { throw 'mise install failed' }\n"
+                '  $env:Path = "$miseDir;$env:Path"\n'
+                "  Set-Location -LiteralPath $repo\n"
+                "  python -I .baseline/baseline.py doctor\n"
+                "} | Receive-Job -Wait -AutoRemoveJob")
     # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
     return (f'{guide}mise_dir=$(mktemp -d) && curl -fsSL https://mise.run | '
             f'MISE_VERSION=v{release} MISE_INSTALL_PATH="$mise_dir/mise" sh\n'
