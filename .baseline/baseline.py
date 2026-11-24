@@ -1009,13 +1009,20 @@ def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     An edit to a bot's comment does not count: CodeRabbit rewrites its summary comment after every body edit,
     so the report could never come last (#215). Its line findings arrive as new reviews and comments, but the
     summary's pre-merge checks are re-scored in place, and REST does not say who edited a comment.
-    A bot's reply in a thread already resolved (settled: its comment ids) does not count either: CodeRabbit
-    answers the reviewer's judgment after the report (#216). shortcut: a new finding a bot posts inside a resolved
-    thread goes unseen; reopen such threads if that happens."""
-    items = [(r.get("submitted_at"), r) for r in reviews]
-    for path in (f"pulls/{number}/comments", f"issues/{number}/comments"):
-        for c in pages(f"repos/{repo}/{path}"):
-            if is_bot(c.get("user")) and path.startswith("pulls/") and c.get("id") in settled:
+    A bot's reply in a thread already resolved (settled: ids of the replies, never a thread's first comment) does
+    not count either, nor a bot review holding only such replies: CodeRabbit answers the reviewer's judgment after
+    the report, each answer its own review (#216). A thread's first comment always counts, so resolving a new
+    thread does not hide its finding. shortcut: a new finding a bot posts as a reply inside a resolved thread goes
+    unseen; reopen such threads if that happens."""
+    line_comments = pages(f"repos/{repo}/pulls/{number}/comments")
+    by_review = {}
+    for c in line_comments:
+        by_review.setdefault(c.get("pull_request_review_id"), []).append(c.get("id") in settled)
+    items = [(r.get("submitted_at"), r) for r in reviews
+             if not (is_bot(r.get("user")) and by_review.get(r.get("id")) and all(by_review[r.get("id")]))]
+    for path, found in (("pulls", line_comments), ("issues", pages(f"repos/{repo}/issues/{number}/comments"))):
+        for c in found:
+            if is_bot(c.get("user")) and path == "pulls" and c.get("id") in settled:
                 continue
             # shortcut: a finding added only by editing a bot's old comment (by the bot, or by a person with
             # write access) goes unseen, e.g. a pre-merge check turning red; count those edits if that happens.
@@ -1064,7 +1071,7 @@ def enqueue_problems(repo, number, sha, remote):
         # The report's time is the last body edit by a person: bots (CodeRabbit) also rewrite the body.
         edits = [e["editedAt"] for e in pr["userContentEdits"]["nodes"]
                  if (e.get("editor") or {}).get("__typename") == "User"]
-        settled = {c["databaseId"] for t in threads["nodes"] if t["isResolved"] for c in t["comments"]["nodes"]}
+        settled = {c["databaseId"] for t in threads["nodes"] if t["isResolved"] for c in t["comments"]["nodes"][1:]}
         late = external_reviews(repo, number, max(edits, default=pr["createdAt"]), reviews, settled)
         if late:
             problems.append("리뷰 보고 뒤의 판정하지 않은 외부 리뷰: " + ", ".join(late))
@@ -1123,19 +1130,21 @@ def replace_review(body, text):
     if len(at) != 1:
         raise ValueError(f"본문에 `## Review` 제목이 {len(at)}개다(1개여야 한다)")
     end = next((i for i in range(at[0] + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
-    old = "\n".join(lines[at[0] + 1:end]).strip("\n").split("\n\n")
-    # The last paragraph stays when it holds no field (e.g. the tool's attribution line under the template).
-    keep = [old[-1]] if len(old) > 1 and not any(line.startswith(REPORT_FIELDS + ("-", "*"))
-                                                 for line in old[-1].split("\n")) else []
+    old = [p.strip("\n") for p in "\n".join(lines[at[0] + 1:end]).split("\n\n") if p.strip()]
+    # Paragraphs after the last one with a field stay: the tool's attribution line, a bot's markers (CodeRabbit).
+    last = max((i for i, p in enumerate(old) if any(line.startswith(REPORT_FIELDS + ("-", "*"))
+                                                     for line in p.split("\n"))), default=-1)
+    keep = old[last + 1:]
     tail = [""] + lines[end:] if end < len(lines) else []
-    out = lines[:at[0] + 1] + [""] + text.strip("\n").split("\n") + [x for k in keep for x in ("", k)] + tail
+    out = lines[:at[0]] + ["## Review", ""] + text.strip("\n").split("\n") + [x for k in keep for x in ("", k)] + tail
     return "\n".join(out) + ("" if tail else "\n")
 
 
 def cmd_review_report(args):
     """Write the `## Review` section last: thread replies and resolutions first, so the report is the latest record."""
     try:
-        text = open(args.file, encoding="utf-8").read()
+        with open(args.file, encoding="utf-8") as f:
+            text = f.read()
         text = re.sub(r"\A\s*## Review[ \t]*\n", "", text)
         judged = []
         for item in args.thread:
@@ -1152,27 +1161,48 @@ def cmd_review_report(args):
             return 1
         cloud = os.environ.get("CLAUDE_CODE_REMOTE") == "true"
         threads = {}
+        if judged:  # REST first, so a wrong id stops it before any write, in the cloud too
+            comments = {c["id"]: c for c in pages(f"repos/{repo}/pulls/{number}/comments")}
+            missing = [str(cid) for cid, _ in judged if cid not in comments]
+            if missing:
+                print(f"review-report: 쓰지 않는다: 리뷰 스레드에 없는 댓글 id: {', '.join(missing)}")
+                return 1
+            # The replies endpoint takes the thread's first comment, not a reply in it.
+            judged = [(comments[cid].get("in_reply_to_id") or cid, reply) for cid, reply in judged]
         if judged and not cloud:
             owner, name = repo.split("/")
             nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
                 "reviewThreads"]["nodes"]
-            threads = {c["databaseId"]: t["id"] for t in nodes for c in t["comments"]["nodes"]}
+            threads = {c["databaseId"]: t for t in nodes for c in t["comments"]["nodes"]}
             missing = [str(cid) for cid, _ in judged if cid not in threads]
             if missing:
                 print(f"review-report: 쓰지 않는다: 리뷰 스레드에 없는 댓글 id: {', '.join(missing)}")
                 return 1
-        for cid, reply in judged:
-            github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
-            if cloud:
-                print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
-            else:
-                gh_graphql(RESOLVE, id=threads[cid])
-                print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
+        answered = []
+        try:
+            for cid, reply in judged:
+                if not cloud and threads[cid]["isResolved"]:  # a rerun after a partial failure answers once
+                    print(f"review-report: 댓글 {cid}의 스레드는 이미 해결됐다. 건너뛴다")
+                    continue
+                github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
+                answered.append(str(cid))
+                if cloud:
+                    print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
+                else:
+                    gh_graphql(RESOLVE, id=threads[cid]["id"])
+                    print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
+        except (OSError, subprocess.SubprocessError) as error:
+            raise OSError(f"{error} (이미 답한 댓글: {', '.join(answered) or '없음'}. 본문은 쓰지 않았다)") from error
         pr = gh_api(f"repos/{repo}/pulls/{number}")  # read again: bots rewrite the body while threads are answered
         if pr["head"]["sha"] != head:
             print(f"review-report: 쓰지 않는다: 실행 중에 head가 {pr['head']['sha']}로 바뀌었다")
             return 1
-        github_write("PATCH", f"repos/{repo}/pulls/{number}", {"body": replace_review(pr["body"] or "", text)})
+        new_body = replace_review(pr["body"] or "", text)
+        if review_fields(new_body) != review_fields("## Review\n" + text):  # kept paragraphs must not add fields
+            print("review-report: 쓰지 않는다: 본문의 남은 문단이 Review 칸 값을 바꾼다")
+            return 1
+        # shortcut: PR PATCH has no conditional write, so an edit between the read above and this write is lost.
+        github_write("PATCH", f"repos/{repo}/pulls/{number}", {"body": new_body})
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
         print(f"review-report: 실행 실패: {error}", file=sys.stderr)
         return 2

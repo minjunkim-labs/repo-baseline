@@ -1160,7 +1160,7 @@ class EnqueueGitHub(FakeGitHub):
         super().__init__(base, head, **kwargs)
         self.body, self.mutations, self.commit_author = body, [], {"login": self.author}
         self.edits = [(REPORTED, "User", "owner")]
-        self.threads, self.writes = [], []
+        self.threads, self.writes, self.failing = [], [], set()
         self.checks = [{"id": 1, "name": "ci", "status": "completed", "conclusion": "success", "app": {"id": 15368}}]
         self.permission = {"owner": "admin", "helper": "write", "reader": "read"}
         self.extra.update({
@@ -1173,6 +1173,8 @@ class EnqueueGitHub(FakeGitHub):
     def run(self, argv, **kwargs):
         if argv[:3] == ["gh", "api", "--method"]:
             self.calls.append(list(argv))
+            if argv[4] in self.failing:
+                raise subprocess.CalledProcessError(1, argv)
             self.writes.append((argv[3], argv[4], json.loads(kwargs["input"])))
             if argv[3] == "PATCH":
                 self.body = self.writes[-1][2]["body"]
@@ -1372,12 +1374,20 @@ class EnqueueTests(unittest.TestCase):
         self.assertRefused(gh, "해결하지 않은 리뷰 스레드 1개")
 
     def test_a_bot_reply_in_a_resolved_thread_after_the_report_is_not_a_new_review(self):
-        late = {"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "id": 9, "in_reply_to_id": 5,
+        bot = {"login": "coderabbitai[bot]", "type": "Bot"}
+        late = {"user": bot, "id": 9, "in_reply_to_id": 5, "pull_request_review_id": 70,
                 "created_at": "2026-01-01T00:20:00Z", "updated_at": "2026-01-01T00:20:00Z"}
+        review = {"user": bot, "id": 70, "state": "COMMENTED", "submitted_at": "2026-01-01T00:20:00Z"}
         gh = self.gh()
         gh.threads = [{"id": "T1", "isResolved": True, "comments": {"nodes": [{"databaseId": 5}, {"databaseId": 9}]}}]
         gh.extra["repos/o/r/pulls/7/comments"] = [late]
+        gh.extra["repos/o/r/pulls/7/reviews"] = [review]  # each CodeRabbit answer is its own review (#216)
         self.assertQueued(gh)
+        gh = self.gh()  # a new bot thread after the report still counts once someone resolves it
+        gh.threads = [{"id": "T1", "isResolved": True, "comments": {"nodes": [{"databaseId": 9}]}}]
+        gh.extra["repos/o/r/pulls/7/comments"] = [dict(late, in_reply_to_id=None)]
+        gh.extra["repos/o/r/pulls/7/reviews"] = [review]
+        self.assertRefused(gh, "판정하지 않은 외부 리뷰")
         gh = self.gh()  # the same reply from a person still counts
         gh.threads = [{"id": "T1", "isResolved": True, "comments": {"nodes": [{"databaseId": 5}, {"databaseId": 9}]}}]
         gh.extra["repos/o/r/pulls/7/comments"] = [dict(late, user={"login": "helper", "type": "User"})]
@@ -1437,7 +1447,9 @@ class ReviewReportTests(unittest.TestCase):
     def gh(self):
         tree = core_tree()
         gh = EnqueueGitHub(tree, dict(tree, **{"src/app.py": b"x\n"}), body=self.BODY)
-        gh.threads = [{"id": "T1", "isResolved": False, "comments": {"nodes": [{"databaseId": 5}]}}]
+        gh.threads = [{"id": "T1", "isResolved": False, "comments": {"nodes": [{"databaseId": 5}, {"databaseId": 9}]}}]
+        old = {"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "created_at": "2026-01-01T00:05:00Z"}
+        gh.extra["repos/o/r/pulls/7/comments"] = [dict(old, id=5), dict(old, id=9, in_reply_to_id=5)]
         return gh
 
     def test_replies_and_resolves_first_then_writes_only_the_review_section(self):
@@ -1468,6 +1480,47 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual((code, gh.writes), (1, []), out)
         self.assertIn("77", out)
 
+    def test_a_reply_id_is_answered_in_its_thread(self):
+        gh = self.gh()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "9=판정")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes][:2], [("POST", "repos/o/r/pulls/7/comments/5/replies"),
+                                                          ("RESOLVE", "T1")])
+
+    def test_a_real_body_keeps_its_attribution_and_bot_markers(self):
+        gh = self.gh()
+        gh.body = ("## Summary\nx\n\n## Review \n\n리뷰어(구현과 다른 컨텍스트):\n리뷰한 head:\n남은 지적:\n\n🤖 footer\n\n\n"
+                   "<!-- release notes by coderabbit.ai -->\n\n<!-- coderabbit-ai-generated:v1 -->\n\n"
+                   "## Summary by CodeRabbit\nc\n")
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual(gh.body, "## Summary\nx\n\n## Review\n\n" + self.SECTION.format(head=HEAD, left="없음")
+                         + "\n🤖 footer\n\n<!-- release notes by coderabbit.ai -->\n\n<!-- coderabbit-ai-generated:v1 -->"
+                         "\n\n## Summary by CodeRabbit\nc\n")
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"))  # a second run changes nothing
+        self.assertEqual((code, gh.writes[-1][2]["body"]), (0, gh.writes[-2][2]["body"]), out)
+
+    def test_a_rerun_after_a_partial_failure_answers_each_thread_once(self):
+        gh = self.gh()
+        gh.threads.append({"id": "T2", "isResolved": False, "comments": {"nodes": [{"databaseId": 6}]}})
+        gh.extra["repos/o/r/pulls/7/comments"].append(dict(gh.extra["repos/o/r/pulls/7/comments"][0], id=6))
+        gh.failing = {"repos/o/r/pulls/7/comments/6/replies"}
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=a", "--thread", "6=b")
+        self.assertEqual(code, 2, out)
+        self.assertIn("이미 답한 댓글: 5", out)
+        self.assertNotIn("PATCH", [w[0] for w in gh.writes])
+        gh.threads[0]["isResolved"], gh.failing, gh.writes = True, set(), []
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=a", "--thread", "6=b")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/6/replies"),
+                                                     ("RESOLVE", "T2"), ("PATCH", "repos/o/r/pulls/7")])
+
+    def test_a_kept_paragraph_that_changes_a_field_is_not_written(self):
+        gh = self.gh()
+        gh.body = "## Summary\nx\n\n## Review\n\n리뷰한 head:\n\n 남은 지적: 있음\n"
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"))
+        self.assertEqual((code, gh.writes), (1, []), out)
+
     def test_a_list_of_findings_is_a_valid_report(self):
         gh = self.gh()
         code, out = self.report(gh, "## Review\n" + self.SECTION.format(head=HEAD, left="\n- [Spec] P1 a:1 x"))
@@ -1481,6 +1534,10 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual([w[0] for w in gh.writes], ["POST", "PATCH"])
         self.assertFalse(any(argv[2] == "graphql" for argv in gh.calls))
         self.assertIn("로컬 세션", out)
+        gh = self.gh()  # a wrong id stops it before any write in the cloud too
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=a", "--thread", "77=b",
+                                remote="true")
+        self.assertEqual((code, gh.writes), (1, []), out)
 
 
 class AllowEnqueueHookTests(unittest.TestCase):
