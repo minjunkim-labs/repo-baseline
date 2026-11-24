@@ -356,6 +356,43 @@ def cmd_check(args):
     return 0
 
 
+def mise_prefix(root):
+    """argv prefix for the pinned toolchain: [] without settings in .mise.toml, else `mise exec --`."""
+    data, refused = repo_bytes(root, ".mise.toml")
+    try:
+        text = "" if data is None else data.decode("utf-8")
+    except UnicodeDecodeError:
+        refused = True
+    if refused:
+        sys.exit("run: .mise.toml을 읽지 못했다")
+    if not any(section != "settings" for section, _ in mise_keys(text)):
+        return []
+    if not shutil.which("mise"):
+        sys.exit("run: .mise.toml이 툴체인 판을 정하는데 mise가 없다. doctor가 설치 명령을 출력한다")
+    # mise install and mise exec trust their own config (https://mise.jdx.dev/cli/trust.html, 2026-11-24).
+    return ["mise", "exec", "--"]
+
+
+def mise_keys(text):
+    """(section, key) of every key line in .mise.toml; "" is the top level."""
+    keys, section = [], ""
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line.strip("[]").strip()
+        elif "=" in line:
+            keys.append((section, line.split("=", 1)[0].strip()))
+    return keys
+
+
+def mise_failed(root, code):
+    """Name `mise trust` after a failed mise step: paranoid mode and older mise still refuse the file."""
+    if code:
+        print("run: mise가 .mise.toml을 신뢰하지 않는다는 오류면 고치는 명령: mise trust "
+              + shlex.quote(root.joinpath(".mise.toml").as_posix()), file=sys.stderr)
+    return code
+
+
 def cmd_run(args):
     root = repo_root()
     commands, problems = load_commands(root)
@@ -367,11 +404,22 @@ def cmd_run(args):
     problem = command_problem(args.name, value)
     if problem:
         sys.exit(f"run: {problem}")
+    if isinstance(value, str) and args.name != "setup":  # N/A needs no toolchain
+        print(f"run: {args.name}은 {value}")
+        return 0
+    prefix = mise_prefix(root)
+    if prefix and args.name == "setup":
+        try:
+            code = subprocess.run(["mise", "install"], cwd=root).returncode
+        except OSError as error:
+            sys.exit(f"run: mise install을 시작하지 못했다: {error}")
+        if code:
+            return mise_failed(root, code)
     if isinstance(value, str):
         print(f"run: {args.name}은 {value}")
         return 0
     try:
-        return subprocess.run(value, cwd=root).returncode
+        return subprocess.run(prefix + value, cwd=root).returncode
     except OSError as error:
         sys.exit(f"run: {args.name}을 시작하지 못했다: {error}")
 
@@ -449,9 +497,16 @@ def is_manifest(name):
     return name in MANIFESTS or fnmatch.fnmatchcase(name, "requirements*.txt") or name.endswith(".csproj")
 
 
+def is_mise_config(path):
+    """Files mise reads as config (https://mise.jdx.dev/configuration.html, 2026-11-24)."""
+    *folders, name = path.split("/")
+    return (fnmatch.fnmatchcase(name, "*mise*.toml") or name in {".tool-versions", "mise.lock"}
+            or any(folder in {".mise", "mise"} for folder in folders))
+
+
 def is_sensitive(path, patterns):
     parts = path.split("/")
-    return (parts[-1] in {".mcp.json", ".mise.toml", "CODEOWNERS"} or is_manifest(parts[-1])
+    return (parts[-1] in {".mcp.json", "CODEOWNERS"} or is_manifest(parts[-1]) or is_mise_config(path)
             or any(part in AGENT_DIRS or part in {".github", ".baseline"} for part in parts)
             or any(fnmatch.fnmatchcase(path, p) or path.startswith(p.rstrip("*").rstrip("/") + "/")
                    for p in patterns))
@@ -929,7 +984,7 @@ def review_fields(body):
     for name in ("리뷰한 head", "등급", "남은 지적"):
         at = [i for i, line in enumerate(lines) if line.startswith(f"{name}:")]
         fields[name] = lines[at[0]][len(name) + 1:].strip().strip("`") if len(at) == 1 else None if not at else ""
-        if len(at) == 1 and at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("-", "*")):
+        if len(at) == 1 and at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("- ", "* ")):  # `*강조*` is not a list
             fields[name] += " (목록이 이어진다)"  # 「남은 지적: 없음」 followed by a list is not 없음
     return fields
 
@@ -1114,9 +1169,9 @@ def report_problems(text, head):
     at = next((i for i, line in enumerate(lines) if line.startswith("남은 지적:")), len(lines))
     items = []
     for line in lines[at + 1:]:
-        if not line.startswith(("-", "*")):
+        if not line.startswith(("- ", "* ")):
             break
-        items.append(line[1:].strip())
+        items.append(line[2:].strip())
     left = (fields["남은 지적"] or "").removesuffix(" (목록이 이어진다)")
     if not (left == "없음" and not items or left == "" and items and "없음" not in items
             or left and not left.startswith("없음") and not items):
@@ -1623,7 +1678,12 @@ def doctor_problems(facts):
     else:
         mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
         if mise_toml and not facts.get("mise_trusted"):
-            problems.append(f"doctor: .mise.toml이 신뢰되지 않았다\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
+            # mise shortens paths under home to ~/...; a quoted ~ is not expanded by the shell.
+            trust_path = os.path.expanduser(mise_toml)
+            problems.append(f"doctor: mise 설정이 신뢰되지 않았다: {mise_toml}\ndoctor: 고치는 명령: mise trust {shlex.quote(trust_path)}")
+        if facts.get("mise_failed"):
+            problems.append(f"doctor: mise config ls가 실패했다: {facts['mise_failed']}\n"
+                            f"doctor: 저장소에서 mise config ls를 돌려 오류를 본다")
     if facts.get("sandbox") and (os_name == "linux" or facts.get("wsl_version") == 2):
         if not facts.get("have_bubblewrap"):
             problems.append("doctor: 샌드박스에 bubblewrap이 없다\ndoctor: 고치는 명령: sudo apt install bubblewrap")
@@ -1732,28 +1792,13 @@ def pins_from(doctor_versions, mise_text, installed_mise):
     return want
 
 
-def show_is_trusted(returncode, show_text, root):
-    """Trust only a successful `mise trust --show` whose line for this directory says trusted."""
-    return returncode == 0 and mise_config_trusted(show_text, root)
+UNTRUSTED = re.compile(r"Config files in (.+?) are not trusted")
 
 
-def mise_config_trusted(show_text, root):
-    """True only when `mise trust --show` lists this directory as trusted."""
-    try:
-        root_text = str(Path(root).resolve())
-    except OSError:
-        root_text = str(root)
-    for line in (show_text or "").splitlines():
-        if ":" not in line:
-            continue
-        path, status = line.rsplit(":", 1)
-        try:
-            shown = str(Path(path.strip()).resolve())
-        except OSError:
-            continue
-        if shown == root_text:
-            return status.strip().lower() == "trusted"
-    return False
+def untrusted_config(output):
+    """The config file mise names as untrusted in its own error, or None."""
+    found = UNTRUSTED.search(output or "")
+    return found.group(1) if found else None
 
 
 def repo_bytes(root, rel):
@@ -1889,15 +1934,20 @@ def gather_doctor(root=None):
         remote = result.stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         remote = ""
-    trusted = True
-    if mise_data is not None:
-        trusted = False
-        if shutil.which("mise"):
-            try:
-                show = subprocess.run(["mise", "trust", "--show"], cwd=root, capture_output=True, text=True, timeout=15)
-                trusted = show_is_trusted(show.returncode, (show.stdout or "") + "\n" + (show.stderr or ""), root)
-            except (OSError, subprocess.TimeoutExpired):
-                trusted = False
+    untrusted = mise_failed = None
+    if shutil.which("mise"):
+        # mise itself decides which config needs trust; it reads mise.local.toml and the rest too.
+        try:
+            shown = subprocess.run(["mise", "config", "ls"], cwd=root, stdin=subprocess.DEVNULL,  # no trust prompt
+                                   capture_output=True, text=True, timeout=15)
+            untrusted = untrusted_config((shown.stdout or "") + "\n" + (shown.stderr or ""))
+            if untrusted is None and shown.returncode:  # a broken config is not a passing one
+                lines = [line for line in (shown.stderr or "").splitlines() if line.strip()]
+                mise_failed = lines[0] if lines else f"종료 코드 {shown.returncode}"
+        except subprocess.TimeoutExpired:
+            mise_failed = "15초 안에 끝나지 않았다"
+        except OSError as error:
+            mise_failed = str(error)
     return {
         "versions": versions, "want": want, "os": "linux" if sys.platform.startswith("linux") else sys.platform,
         "wsl": wsl, "wsl_version": wsl_version, "repo": root.as_posix(), "git_path": shutil.which("git") or "",
@@ -1905,8 +1955,8 @@ def gather_doctor(root=None):
         "skills_user": skill_entries(Path.home() / ".claude/skills"),
         "org": github_org(remote), "environment": environment, "settings_unreadable": settings_unreadable,
         "project_settings_unreadable": project_settings_unreadable,
-        "mise_toml": root.joinpath(".mise.toml").as_posix() if mise_data is not None else None,
-        "mise_trusted": trusted, "mise_unreadable": mise_unreadable,
+        "mise_toml": untrusted, "mise_trusted": untrusted is None, "mise_unreadable": mise_unreadable,
+        "mise_failed": mise_failed,
         "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,
         "have_socat": shutil.which("socat") is not None,
     }
