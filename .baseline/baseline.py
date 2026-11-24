@@ -1384,8 +1384,12 @@ def doctor_problems(facts):
         if not isinstance(got, str) or not got:
             problems.append(f"doctor: {name}이 없다\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
         elif expected and not version_matches(got, expected):
-            problems.append(f"doctor: {name} 판이 다르다. 지금 {got}, 기준 {expected}\n"
-                            f"doctor: 고치는 명령: {doctor_install(name, expected, os_name, present=True)}")
+            problem = f"doctor: {name} 판이 다르다. 지금 {got}, 기준 {expected}"
+            if name == "mise" and (not doctor_version(got) or version_at_least(got, expected)):
+                # A repository pin cannot authorize replacing a newer mise binary.
+                problems.append(f"{problem}\ndoctor: 설치된 mise와 저장소의 기준 판을 확인한다")
+            else:
+                problems.append(f"{problem}\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name, present=True)}")
     if facts.get("wsl"):
         if facts.get("wsl_version") != 2:
             problems.append("doctor: WSL1이다\n"

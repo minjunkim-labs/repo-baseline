@@ -1852,6 +1852,15 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("기준 2026.10에 맞는 전체 릴리스 판으로 VERSION을 바꾼다", text)
         self.assertIn("mise self-update --no-plugins VERSION", text)
 
+    def test_an_older_mise_pin_only_reports_the_difference(self):
+        versions = dict.fromkeys(("python", "git", "gh", "claude", "mise"), "2026.11.13")
+        for expected in ("2026.10", "2026.10.4"):
+            with self.subTest(expected=expected):
+                text = self.problems(versions=versions, want={"mise": expected})
+                self.assertIn(f"mise 판이 다르다. 지금 2026.11.13, 기준 {expected}", text)
+                self.assertIn("설치된 mise와 저장소의 기준 판을 확인한다", text)
+                self.assertNotIn("고치는 명령", text)
+
     def test_an_untrusted_mise_toml_prints_mise_trust(self):
         text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)
         self.assertIn("고치는 명령: mise trust /home/u/repo/.mise.toml", text)
