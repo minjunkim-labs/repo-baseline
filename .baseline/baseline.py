@@ -985,21 +985,33 @@ def account_problems(repo, report, commits):
     return problems
 
 
+def is_bot(user):
+    """GitHub App accounts: type Bot, or a login ending in [bot] (people cannot use [ ] in a login)."""
+    return (user or {}).get("type") == "Bot" or ((user or {}).get("login") or "").endswith("[bot]")
+
+
 def changes_requested(reviews):
     """People whose last review state is CHANGES_REQUESTED. Comments do not change a state; bots are left out."""
     last = {}
     for review in sorted(reviews, key=lambda r: r.get("submitted_at") or ""):
         user = review.get("user") or {}
-        if user.get("type") != "Bot" and review.get("submitted_at") and review.get("state") != "COMMENTED":
+        if not is_bot(user) and review.get("submitted_at") and review.get("state") != "COMMENTED":
             last[user.get("login") or "ghost"] = review["state"]
     return sorted(login for login, state in last.items() if state == "CHANGES_REQUESTED")
 
 
 def external_reviews(repo, number, reported, reviews):
-    """Reviews and comments written or edited after the review report: nobody judged them."""
+    """Reviews and comments written after the review report, or edited by a person after it: nobody judged them.
+
+    An edit to a bot's comment does not count: CodeRabbit rewrites its summary comment after every body edit,
+    so the report could never come last (#215). Its line findings arrive as new reviews and comments, but the
+    summary's pre-merge checks are re-scored in place, and REST does not say who edited a comment."""
     items = [(r.get("submitted_at"), r) for r in reviews]
     for path in (f"pulls/{number}/comments", f"issues/{number}/comments"):
-        items += [(max(c["created_at"], c.get("updated_at") or ""), c) for c in pages(f"repos/{repo}/{path}")]
+        for c in pages(f"repos/{repo}/{path}"):
+            # shortcut: a finding added only by editing a bot's old comment (by the bot, or by a person with
+            # write access) goes unseen, e.g. a pre-merge check turning red; count those edits if that happens.
+            items.append((c["created_at"] if is_bot(c.get("user")) else max(c["created_at"], c.get("updated_at") or ""), c))
     return sorted({(item.get("user") or {}).get("login") or "ghost" for at, item in items if at and at > reported})
 
 
