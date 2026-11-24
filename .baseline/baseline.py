@@ -1283,6 +1283,25 @@ def doctor_release(expected):
     return expected, ""
 
 
+def doctor_install_mise_separately(expected, os_name):
+    release, guide = doctor_release(expected)
+    if os_name == "win32":
+        # https://mise.jdx.dev/installing-mise.html#windows (2026-11-24)
+        return (f"{guide}PowerShell에서 별도 디렉터리에 설치한다\n"
+                '$miseDir = Join-Path $env:TEMP "repo-baseline-mise-$([guid]::NewGuid())"\n'
+                "if (New-Item -ItemType Directory -Path $miseDir -ErrorAction Stop) {\n"
+                f"  $env:MISE_VERSION = '{release}'\n"
+                "  $env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'\n"
+                "  $env:MISE_INSTALL_MODIFY_PATH = '0'\n"
+                "  irm https://mise.run/powershell | iex\n"
+                "}\n"
+                'doctor: 이 PowerShell 세션에서 사용한다: $env:Path = "$miseDir;$env:Path"')
+    # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
+    return (f'{guide}mise_dir=$(mktemp -d) && curl -fsSL https://mise.run | '
+            f'MISE_VERSION=v{release} MISE_INSTALL_PATH="$mise_dir/mise" sh\n'
+            'doctor: 같은 셸에서 다시 검사한다: PATH="$mise_dir:$PATH" python3 -I .baseline/baseline.py doctor')
+
+
 def doctor_install(name, expected, os_name, present=False):
     if name == "claude":
         if present:
@@ -1296,13 +1315,14 @@ def doctor_install(name, expected, os_name, present=False):
         args = f" -s {release}" if release else ""
         return f"{guide}curl -fsSL https://claude.ai/install.sh | bash{args}"
     if name == "mise":
-        release, guide = doctor_release(expected)
         if not present:
-            # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
-            if release:
-                return f"{guide}curl -fsSL https://mise.run | MISE_VERSION=v{release} sh"
+            if expected:
+                return doctor_install_mise_separately(expected, os_name)
+            if os_name == "win32":
+                return "PowerShell에서 irm https://mise.run/powershell | iex"
             return "brew install mise" if os_name == "darwin" else "curl -fsSL https://mise.run | sh"
         # https://mise.jdx.dev/cli/self-update.html (2026-11-24)
+        release, guide = doctor_release(expected)
         args = f" {release}" if release else ""
         return (f"{guide}직접 설치: mise self-update --no-plugins{args}. "
                 "패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다")
@@ -1387,9 +1407,10 @@ def doctor_problems(facts):
             problem = f"doctor: {name} 판이 다르다. 지금 {got}, 기준 {expected}"
             if name == "mise" and (not doctor_version(got) or version_at_least(got, expected)):
                 # A repository pin cannot authorize replacing a newer mise binary.
-                problems.append(f"{problem}\ndoctor: 설치된 mise와 저장소의 기준 판을 확인한다")
+                command = doctor_install_mise_separately(expected, os_name)
             else:
-                problems.append(f"{problem}\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name, present=True)}")
+                command = doctor_install(name, expected, os_name, present=True)
+            problems.append(f"{problem}\ndoctor: 고치는 명령: {command}")
     if facts.get("wsl"):
         if facts.get("wsl_version") != 2:
             problems.append("doctor: WSL1이다\n"
