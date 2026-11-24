@@ -1308,7 +1308,8 @@ def doctor_install_mise_separately(expected, os_name):
                 "  if (!(Test-Path -LiteralPath $env:MISE_INSTALL_PATH -PathType Leaf)) { throw 'mise install failed' }\n"
                 '  $env:Path = "$miseDir;$env:Path"\n'
                 "  Set-Location -LiteralPath $repo\n"
-                "  & $python -I $baseline doctor\n"
+                "  $ErrorActionPreference = 'Continue'\n"
+                "  & $python -I $baseline doctor 2>&1 | ForEach-Object { $_.ToString() }\n"
                 "} | Receive-Job -Wait -AutoRemoveJob")
     # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
     rerun = f'{shlex.quote(python)} -I {shlex.quote(script)} doctor'

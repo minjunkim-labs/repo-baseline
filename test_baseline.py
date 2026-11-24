@@ -1853,7 +1853,9 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("$env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'", windows_mise)
         self.assertIn("$env:MISE_INSTALL_MODIFY_PATH = '0'", windows_mise)
         self.assertIn("irm https://mise.run/powershell | iex", windows_mise)
-        self.assertIn("& $python -I $baseline doctor\n} | Receive-Job -Wait -AutoRemoveJob", windows_mise)
+        self.assertIn("$ErrorActionPreference = 'Continue'\n"
+                      "  & $python -I $baseline doctor 2>&1 | ForEach-Object { $_.ToString() }\n"
+                      "} | Receive-Job -Wait -AutoRemoveJob", windows_mise)
 
     def test_a_version_prefix_instructions_require_a_matching_full_release(self):
         text = self.problems(want={"mise": "2026.10"})

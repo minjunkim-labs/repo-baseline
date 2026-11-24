@@ -8,7 +8,7 @@
               "-I",
               "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
               "--sha256",
-              "5ff388ac60c6c585c3fcf7744a595df4ce611f104ff6d2306126e188d6083c37"
+              "0bef817999273ffd40517d46a51b5eb9f1f8fa7220b1cdddc00579a699b2db0d"
             ],
             "command": "python3",
             "timeout": 15,
