@@ -332,10 +332,29 @@ class RunBudgetTests(unittest.TestCase):
             self.skipTest("mise is in /usr/bin or /bin")
         result = self.run_with(env, "check")
         self.assertEqual(result.returncode, 0, result.stderr)
+        (self.repo / ".mise.toml").write_text("[settings]\nexperimental = true\n[tools]\n", encoding="utf-8")
+        self.assertEqual(self.run_with(env, "check").returncode, 0)
         (self.repo / ".mise.toml").write_text('[tools]\nnode = "22"\n', encoding="utf-8")
         result = self.run_with(env, "check")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("mise가 없다", result.stderr)
+        result = self.run_with(env, "build")  # N/A needs no toolchain
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("N/A", result.stdout)
+
+    def test_mise_trust_is_needed_only_beyond_plain_tools(self):
+        import baseline as b
+        for text in ("", "[tools]\n", 'min_version = "2026.11.0"\n[tools]\nnode = "22"\n'):
+            self.assertFalse(b.mise_needs_trust(text), text)
+        for text in ('[env]\nA = "1"\n', '[tools]\nnode = "{{ env.V }}"\n', '[hooks]\nenter = "x"\n'):
+            self.assertTrue(b.mise_needs_trust(text), text)
+
+    def test_every_mise_config_name_is_sensitive(self):
+        import baseline as b
+        for path in (".mise.toml", "mise.toml", "mise.dev.toml", ".mise.local.toml", ".tool-versions",
+                     ".mise/config.toml", ".config/mise/config.toml", "sub/mise.toml"):
+            self.assertTrue(b.is_sensitive(path, []), path)
+        self.assertFalse(b.is_sensitive("src/app.py", []))
 
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])

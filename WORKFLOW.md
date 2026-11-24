@@ -95,8 +95,9 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 
 ```bash
 #!/bin/bash
-set -e
-curl -fsSL https://mise.run | MISE_INSTALL_PATH=/usr/local/bin/mise sh
+set -euo pipefail
+# doctor와 같게 판을 고정한다. .mise.toml의 min_version 이상으로 둔다.
+curl -fsSL https://mise.run | MISE_VERSION=v2026.11.9 MISE_INSTALL_PATH=/usr/local/bin/mise sh
 if [ -f .baseline/baseline.py ]; then python3 -I .baseline/baseline.py run setup; fi
 ```
 

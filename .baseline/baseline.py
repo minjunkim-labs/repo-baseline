@@ -362,12 +362,30 @@ def mise_prefix(root):
         refused = True
     if refused:
         sys.exit("run: .mise.toml을 읽지 못했다")
-    if not any("=" in line.split("#", 1)[0] for line in text.splitlines()):
+    if not any(section != "settings" for section, _ in mise_keys(text)):
         return []
     if not shutil.which("mise"):
         sys.exit("run: .mise.toml이 툴체인 판을 정하는데 mise가 없다. doctor가 설치 명령을 출력한다")
     # mise install and mise exec trust their own config (https://mise.jdx.dev/cli/trust.html, 2026-11-24).
     return ["mise", "exec", "--"]
+
+
+def mise_keys(text):
+    """(section, key) of every key line in .mise.toml; "" is the top level."""
+    keys, section = [], ""
+    for raw in text.splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if line.startswith("[") and line.endswith("]"):
+            section = line.strip("[]").strip()
+        elif "=" in line:
+            keys.append((section, line.split("=", 1)[0].strip()))
+    return keys
+
+
+def mise_needs_trust(text):
+    """mise trusts plain min_version and [tools] by itself; anything else, or a template, needs trust."""
+    return "{{" in text or "{%" in text or any(
+        not (section == "tools" or (section, key) == ("", "min_version")) for section, key in mise_keys(text))
 
 
 def mise_failed(root, code):
@@ -389,6 +407,9 @@ def cmd_run(args):
     problem = command_problem(args.name, value)
     if problem:
         sys.exit(f"run: {problem}")
+    if isinstance(value, str) and args.name != "setup":  # N/A needs no toolchain
+        print(f"run: {args.name}은 {value}")
+        return 0
     prefix = mise_prefix(root)
     if prefix and args.name == "setup":
         try:
@@ -479,9 +500,16 @@ def is_manifest(name):
     return name in MANIFESTS or fnmatch.fnmatchcase(name, "requirements*.txt") or name.endswith(".csproj")
 
 
+def is_mise_config(path):
+    """Files mise reads as config (https://mise.jdx.dev/configuration.html, 2026-11-24)."""
+    name = path.split("/")[-1]
+    return (fnmatch.fnmatchcase(name, "*mise*.toml") or name == ".tool-versions"
+            or ".mise" in path.split("/") or "/.config/mise/" in "/" + path)
+
+
 def is_sensitive(path, patterns):
     parts = path.split("/")
-    return (parts[-1] in {".mcp.json", ".mise.toml", "CODEOWNERS"} or is_manifest(parts[-1])
+    return (parts[-1] in {".mcp.json", "CODEOWNERS"} or is_manifest(parts[-1]) or is_mise_config(path)
             or any(part in AGENT_DIRS or part in {".github", ".baseline"} for part in parts)
             or any(fnmatch.fnmatchcase(path, p) or path.startswith(p.rstrip("*").rstrip("/") + "/")
                    for p in patterns))
@@ -1777,7 +1805,7 @@ def gather_doctor(root=None):
     except (OSError, subprocess.TimeoutExpired):
         remote = ""
     trusted = True
-    if mise_data is not None:
+    if mise_data is not None and mise_needs_trust(mise_body):
         trusted = False
         if shutil.which("mise"):
             try:
