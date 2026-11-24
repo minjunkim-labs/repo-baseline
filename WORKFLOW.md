@@ -92,7 +92,18 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 
 ## 클라우드 환경 설정
 
-- setup script는 mise를 설치하고 `python3 -I .baseline/baseline.py run setup`을 부른다.
+- setup script는 mise를 설치하고 `python3 -I .baseline/baseline.py run setup`을 부른다. `run setup`은 `.mise.toml`에 판이 있으면 `mise install`을 먼저 하고, 다른 `run`은 `mise exec`로 그 판을 쓴다.
+
+```bash
+#!/bin/bash
+set -euo pipefail
+# doctor와 같게 판을 고정한다. .mise.toml의 min_version 이상으로 둔다.
+curl -fsSL https://mise.run | MISE_VERSION=v2026.11.9 MISE_INSTALL_PATH=/usr/local/bin/mise sh
+if [ -f .baseline/baseline.py ]; then python3 -I .baseline/baseline.py run setup; fi
+```
+
+- setup script는 Ubuntu 24.04에서 root로 돈다. 그때 저장소가 현재 폴더에 있는지는 문서가 말하지 않는다. 없으면 `run setup`은 세션 안에서 부른다. 근거: [Cloud environments](https://code.claude.com/docs/en/cloud-environments) 「Setup scripts」(2026-11-24 확인). 이 스크립트를 클라우드에서 돌려 보지는 않았다.
+- mise와 도구를 받으려면 허용 도메인에 `mise.run`과 GitHub 릴리스, 도구의 배포처가 있어야 한다.
 - 허용 도메인은 GitHub과 그 스택의 패키지 저장소만 둔다.
 - network secret에는 병합 권한이 없는 것만 둔다. 장기 키는 소유자 기기에만 둔다(POLICY §7).
 

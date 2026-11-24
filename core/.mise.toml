@@ -1,0 +1,4 @@
+# 제품 툴체인 판(민감한 파일). 예: node = "22.12.0", python = "3.12.8"
+# 값이 하나라도 있으면 baseline.py run이 mise exec로 돌고, run setup이 mise install을 먼저 한다.
+# mise가 다루지 못하는 도구는 AGENTS.md 길잡이에 판과 설치법을 쓰고 commands.json의 doctor_versions에 적는다.
+[tools]
