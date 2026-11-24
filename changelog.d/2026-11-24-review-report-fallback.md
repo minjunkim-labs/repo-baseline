@@ -1,1 +1,1 @@
-- 리뷰어는 PR 본문을 REST(`gh api -X PATCH .../pulls/<번호>`)로 고친다. 그 실행 위치에서 고칠 수 없으면 Review 칸을 보고에 남기고 로컬 세션이 head를 다시 확인한 뒤 옮긴다(`prompts/review.md` 8번).
+- 리뷰어는 PR 본문을 `gh api -X PATCH`로 쓴다. 그 실행 위치에서 쓸 수 없으면 Review 칸을 보고에 남기고, 로컬 세션이 `review-preflight`로 head를 다시 확인한 뒤 옮긴다(POLICY §3, `prompts/review.md` 8번). 소비 레포가 옮길 일은 없다.
