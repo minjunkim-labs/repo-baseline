@@ -1,0 +1,42 @@
+# repo-baseline v2 CI template (github/README.md). Copy to .github/workflows/ci.yml.
+# mise installs the toolchain .mise.toml pins (nothing when there is none); every step then runs
+# the pinned .baseline/baseline.py, the same commands people, hooks and cloud sessions run.
+# Pin every action to a full commit SHA. Dependabot (github-actions) keeps the pins current, and
+# repository-settings.json lists jdx/mise-action@* in patterns_allowed.
+name: ci
+
+on:
+  pull_request:
+  # The merge queue tests the queued result here; without it a queued PR never merges.
+  merge_group:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A new push to a pull request cancels its older run. Other runs get their own group
+# (run_id), so a newer run never cancels or replaces a pending run on main.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  # This job name is the required check context in repository-settings.json.
+  ci:
+    name: ci
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - name: baseline check
+        run: python3 -I .baseline/baseline.py check
+      - name: baseline budget
+        run: python3 -I .baseline/baseline.py budget
+      - name: run check
+        run: python3 -I .baseline/baseline.py run check
+      - name: run test
+        run: python3 -I .baseline/baseline.py run test
