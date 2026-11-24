@@ -1827,18 +1827,30 @@ class DoctorTests(unittest.TestCase):
 
     def test_a_missing_claude_or_mise_does_not_require_itself(self):
         missing = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": None, "mise": "2026.1.0"}
-        text = self.problems(versions=missing, want={"claude": "2.1.0"})
-        self.assertIn("고치는 명령: curl -fsSL https://claude.ai/install.sh | bash", text)
+        self.assertIn("고치는 명령: curl -fsSL https://claude.ai/install.sh | bash", self.problems(versions=missing))
+        text = self.problems(versions=missing, want={"claude": "2.1.89"})
+        self.assertIn("고치는 명령: curl -fsSL https://claude.ai/install.sh | bash -s 2.1.89", text)
         self.assertNotIn("claude update", text)
+        windows = self.problems(versions=missing, want={"claude": "2.1.89"}, os="win32")
+        self.assertIn("PowerShell에서 & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) 2.1.89", windows)
         mismatch = self.problems(want={"claude": "2.1.0"})
         self.assertIn("고치는 명령: claude update", mismatch)
         no_mise = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": None}
-        mac = self.problems(versions=no_mise, os="darwin", want={"mise": "2026.11.0"})
+        mac = self.problems(versions=no_mise, os="darwin")
         self.assertIn("고치는 명령: brew install mise", mac)
         self.assertNotIn("mise install mise", mac)
         linux = self.problems(versions=no_mise, os="linux")
         self.assertIn("고치는 명령: curl -fsSL https://mise.run | sh", linux)
         self.assertNotIn("mise install mise", linux)
+        for os_name in ("darwin", "linux"):
+            with self.subTest(os=os_name):
+                text = self.problems(versions=no_mise, os=os_name, want={"mise": "2026.10.4"})
+                self.assertIn("고치는 명령: curl -fsSL https://mise.run | MISE_VERSION=v2026.10.4 sh", text)
+
+    def test_a_version_prefix_instructions_require_a_matching_full_release(self):
+        text = self.problems(want={"mise": "2026.10"})
+        self.assertIn("기준 2026.10에 맞는 전체 릴리스 판으로 VERSION을 바꾼다", text)
+        self.assertIn("mise self-update --no-plugins VERSION", text)
 
     def test_an_untrusted_mise_toml_prints_mise_trust(self):
         text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)

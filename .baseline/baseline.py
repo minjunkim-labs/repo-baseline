@@ -1277,23 +1277,35 @@ def skill_entry_name(value):
     return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) else None
 
 
+def doctor_release(expected):
+    if expected and expected.count(".") == 1:
+        return "VERSION", f"기준 {expected}에 맞는 전체 릴리스 판으로 VERSION을 바꾼다. "
+    return expected, ""
+
+
 def doctor_install(name, expected, os_name, present=False):
     if name == "claude":
         if present:
             return "claude update"
-        # https://code.claude.com/docs/en/setup#install-claude-code (2026-11-24)
+        # https://code.claude.com/docs/en/setup#install-a-specific-version (2026-11-24)
+        release, guide = doctor_release(expected)
         if os_name == "win32":
+            if release:
+                return f"{guide}PowerShell에서 & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) {release}"
             return "PowerShell에서 irm https://claude.ai/install.ps1 | iex"
-        return "curl -fsSL https://claude.ai/install.sh | bash"
+        args = f" -s {release}" if release else ""
+        return f"{guide}curl -fsSL https://claude.ai/install.sh | bash{args}"
     if name == "mise":
+        release, guide = doctor_release(expected)
         if not present:
+            # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
+            if release:
+                return f"{guide}curl -fsSL https://mise.run | MISE_VERSION=v{release} sh"
             return "brew install mise" if os_name == "darwin" else "curl -fsSL https://mise.run | sh"
         # https://mise.jdx.dev/cli/self-update.html (2026-11-24)
-        if expected and expected.count(".") == 2:
-            update = f"mise self-update --no-plugins {expected}"
-        else:
-            update = "mise self-update --no-plugins"
-        return f"직접 설치: {update}. 패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다"
+        args = f" {release}" if release else ""
+        return (f"{guide}직접 설치: mise self-update --no-plugins{args}. "
+                "패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다")
     if expected and name in DOCTOR_TOOLS:
         return f"mise install {name}@{expected}"
     if expected:
