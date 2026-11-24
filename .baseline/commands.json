@@ -10,6 +10,6 @@
   "test": [
     "sh",
     "-c",
-    "python3 -m unittest test_baseline && python3 -m unittest discover -s tools -p \"test_*.py\" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s \"$d\" -p \"test_*.py\" || exit 1; done"
+    "python3 -m unittest test_baseline test_github && python3 -m unittest discover -s tools -p \"test_*.py\" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s \"$d\" -p \"test_*.py\" || exit 1; done"
   ]
 }

@@ -4,11 +4,11 @@
 
 ## 명령
 
-`python3 -I .baseline/baseline.py run test`처럼 부른다. 스크립트는 Python 표준 라이브러리만 쓴다.
+`python3 -I .baseline/baseline.py run test`처럼 부른다. 표준 라이브러리만 쓴다.
 
 - setup: `N/A: 의존성이 없다(Python 3.9 이상, IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)`
 - check: `python3 -I .baseline/baseline.py check`
-- test: `sh -c 'python3 -m unittest test_baseline && python3 -m unittest discover -s tools -p "test_*.py" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p "test_*.py" || exit 1; done'`
+- test: `sh -c 'python3 -m unittest test_baseline test_github && python3 -m unittest discover -s tools -p "test_*.py" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p "test_*.py" || exit 1; done'`
 - build: `N/A: 배포는 파일 복사다`
 
 pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로 본다. `baseline.py`·`core/`를 고치면 루트의 `.baseline/`과 관리 파일도 함께 고친다.

@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: '3.9'  # the oldest supported version
       - name: baseline.py tests
-        run: python3 -m unittest test_baseline
+        run: python3 -m unittest test_baseline test_github
       - name: init, check, run check, budget in an empty repo
         run: |
           mkdir "$RUNNER_TEMP/repo"

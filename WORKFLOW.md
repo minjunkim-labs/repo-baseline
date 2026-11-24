@@ -26,6 +26,8 @@ Matt 스킬은 트래커·라벨·도메인 문서 설정을 `docs/agents/`에�
 | `ready-for-human` | 사람이 해야 한다 |
 | `wontfix` | 하지 않는다 |
 
+라벨은 소유자가 `python3 -I .baseline/baseline.py github apply`로 만든다([github 프로필](github/README.md)).
+
 ## 스킬 사본
 
 - 위 표의 스킬과 그 스킬이 부르는 스킬만 판을 고정한 사본으로 `.claude/skills/`에 둔다. 목록, 출처, 판, 의존 스킬(`requires`)은 [skills/skills.lock.json](skills/skills.lock.json)에 있다. 플러그인 대신 사본을 쓰는 까닭은 클라우드 세션과 Projects 스레드가 저장소 settings의 플러그인을 불러오지 않고 `.claude/skills/`는 읽기 때문이다.
