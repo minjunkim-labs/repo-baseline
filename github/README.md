@@ -40,6 +40,7 @@ python3 -I .baseline/baseline.py github apply
 - `plan`은 GitHub REST(`gh api`)로 읽기만 한다. 다른 값마다 `github: 차이: <경로>: <지금> -> <기준>`과 고치는 요청 `github: 계획: <메서드> <경로>`를 출력한다. 차이가 없으면 `github: 차이 없음: <저장소>`이고 종료 코드 0이다. 차이나 사람이 할 일이 있으면 1, 읽지 못하거나 설정 파일이 틀리면 2다.
 - `apply`는 같은 계획을 쓰고 나서 다시 읽어 비교한다. 같으면 `github: 통과: <저장소> 설정과 라벨이 기준과 같다`다. 쓰다가 실패하면 이미 쓴 요청과 결과를 모르는 요청을 출력하고 멈춘다. 다시 하기 전에 `plan`을 본다.
 - 하지 않는 것(`github: 사람이 할 일:` 줄): 공개 여부 변경, ruleset 지우기, 이름이 겹치는 ruleset, 기준이 기록하지 않는 브랜치 보호 값(서명 커밋, push 제한, 리뷰 우회·해제 목록)이 켜진 보호 덮어쓰기, 필수가 아닌 필드. CodeQL 고급 설정 기준이면 그 workflow가 돌 때까지 기본 설정을 끄지 않는다.
+- `actions.allowed_actions`가 `selected`가 아니면 `allowed_actions` 목록은 쓰지도 보지도 않는다(GitHub이 그 정책에서는 목록을 두지 않는다). CodeQL 고급 설정 workflow는 `codeql_workflow.path`(`.github/workflows/<이름>.yml`)의 파일 이름으로 읽는다.
 - 상태 라벨 5개(`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`, 뜻은 [WORKFLOW.md](../WORKFLOW.md))는 없으면 만들고, 색이나 설명이 다르면 고친다. 대소문자만 다른 같은 이름은 기준 이름으로 바꾼다. 다른 라벨은 건드리지 않는다.
 
 새 저장소 순서: 조직 아래 공개 저장소를 만든다 → `init`과 [ci.yml](ci.yml)을 PR 하나로 연다(소유자가 화면에서 병합) → 위 설정 파일을 PR로 더한다 → 소유자가 `plan`을 읽고 `apply`를 돌린다 → `plan`이 `차이 없음`을 출력한다.
