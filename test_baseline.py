@@ -65,7 +65,7 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual([rel for rel in written if rel not in skills], [
             ".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
             ".claude/hooks/allow_enqueue.py", ".claude/hooks/check.py", ".claude/settings.json",
-            ".gitattributes", ".github/pull_request_template.md", "AGENTS.md", "CLAUDE.md", "REVIEW.md",
+            ".gitattributes", ".github/pull_request_template.md", ".mise.toml", "AGENTS.md", "CLAUDE.md", "REVIEW.md",
             "docs/agents/LICENSE", "docs/agents/domain.md", "docs/agents/issue-tracker.md",
             "docs/agents/triage-labels.md"])
         self.assertEqual(sorted(set(written) & set(skills)), skills)
@@ -282,6 +282,60 @@ class RunBudgetTests(unittest.TestCase):
         result = cli("check", script=self.copy)
         self.assertEqual(result.returncode, 1)
         self.assertIn(".baseline/baseline.py: 없거나 일반 파일이 아니다", result.stderr)
+
+    def fake_mise(self, install_code=0):
+        """A mise on PATH that logs its argv, exits install_code on install, and runs `exec --` argv."""
+        bin_dir = self.repo.parent / (self.repo.name + "-bin")
+        bin_dir.mkdir(exist_ok=True)
+        self.addCleanup(shutil.rmtree, bin_dir, True)
+        (bin_dir / "mise").write_text(
+            "#!/bin/sh\n"
+            'echo "$*" >> "$MISE_LOG"\n'
+            'case "$1" in\n'
+            f'  install) exit {install_code} ;;\n'
+            '  exec) shift 2; exec "$@" ;;\n'
+            "esac\n", encoding="utf-8")
+        (bin_dir / "mise").chmod(0o755)
+        self.log = self.repo.parent / (self.repo.name + "-mise.log")
+        self.addCleanup(lambda: self.log.unlink(missing_ok=True))
+        return {**os.environ, "PATH": f"{bin_dir}{os.pathsep}/usr/bin{os.pathsep}/bin", "MISE_LOG": str(self.log)}
+
+    def run_with(self, env, name):
+        return subprocess.run([sys.executable, "-I", str(self.copy), "run", name],
+                              capture_output=True, text=True, env=env)
+
+    def test_run_uses_mise_when_mise_toml_pins_a_tool(self):
+        (self.repo / ".mise.toml").write_text('[tools]\nnode = "22.12.0"\n', encoding="utf-8")
+        self.set_command("setup", ["sh", "-c", "echo set > out.txt"])
+        env = self.fake_mise()
+        result = self.run_with(env, "setup")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.repo / "out.txt").read_text(encoding="utf-8"), "set\n")
+        calls = self.log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(calls, ["install", "exec -- sh -c echo set > out.txt"])
+        self.log.unlink()
+        self.assertEqual(self.run_with(env, "build").returncode, 0)  # N/A: no install outside setup
+        self.assertFalse(self.log.exists())
+
+    def test_run_setup_names_mise_trust_when_mise_install_fails(self):
+        (self.repo / ".mise.toml").write_text('[tools]\nnode = "22"\n', encoding="utf-8")
+        result = self.run_with(self.fake_mise(install_code=4), "setup")
+        self.assertEqual(result.returncode, 4)
+        self.assertIn("고치는 명령: mise trust ", result.stderr)
+        self.assertIn(".mise.toml", result.stderr)
+
+    def test_run_without_mise_settings_does_not_need_mise(self):
+        # The core .mise.toml holds only comments and [tools]; init copies it.
+        self.assertTrue((self.repo / ".mise.toml").is_file())
+        env = {**os.environ, "PATH": f"/usr/bin{os.pathsep}/bin"}
+        if shutil.which("mise", path=env["PATH"]):
+            self.skipTest("mise is in /usr/bin or /bin")
+        result = self.run_with(env, "check")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        (self.repo / ".mise.toml").write_text('[tools]\nnode = "22"\n', encoding="utf-8")
+        result = self.run_with(env, "check")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("mise가 없다", result.stderr)
 
     def test_run_refuses_an_invalid_command(self):
         self.set_command("test", ["zsh", "-c", "true"])

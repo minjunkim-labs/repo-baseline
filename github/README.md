@@ -4,7 +4,7 @@
 
 | 무엇 | 어디 |
 | --- | --- |
-| CI | [ci.yml](ci.yml)을 `.github/workflows/ci.yml`로 복사한다. 고칠 칸이 없다 |
+| CI | [ci.yml](ci.yml)을 `.github/workflows/ci.yml`로 복사한다. 고칠 칸이 없다. ubuntu·macOS가 `.mise.toml`의 같은 판으로 돌고, `ci` job이 둘의 결과를 모은다 |
 | 저장소 설정·상태 라벨 | `.baseline/baseline.py github plan`과 `github apply`. 공통값은 `baseline.py`의 `GITHUB_SETTINGS`·`LABELS`에 있다 |
 | Dependabot, `SECURITY.md`, `.coderabbit.yaml` | v1 소비 레포가 다 옮길 때까지 [templates/github/](../templates/github/)에 있다. 복사하는 법도 그 README의 표를 따른다 |
 

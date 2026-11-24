@@ -353,6 +353,31 @@ def cmd_check(args):
     return 0
 
 
+def mise_prefix(root):
+    """argv prefix for the pinned toolchain: [] without settings in .mise.toml, else `mise exec --`."""
+    data, refused = repo_bytes(root, ".mise.toml")
+    try:
+        text = "" if data is None else data.decode("utf-8")
+    except UnicodeDecodeError:
+        refused = True
+    if refused:
+        sys.exit("run: .mise.toml을 읽지 못했다")
+    if not any("=" in line.split("#", 1)[0] for line in text.splitlines()):
+        return []
+    if not shutil.which("mise"):
+        sys.exit("run: .mise.toml이 툴체인 판을 정하는데 mise가 없다. doctor가 설치 명령을 출력한다")
+    # mise install and mise exec trust their own config (https://mise.jdx.dev/cli/trust.html, 2026-11-24).
+    return ["mise", "exec", "--"]
+
+
+def mise_failed(root, code):
+    """Name `mise trust` after a failed mise step: paranoid mode and older mise still refuse the file."""
+    if code:
+        print("run: mise가 .mise.toml을 신뢰하지 않는다는 오류면 고치는 명령: mise trust "
+              + shlex.quote(root.joinpath(".mise.toml").as_posix()), file=sys.stderr)
+    return code
+
+
 def cmd_run(args):
     root = repo_root()
     commands, problems = load_commands(root)
@@ -364,11 +389,19 @@ def cmd_run(args):
     problem = command_problem(args.name, value)
     if problem:
         sys.exit(f"run: {problem}")
+    prefix = mise_prefix(root)
+    if prefix and args.name == "setup":
+        try:
+            code = subprocess.run(["mise", "install"], cwd=root).returncode
+        except OSError as error:
+            sys.exit(f"run: mise install을 시작하지 못했다: {error}")
+        if code:
+            return mise_failed(root, code)
     if isinstance(value, str):
         print(f"run: {args.name}은 {value}")
         return 0
     try:
-        return subprocess.run(value, cwd=root).returncode
+        return subprocess.run(prefix + value, cwd=root).returncode
     except OSError as error:
         sys.exit(f"run: {args.name}을 시작하지 못했다: {error}")
 
