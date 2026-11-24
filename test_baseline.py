@@ -1848,12 +1848,12 @@ class DoctorTests(unittest.TestCase):
                 self.assertIn("mise_dir=$(mktemp -d) && curl -fsSL https://mise.run", text)
                 self.assertIn('MISE_VERSION=v2026.10.4 MISE_INSTALL_PATH="$mise_dir/mise" sh', text)
         windows_mise = self.problems(versions=no_mise, os="win32", want={"mise": "2026.10.4"})
-        self.assertIn("Start-Job -ArgumentList '2026.10.4', (Get-Location).Path -ScriptBlock {", windows_mise)
+        self.assertIn("Start-Job -ArgumentList '2026.10.4', ", windows_mise)
         self.assertIn("$env:MISE_VERSION = $release", windows_mise)
         self.assertIn("$env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'", windows_mise)
         self.assertIn("$env:MISE_INSTALL_MODIFY_PATH = '0'", windows_mise)
         self.assertIn("irm https://mise.run/powershell | iex", windows_mise)
-        self.assertIn("python -I .baseline/baseline.py doctor\n} | Receive-Job -Wait -AutoRemoveJob", windows_mise)
+        self.assertIn("& $python -I $baseline doctor\n} | Receive-Job -Wait -AutoRemoveJob", windows_mise)
 
     def test_a_version_prefix_instructions_require_a_matching_full_release(self):
         text = self.problems(want={"mise": "2026.10"})
@@ -1867,8 +1867,22 @@ class DoctorTests(unittest.TestCase):
                 text = self.problems(versions=versions, want={"mise": expected})
                 self.assertIn(f"mise 판이 다르다. 지금 2026.11.13, 기준 {expected}", text)
                 self.assertIn(f'MISE_VERSION=v{version} MISE_INSTALL_PATH="$mise_dir/mise" sh', text)
-                self.assertIn('PATH="$mise_dir:$PATH" python3 -I .baseline/baseline.py doctor', text)
+                self.assertIn('PATH="$mise_dir:$PATH"', text)
+                self.assertIn("baseline.py", text)
                 self.assertNotIn("mise self-update", text)
+
+    def test_the_isolated_recheck_preserves_the_original_paths(self):
+        import baseline as b
+        from unittest.mock import patch
+
+        repo = Path("/fixture/Sam's repo")
+        python = "/fixture/O’Brien tools/python.exe"
+        script = str(repo / ".baseline/baseline.py")
+        with patch.object(b, "repo_root", return_value=repo), patch.object(b.sys, "executable", python), \
+                patch.object(b, "__file__", script):
+            text = self.problems(os="win32", want={"mise": "0.9.0"})
+        self.assertIn("'0.9.0', '/fixture/Sam''s repo', '/fixture/O’’Brien tools/python.exe', "
+                      "'/fixture/Sam''s repo/.baseline/baseline.py'", text)
 
     def test_an_untrusted_mise_toml_prints_mise_trust(self):
         text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)

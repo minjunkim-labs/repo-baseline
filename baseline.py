@@ -1283,13 +1283,21 @@ def doctor_release(expected):
     return expected, ""
 
 
+def powershell_literal(value):
+    # PowerShell interprets typographic single quotes as quote characters too.
+    escaped = re.sub("['‘’‚‛]", lambda match: match.group() * 2, str(value))
+    return f"'{escaped}'"
+
+
 def doctor_install_mise_separately(expected, os_name):
     release, guide = doctor_release(expected)
+    repo, python, script = repo_root(), sys.executable, os.path.abspath(__file__)
     if os_name == "win32":
         # https://mise.jdx.dev/installing-mise.html#windows (2026-11-24)
+        args = ", ".join(powershell_literal(arg) for arg in (release, repo, python, script))
         return (f"{guide}PowerShell의 별도 프로세스에서 설치하고 다시 검사한다\n"
-                f"Start-Job -ArgumentList '{release}', (Get-Location).Path -ScriptBlock {{\n"
-                "  param($release, $repo)\n"
+                f"Start-Job -ArgumentList {args} -ScriptBlock {{\n"
+                "  param($release, $repo, $python, $baseline)\n"
                 "  $ErrorActionPreference = 'Stop'\n"
                 '  $miseDir = Join-Path $env:TEMP "repo-baseline-mise-$([guid]::NewGuid())"\n'
                 "  $null = New-Item -ItemType Directory -Path $miseDir\n"
@@ -1300,12 +1308,13 @@ def doctor_install_mise_separately(expected, os_name):
                 "  if (!(Test-Path -LiteralPath $env:MISE_INSTALL_PATH -PathType Leaf)) { throw 'mise install failed' }\n"
                 '  $env:Path = "$miseDir;$env:Path"\n'
                 "  Set-Location -LiteralPath $repo\n"
-                "  python -I .baseline/baseline.py doctor\n"
+                "  & $python -I $baseline doctor\n"
                 "} | Receive-Job -Wait -AutoRemoveJob")
     # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
+    rerun = f'{shlex.quote(python)} -I {shlex.quote(script)} doctor'
     return (f'{guide}mise_dir=$(mktemp -d) && curl -fsSL https://mise.run | '
             f'MISE_VERSION=v{release} MISE_INSTALL_PATH="$mise_dir/mise" sh\n'
-            'doctor: 같은 셸에서 다시 검사한다: PATH="$mise_dir:$PATH" python3 -I .baseline/baseline.py doctor')
+            f'doctor: 같은 셸에서 다시 검사한다: (cd {shlex.quote(str(repo))} && PATH="$mise_dir:$PATH" {rerun})')
 
 
 def doctor_install(name, expected, os_name, present=False):
