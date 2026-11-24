@@ -82,3 +82,5 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 ```
 
 `allowedDomains`에는 그 스택의 패키지 저장소를 더한다.
+
+엄격 모드(`allowUnsandboxedCommands: false`, 데스크톱 앱의 「엄격한 샌드박스 모드」)는 끈다. macOS 샌드박스 안에서는 `gh`가 TLS 검증에 실패한다(2026-11-24 실측: `x509: OSStatus -26276`). `baseline.py`는 GitHub을 `gh`로 부르므로 `review-preflight`·`enqueue`·`budget`도 샌드박스 안에서 실패한다. 엄격 모드가 꺼져 있으면 에이전트가 샌드박스 밖에서 다시 실행하고, 이 재실행은 보통의 권한 확인을 거친다. 엄격 모드는 묻지 않고 막는다. `excludedCommands`의 `gh *`는 `gh`를 직접 부를 때만 맞고, `baseline.py`처럼 안에서 `gh`를 부르는 명령에는 맞지 않는다. 근거: [Sandboxing](https://code.claude.com/docs/en/sandboxing) 「Go-based CLIs fail TLS verification on macOS」, 「The unsandboxed retry escape hatch」 (2026-11-24 확인).
