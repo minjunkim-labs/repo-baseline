@@ -26,7 +26,7 @@
 - `repository_id`는 `gh api repos/<조직>/<이름> --jq .id`의 출력이다. `plan`은 이 값과 이름이 서버와 다르면 아무것도 읽지 않고 멈춘다.
 - 필수 체크는 `ci` 한 개(GitHub Actions, `app_id` 15368)다. `ci` job이 실제 PR에서 한 번 성공한 뒤 적는다.
 - `patterns_allowed`에는 workflow가 쓰는 GitHub 밖 action을 `owner/repo@*`로 적는다. [ci.yml](ci.yml)만 쓰면 `jdx/mise-action@*` 하나다.
-- 기능을 쓸 수 없는 저장소는 `exceptions`에 `{"<경로>": {"status": "unsupported" 또는 "not_applicable", "reason": "...", "evidence": "..."}}`로 적고 `expected`에서 그 경로를 뺀다. 예외로 둘 수 있는 것은 `repository`를 뺀 항목 통째, `repository.security_and_analysis`의 세 기능, `actions.sha_pinning_required`다. 병합 방식과 저장소 정체는 예외로 둘 수 없다.
+- 기능을 쓸 수 없는 저장소는 `exceptions`에 `{"<경로>": {"status": "unsupported" 또는 "not_applicable", "reason": "...", "evidence": "..."}}`로 적고 `expected`에서 그 경로를 뺀다. 예외로 둘 수 있는 것은 `repository`를 뺀 항목 통째, `repository.security_and_analysis.<기능>.status`(`dependabot_security_updates`, `secret_scanning`, `secret_scanning_push_protection`), `actions.sha_pinning_required`다. 병합 방식과 저장소 정체는 예외로 둘 수 없다.
 
 ## plan과 apply
 
