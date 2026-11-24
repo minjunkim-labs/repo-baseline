@@ -1787,7 +1787,8 @@ def gather_doctor(root=None):
     if shutil.which("mise"):
         # mise itself decides which config needs trust; it reads mise.local.toml and the rest too.
         try:
-            shown = subprocess.run(["mise", "config", "ls"], cwd=root, capture_output=True, text=True, timeout=15)
+            shown = subprocess.run(["mise", "config", "ls"], cwd=root, stdin=subprocess.DEVNULL,  # no trust prompt
+                                   capture_output=True, text=True, timeout=15)
             untrusted = untrusted_config((shown.stdout or "") + "\n" + (shown.stderr or ""))
         except (OSError, subprocess.TimeoutExpired):
             untrusted = None
