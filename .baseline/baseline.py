@@ -996,10 +996,17 @@ def changes_requested(reviews):
 
 
 def external_reviews(repo, number, reported, reviews):
-    """Reviews and comments written or edited after the review report: nobody judged them."""
+    """Reviews and comments written after the review report, or edited by a person after it: nobody judged them.
+
+    A bot's edit to its own comment does not count: CodeRabbit rewrites its summary comment after every body
+    edit, so the report could never come last (#215). Its findings arrive as new reviews and comments."""
     items = [(r.get("submitted_at"), r) for r in reviews]
     for path in (f"pulls/{number}/comments", f"issues/{number}/comments"):
-        items += [(max(c["created_at"], c.get("updated_at") or ""), c) for c in pages(f"repos/{repo}/{path}")]
+        for c in pages(f"repos/{repo}/{path}"):
+            user = c.get("user") or {}
+            bot = user.get("type") == "Bot" or (user.get("login") or "").endswith("[bot]")
+            # shortcut: a bot that adds a finding only by editing an old comment goes unseen; count bot edits if one does.
+            items.append((c["created_at"] if bot else max(c["created_at"], c.get("updated_at") or ""), c))
     return sorted({(item.get("user") or {}).get("login") or "ghost" for at, item in items if at and at > reported})
 
 
