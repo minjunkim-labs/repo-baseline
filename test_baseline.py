@@ -1761,5 +1761,271 @@ class SkillsBumpTests(unittest.TestCase):
         self.assertEqual(self.read("skills/grill/SKILL.md"), b"grill 1\n")  # unchanged
 
 
+class DoctorTests(unittest.TestCase):
+    def problems(self, **facts):
+        import baseline as b
+        base = {"versions": {name: "1.0.0" for name in b.DOCTOR_TOOLS}, "want": {}, "os": "linux",
+                "wsl": False, "wsl_version": None, "repo": "/home/u/repo", "git_path": "/usr/bin/git",
+                "skills_repo": [], "skills_user": [], "org": "acme",
+                "environment": ["github.com/acme"], "mise_toml": None, "mise_trusted": True,
+                "sandbox": False, "have_bubblewrap": True, "have_socat": True}
+        base.update(facts)
+        return "\n".join(b.doctor_problems(base))
+
+    def test_a_different_version_prints_the_install_command(self):
+        text = self.problems(versions={"python": "3.9.6", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"},
+                             want={"python": "3.12"})
+        self.assertIn("python 판이 다르다. 지금 3.9.6, 기준 3.12", text)
+        self.assertIn("고치는 명령: mise install python@3.12", text)
+
+    def test_a_missing_tool_prints_the_install_command(self):
+        versions = {"python": "3.12.0", "git": None, "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"}
+        self.assertIn("고치는 명령: sudo apt install git", self.problems(versions=versions))
+        self.assertIn("고치는 명령: brew install git", self.problems(versions=versions, os="darwin"))
+
+    def test_wsl1_mnt_and_windows_git_print_fix_commands(self):
+        text = self.problems(wsl=True, wsl_version=1, repo="/mnt/c/src/repo", git_path="/mnt/c/Program Files/Git/cmd/git.exe")
+        self.assertIn("고치는 명령: wsl.exe --set-version <배포판> 2", text)
+        self.assertNotIn("set-default-version", text)
+        self.assertIn("고치는 명령: 저장소를 ~ 아래에 클론한다", text)
+        self.assertIn("고치는 명령: sudo apt install git", text)
+
+    def test_wsl_checks_stay_quiet_off_wsl(self):
+        text = self.problems(wsl=False, repo="/mnt/c/src/repo", git_path="/mnt/c/Program Files/Git/cmd/git.exe")
+        self.assertNotIn("WSL1", text)
+        self.assertNotIn("/mnt/", text)
+        self.assertNotIn("Windows git", text)
+
+    def test_the_same_personal_skill_name_prints_rm_and_plugin_guidance(self):
+        text = self.problems(skills_repo=["tdd"], skills_user=[{"entry": "my-tdd", "names": ["my-tdd", "tdd"]}])
+        self.assertIn("개인 스킬 tdd이 저장소 사본과 같은 이름이다", text)
+        self.assertIn("고치는 명령: rm -rf ~/.claude/skills/my-tdd", text)
+        self.assertIn("플러그인:스킬", text)
+
+    def test_a_prose_environment_entry_names_the_org(self):
+        quiet = self.problems(org="acme", environment=["Source control: github.com/acme and all repos under it"])
+        self.assertNotIn("autoMode", quiet)
+        self.assertNotIn("autoMode", self.problems(org="acme", environment=["https://github.com/acme/repo"]))
+        for item in ("Source control: github.com/acme-other", "Source control: notgithub.com/acme",
+                     "gitlab.com/acme", "Source control: https://gitlab.com/github.com/acme"):
+            text = self.problems(org="acme", environment=[item])
+            self.assertIn("조직 acme이 없다", text, item)
+
+    def test_a_symlink_loop_in_skills_does_not_crash(self):
+        import baseline as b
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp) / "skills"
+            folder.mkdir()
+            link = folder / "loop"
+            link.symlink_to(link)
+            self.assertEqual([item["entry"] for item in b.skill_entries(folder)], ["loop"])
+
+    def test_a_missing_org_prints_json_and_does_not_write(self):
+        text = self.problems(org="acme", environment=["github.com/other"])
+        self.assertIn("자동으로 쓰지 않는다", text)
+        self.assertIn('고치는 명령: {"autoMode": {"environment": ["github.com/acme"]}}', text)
+
+    def test_a_missing_claude_or_mise_does_not_require_itself(self):
+        missing = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": None, "mise": "2026.1.0"}
+        self.assertIn("고치는 명령: curl -fsSL https://claude.ai/install.sh | bash", self.problems(versions=missing))
+        text = self.problems(versions=missing, want={"claude": "2.1.89"})
+        self.assertIn("고치는 명령: curl -fsSL https://claude.ai/install.sh | bash -s 2.1.89", text)
+        self.assertNotIn("claude update", text)
+        windows = self.problems(versions=missing, want={"claude": "2.1.89"}, os="win32")
+        self.assertIn("PowerShell에서 & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) 2.1.89", windows)
+        mismatch = self.problems(want={"claude": "2.1.0"})
+        self.assertIn("고치는 명령: claude update", mismatch)
+        no_mise = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": None}
+        mac = self.problems(versions=no_mise, os="darwin")
+        self.assertIn("고치는 명령: brew install mise", mac)
+        self.assertNotIn("mise install mise", mac)
+        linux = self.problems(versions=no_mise, os="linux")
+        self.assertIn("고치는 명령: curl -fsSL https://mise.run | sh", linux)
+        self.assertNotIn("mise install mise", linux)
+        for os_name in ("darwin", "linux"):
+            with self.subTest(os=os_name):
+                text = self.problems(versions=no_mise, os=os_name, want={"mise": "2026.10.4"})
+                self.assertIn("mise_dir=$(mktemp -d) && curl -fsSL https://mise.run", text)
+                self.assertIn('MISE_VERSION=v2026.10.4 MISE_INSTALL_PATH="$mise_dir/mise" sh', text)
+        windows_mise = self.problems(versions=no_mise, os="win32", want={"mise": "2026.10.4"})
+        self.assertIn("Start-Job -ArgumentList '2026.10.4', ", windows_mise)
+        self.assertIn("$env:MISE_VERSION = $release", windows_mise)
+        self.assertIn("$env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'", windows_mise)
+        self.assertIn("$env:MISE_INSTALL_MODIFY_PATH = '0'", windows_mise)
+        self.assertIn("irm https://mise.run/powershell | iex", windows_mise)
+        self.assertIn("$ErrorActionPreference = 'Continue'\n"
+                      "  & $python -I $baseline doctor 2>&1 | ForEach-Object { $_.ToString() }\n"
+                      "} | Receive-Job -Wait -AutoRemoveJob", windows_mise)
+
+    def test_a_version_prefix_instructions_require_a_matching_full_release(self):
+        text = self.problems(want={"mise": "2026.10"})
+        self.assertIn("기준 2026.10에 맞는 전체 릴리스 판으로 VERSION을 바꾼다", text)
+        self.assertIn("mise self-update --no-plugins VERSION", text)
+
+    def test_an_older_mise_pin_uses_a_separate_installation(self):
+        versions = dict.fromkeys(("python", "git", "gh", "claude", "mise"), "2026.11.13")
+        for expected, version in (("2026.10", "VERSION"), ("2026.10.4", "2026.10.4")):
+            with self.subTest(expected=expected):
+                text = self.problems(versions=versions, want={"mise": expected})
+                self.assertIn(f"mise 판이 다르다. 지금 2026.11.13, 기준 {expected}", text)
+                self.assertIn(f'MISE_VERSION=v{version} MISE_INSTALL_PATH="$mise_dir/mise" sh', text)
+                self.assertIn('PATH="$mise_dir:$PATH"', text)
+                self.assertIn("baseline.py", text)
+                self.assertNotIn("mise self-update", text)
+
+    def test_the_isolated_recheck_preserves_the_original_paths(self):
+        import baseline as b
+        from unittest.mock import patch
+
+        repo = Path("/fixture/Sam's repo")
+        python = "/fixture/O’Brien tools/python.exe"
+        script = str(repo / ".baseline/baseline.py")
+        with patch.object(b, "repo_root", return_value=repo), patch.object(b.sys, "executable", python), \
+                patch.object(b, "__file__", script):
+            text = self.problems(os="win32", want={"mise": "0.9.0"})
+        self.assertIn("'0.9.0', '/fixture/Sam''s repo', '/fixture/O’’Brien tools/python.exe', "
+                      "'/fixture/Sam''s repo/.baseline/baseline.py'", text)
+
+    def test_an_untrusted_mise_toml_prints_mise_trust(self):
+        text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)
+        self.assertIn("고치는 명령: mise trust /home/u/repo/.mise.toml", text)
+
+    def test_sandbox_on_linux_or_wsl2_requires_bubblewrap_and_socat(self):
+        text = self.problems(sandbox=True, os="linux", have_bubblewrap=False, have_socat=False)
+        self.assertIn("고치는 명령: sudo apt install bubblewrap", text)
+        self.assertIn("고치는 명령: sudo apt install socat", text)
+        quiet = self.problems(sandbox=True, os="darwin", have_bubblewrap=False, have_socat=False)
+        self.assertNotIn("bubblewrap", quiet)
+        wsl = self.problems(sandbox=True, os="linux", wsl=True, wsl_version=2, have_bubblewrap=True, have_socat=False)
+        self.assertIn("socat", wsl)
+        self.assertNotIn("bubblewrap", wsl)
+
+    def test_a_matching_machine_passes(self):
+        self.assertEqual(self.problems(), "")
+
+    def test_an_unreadable_version_is_not_copied_into_the_command(self):
+        text = self.problems(want={"python": "3.12; echo x"})
+        self.assertIn("python 기준 판을 읽을 수 없다", text)
+        self.assertNotIn("echo x", text)
+        self.assertNotIn("mise install python@", text)
+
+    def test_an_unsafe_skill_entry_is_not_removed(self):
+        text = self.problems(skills_repo=["tdd"], skills_user=[{"entry": "../../.ssh", "names": ["tdd"]}])
+        self.assertIn("고치는 명령을 만들지 못했다", text)
+        self.assertNotIn("rm -rf", text)
+        self.assertNotIn(".ssh", text)
+
+    def test_a_longer_installed_version_matches_the_pin(self):
+        versions = {"python": "3.12.16", "git": "2.45.1", "gh": "2.60.0", "claude": "2.1.330", "mise": "2026.11.9"}
+        self.assertEqual(self.problems(versions=versions, want={"python": "3.12"}), "")
+
+    def test_a_pinned_git_and_another_tool_print_their_own_commands(self):
+        text = self.problems(want={"git": "2.45", "godot": "4.3"},
+                             versions={"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0",
+                                       "mise": "2026.1.0", "godot": "4.2.0"})
+        self.assertIn("고치는 명령: mise install git@2.45", text)
+        self.assertIn("고치는 명령: AGENTS.md 길잡이의 설치법으로 godot 4.3을 설치한다", text)
+
+    def test_windows_git_version_string_on_wsl(self):
+        text = self.problems(wsl=True, wsl_version=2, git_version="git version 2.40.0.windows.1")
+        self.assertIn("고치는 명령: sudo apt install git", text)
+        quiet = self.problems(wsl=False, git_version="git version 2.40.0.windows.1")
+        self.assertNotIn("Windows git", quiet)
+
+    def test_mise_pins_and_trust_show(self):
+        import baseline as b
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        self.assertFalse(b.mise_config_trusted(f"{folder}: untrusted\n", folder))
+        self.assertTrue(b.mise_config_trusted(f"{folder}: trusted\n", folder))
+        self.assertFalse(b.mise_config_trusted(f"{folder}/.mise.toml: untrusted\n", folder))
+        self.assertFalse(b.show_is_trusted(1, f"{folder}: trusted\n", folder))
+        self.assertTrue(b.show_is_trusted(0, f"{folder}: trusted\n", folder))
+        text = 'min_version = "2026.11.0"\n\n[tools]\npython = "3.12"\n'
+        self.assertEqual(b.pins_from({}, text, "2026.11.9"), {"python": "3.12"})
+        self.assertEqual(b.pins_from({}, text, "2026.10.0")["mise"], "2026.11.0")
+        self.assertEqual(b.pins_from({}, text, None)["mise"], "2026.11.0")
+        self.assertEqual(b.pins_from({"claude": "2.1.283"}, "", "2026.11.9"), {"claude": "2.1.283"})
+        self.assertEqual(b.pins_from({"mise": "2026.1.0"}, text, "2026.11.9")["mise"], "2026.11.0")
+        self.assertEqual(b.pins_from({"mise": "2026.12.0"}, 'min_version = "2026.11.0"\n', "2026.12.1")["mise"], "2026.12.0")
+        self.assertEqual(b.pins_from({"mise": "2026.12.0"}, text, "2026.10.0")["mise"], "2026.12.0")
+        self.assertNotIn("./probe", b.pins_from({"./probe": "1.0.0", "godot": "4.3"}, "", None))
+        self.assertEqual(b.version_binary("godot"), "godot")
+        self.assertEqual(b.version_binary("python"), "python3")
+        self.assertIsNone(b.version_binary("./probe"))
+        self.assertIsNone(b.version_binary("a/b"))
+        (folder / ".claude/skills/tdd").mkdir(parents=True)
+        (folder / ".claude/skills/mine").mkdir()
+        self.assertEqual(b.repo_skill_names(folder), ["tdd"])
+
+    def test_stdin_facts_print_the_fix_command(self):
+        import json
+        facts = {"versions": {"python": "3.9.6", "git": "2.39.0", "gh": "2.40.0", "claude": "1.0.0", "mise": "2026.1.0"},
+                 "want": {"mise": "2026.11.0"}, "os": "linux", "wsl": False, "repo": "/home/u/repo",
+                 "git_path": "/usr/bin/git", "skills_repo": [], "skills_user": [], "org": "acme",
+                 "environment": ["github.com/acme"], "mise_toml": None, "mise_trusted": True,
+                 "sandbox": False, "have_bubblewrap": True, "have_socat": True}
+        result = subprocess.run([sys.executable, "-I", str(ROOT / "baseline.py"), "doctor"],
+                                input=json.dumps(facts), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("직접 설치: mise self-update --no-plugins 2026.11.0", result.stderr)
+        self.assertIn("패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다", result.stderr)
+        self.assertNotIn("mise install mise", result.stderr)
+
+    def test_a_linked_or_unreadable_mise_file_is_not_parsed(self):
+        import baseline as b
+        folder = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, folder, True)
+        secret = folder / "secret.toml"
+        secret.write_text('min_version = "9.9.9"\n[tools]\npython = "9.8.7"\n', encoding="utf-8")
+        (folder / ".mise.toml").symlink_to(secret)
+        (folder / ".claude").mkdir()
+        target = folder / "other.json"
+        target.write_text('{"sandbox": {"enabled": true}}\n', encoding="utf-8")
+        (folder / ".claude/settings.json").symlink_to(target)
+        self.assertEqual(b.repo_bytes(folder, ".mise.toml"), (None, True))
+        self.assertEqual(b.repo_bytes(folder, ".claude/settings.json"), (None, True))
+        facts = b.gather_doctor(folder)
+        self.assertTrue(facts["mise_unreadable"])
+        self.assertNotIn("9.9.9", facts["want"].get("mise", ""))
+        self.assertNotEqual(facts["want"].get("python"), "9.8.7")
+        text = "\n".join(b.doctor_problems(facts))
+        self.assertIn(".mise.toml을 읽지 못했다", text)
+        self.assertIn(".claude/settings.json을 읽지 못했다", text)
+        self.assertNotIn("9.8.7", text)
+        (folder / ".mise.toml").unlink()
+        (folder / ".mise.toml").write_bytes(b"\xff")
+        self.assertTrue(b.gather_doctor(folder)["mise_unreadable"])
+        (folder / ".mise.toml").write_bytes(b"x" * (b.MAX_READ + 1))
+        self.assertTrue(b.gather_doctor(folder)["mise_unreadable"])
+
+    def test_project_settings_errors_are_reported_and_missing_files_are_allowed(self):
+        import baseline as b
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            project_settings = folder / ".claude/settings.json"
+            local_settings = folder / ".claude/settings.local.json"
+            project_settings.parent.mkdir()
+            project_settings.write_bytes(b"x" * (b.MAX_READ + 1))
+            for content in (b"", b"[]", b'{"sandbox":', b"\xff"):
+                with self.subTest(content=content):
+                    local_settings.write_bytes(content)
+                    facts = b.gather_doctor(folder)
+                    text = self.problems(project_settings_unreadable=facts["project_settings_unreadable"])
+                    self.assertIn(".claude/settings.json을 읽지 못했다", text)
+                    self.assertIn(".claude/settings.local.json을 읽지 못했다", text)
+            project_settings.unlink()
+            local_settings.write_text("{}", encoding="utf-8")
+            facts = b.gather_doctor(folder)
+            self.assertEqual(self.problems(project_settings_unreadable=facts["project_settings_unreadable"]), "")
+
+    def test_oversized_stdin_is_refused(self):
+        import baseline as b
+        result = subprocess.run([sys.executable, "-I", str(ROOT / "baseline.py"), "doctor"],
+                                input="x" * (b.MAX_READ + 1), capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("너무 크다", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1265,6 +1265,524 @@ def cmd_skills_bump(args):
     return skills_bump(root, args.check, datetime.now(timezone.utc))
 
 
+DOCTOR_TOOLS = ("python", "git", "gh", "claude", "mise")
+DOCTOR_PROJECT_SETTINGS = (".claude/settings.json", ".claude/settings.local.json")
+
+
+def doctor_version(value):
+    return value if isinstance(value, str) and VERSION_RE.fullmatch(value) else None
+
+
+def skill_entry_name(value):
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value) else None
+
+
+def doctor_release(expected):
+    if expected and expected.count(".") == 1:
+        return "VERSION", f"기준 {expected}에 맞는 전체 릴리스 판으로 VERSION을 바꾼다. "
+    return expected, ""
+
+
+def powershell_literal(value):
+    # PowerShell interprets typographic single quotes as quote characters too.
+    escaped = re.sub("['‘’‚‛]", lambda match: match.group() * 2, str(value))
+    return f"'{escaped}'"
+
+
+def doctor_install_mise_separately(expected, os_name):
+    release, guide = doctor_release(expected)
+    repo, python, script = repo_root(), sys.executable, os.path.abspath(__file__)
+    if os_name == "win32":
+        # https://mise.jdx.dev/installing-mise.html#windows (2026-11-24)
+        args = ", ".join(powershell_literal(arg) for arg in (release, repo, python, script))
+        return (f"{guide}PowerShell의 별도 프로세스에서 설치하고 다시 검사한다\n"
+                f"Start-Job -ArgumentList {args} -ScriptBlock {{\n"
+                "  param($release, $repo, $python, $baseline)\n"
+                "  $ErrorActionPreference = 'Stop'\n"
+                '  $miseDir = Join-Path $env:TEMP "repo-baseline-mise-$([guid]::NewGuid())"\n'
+                "  $null = New-Item -ItemType Directory -Path $miseDir\n"
+                "  $env:MISE_VERSION = $release\n"
+                "  $env:MISE_INSTALL_PATH = Join-Path $miseDir 'mise.exe'\n"
+                "  $env:MISE_INSTALL_MODIFY_PATH = '0'\n"
+                "  irm https://mise.run/powershell | iex\n"
+                "  if (!(Test-Path -LiteralPath $env:MISE_INSTALL_PATH -PathType Leaf)) { throw 'mise install failed' }\n"
+                '  $env:Path = "$miseDir;$env:Path"\n'
+                "  Set-Location -LiteralPath $repo\n"
+                "  $ErrorActionPreference = 'Continue'\n"
+                "  & $python -I $baseline doctor 2>&1 | ForEach-Object { $_.ToString() }\n"
+                "} | Receive-Job -Wait -AutoRemoveJob")
+    # https://mise.jdx.dev/installing-mise.html#install-script-mise-run (2026-11-24)
+    rerun = f'{shlex.quote(python)} -I {shlex.quote(script)} doctor'
+    return (f'{guide}mise_dir=$(mktemp -d) && curl -fsSL https://mise.run | '
+            f'MISE_VERSION=v{release} MISE_INSTALL_PATH="$mise_dir/mise" sh\n'
+            f'doctor: 같은 셸에서 다시 검사한다: (cd {shlex.quote(str(repo))} && PATH="$mise_dir:$PATH" {rerun})')
+
+
+def doctor_install(name, expected, os_name, present=False):
+    if name == "claude":
+        if present:
+            return "claude update"
+        # https://code.claude.com/docs/en/setup#install-a-specific-version (2026-11-24)
+        release, guide = doctor_release(expected)
+        if os_name == "win32":
+            if release:
+                return f"{guide}PowerShell에서 & ([scriptblock]::Create((irm https://claude.ai/install.ps1))) {release}"
+            return "PowerShell에서 irm https://claude.ai/install.ps1 | iex"
+        args = f" -s {release}" if release else ""
+        return f"{guide}curl -fsSL https://claude.ai/install.sh | bash{args}"
+    if name == "mise":
+        if not present:
+            if expected:
+                return doctor_install_mise_separately(expected, os_name)
+            if os_name == "win32":
+                return "PowerShell에서 irm https://mise.run/powershell | iex"
+            return "brew install mise" if os_name == "darwin" else "curl -fsSL https://mise.run | sh"
+        # https://mise.jdx.dev/cli/self-update.html (2026-11-24)
+        release, guide = doctor_release(expected)
+        args = f" {release}" if release else ""
+        return (f"{guide}직접 설치: mise self-update --no-plugins{args}. "
+                "패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다")
+    if expected and name in DOCTOR_TOOLS:
+        return f"mise install {name}@{expected}"
+    if expected:
+        return f"AGENTS.md 길잡이의 설치법으로 {name} {expected}을 설치한다"
+    if name == "python":
+        return "mise install python"
+    package = "gh" if name == "gh" else "git" if name == "git" else name
+    return f"brew install {package}" if os_name == "darwin" else f"sudo apt install {package}"
+
+
+def version_matches(got, expected):
+    return got == expected or got.startswith(expected + ".")
+
+
+def org_mentioned(text, org):
+    """A prose autoMode entry names the org when `github.com/<org>` has a boundary on both sides.
+
+    `github.com/acme-other` does not name `acme`, and neither does `notgithub.com/acme` or a path on another host.
+    Official entries are sentences, not only exact URLs (code.claude.com auto-mode-config, 2026-11-23).
+    """
+    needle = f"github.com/{org}"
+    start = 0
+    while True:
+        index = text.find(needle, start)
+        if index < 0:
+            return False
+        if index > 0:
+            prev = text[index - 1]
+            scheme = index >= 3 and text[index - 3:index] == "://"
+            path_slash = prev == "/" and not scheme
+            if prev.isalnum() or prev in "-." or path_slash:
+                start = index + 1
+                continue
+        after = index + len(needle)
+        if after >= len(text) or not (text[after].isalnum() or text[after] == "-"):
+            return True
+        start = after
+
+
+def org_allowed(org, environment):
+    needle = f"github.com/{org}"
+    for item in environment:
+        if not isinstance(item, str):
+            continue
+        if item in (org, needle) or item.startswith(needle + "/") or org_mentioned(item, org):
+            return True
+    return False
+
+
+def doctor_problems(facts):
+    """Failures and the command that fixes each one. facts is the simulated or gathered machine."""
+    if not isinstance(facts, dict):
+        return ["doctor: 사실이 객체가 아니다"]
+    problems = []
+    versions = facts.get("versions") if isinstance(facts.get("versions"), dict) else {}
+    want = facts.get("want") if isinstance(facts.get("want"), dict) else {}
+    os_name = facts.get("os") if isinstance(facts.get("os"), str) else ""
+    if facts.get("settings_unreadable"):
+        problems.append("doctor: ~/.claude/settings.json을 읽지 못했다\ndoctor: 고치기: JSON 객체로 고친다")
+    project_errors = facts.get("project_settings_unreadable")
+    if isinstance(project_errors, list):
+        for rel in DOCTOR_PROJECT_SETTINGS:
+            if rel in project_errors:
+                problems.append(f"doctor: {rel}을 읽지 못했다\n"
+                                "doctor: 고치기: 읽을 수 있는 일반 파일의 JSON 객체로 고친다")
+    names = list(DOCTOR_TOOLS)
+    for name in sorted(want):
+        if skill_entry_name(name) and name not in names:
+            names.append(name)
+    for name in names:
+        got = versions.get(name)
+        raw_expected = want.get(name)
+        expected = doctor_version(raw_expected)
+        if isinstance(raw_expected, str) and expected is None:
+            problems.append(f"doctor: {name} 기준 판을 읽을 수 없다")
+        if not isinstance(got, str) or not got:
+            problems.append(f"doctor: {name}이 없다\ndoctor: 고치는 명령: {doctor_install(name, expected, os_name)}")
+        elif expected and not version_matches(got, expected):
+            problem = f"doctor: {name} 판이 다르다. 지금 {got}, 기준 {expected}"
+            if name == "mise" and (not doctor_version(got) or version_at_least(got, expected)):
+                # A repository pin cannot authorize replacing a newer mise binary.
+                command = doctor_install_mise_separately(expected, os_name)
+            else:
+                command = doctor_install(name, expected, os_name, present=True)
+            problems.append(f"{problem}\ndoctor: 고치는 명령: {command}")
+    if facts.get("wsl"):
+        if facts.get("wsl_version") != 2:
+            problems.append("doctor: WSL1이다\n"
+                            "doctor: 고치는 명령: wsl.exe --set-version <배포판> 2\n"
+                            "doctor: PowerShell에서 wsl.exe --list --verbose 로 배포판 이름을 본다")
+        repo = facts.get("repo") if isinstance(facts.get("repo"), str) else ""
+        if repo.startswith("/mnt/"):
+            problems.append("doctor: 저장소가 /mnt/ 아래다\ndoctor: 고치는 명령: 저장소를 ~ 아래에 클론한다")
+        git_path = facts.get("git_path") if isinstance(facts.get("git_path"), str) else ""
+        git_version = facts.get("git_version") if isinstance(facts.get("git_version"), str) else ""
+        if (git_path.endswith(".exe") or "/mnt/" in git_path.replace("\\", "/")
+                or ".windows." in git_version.lower()):
+            problems.append("doctor: Windows git이다\ndoctor: 고치는 명령: sudo apt install git")
+    repo_skills = set(facts.get("skills_repo") or [])
+    for item in facts.get("skills_user") or []:
+        if isinstance(item, str):
+            item = {"entry": item, "names": [item]}
+        if not isinstance(item, dict):
+            continue
+        names = {skill_entry_name(name) for name in item.get("names") or []}
+        names.discard(None)
+        repo_names = {skill_entry_name(name) for name in repo_skills}
+        repo_names.discard(None)
+        entry = skill_entry_name(item.get("entry"))
+        hit = sorted(names & repo_names)
+        if not hit:
+            continue
+        guide = "doctor: 다른 저장소에서도 쓰려면 플러그인으로 설치한다. 플러그인 스킬은 플러그인:스킬로 이름이 나뉜다"
+        if not entry:
+            problems.append(f"doctor: 개인 스킬 {hit[0]}이 저장소 사본과 같은 이름이다. 개인 스킬이 프로젝트 스킬보다 먼저 돈다\n"
+                            "doctor: 고치는 명령을 만들지 못했다\n" + guide)
+            continue
+        problems.append(
+            f"doctor: 개인 스킬 {hit[0]}이 저장소 사본과 같은 이름이다. 개인 스킬이 프로젝트 스킬보다 먼저 돈다\n"
+            f"doctor: 고치는 명령: rm -rf ~/.claude/skills/{shlex.quote(entry)}\n" + guide)
+    org = facts.get("org") if isinstance(facts.get("org"), str) else None
+    environment = facts.get("environment") if isinstance(facts.get("environment"), list) else []
+    if org and not facts.get("settings_unreadable") and not org_allowed(org, environment):
+        snippet = json.dumps({"autoMode": {"environment": [f"github.com/{org}"]}}, ensure_ascii=False, separators=(", ", ": "))
+        problems.append(f"doctor: autoMode.environment에 조직 {org}이 없다. 사용자 설정에만 넣는다. 자동으로 쓰지 않는다\n"
+                        f"doctor: 고치는 명령: {snippet}")
+    if facts.get("mise_unreadable"):
+        problems.append("doctor: .mise.toml을 읽지 못했다")
+    else:
+        mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
+        if mise_toml and not facts.get("mise_trusted"):
+            problems.append(f"doctor: .mise.toml이 신뢰되지 않았다\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
+    if facts.get("sandbox") and (os_name == "linux" or facts.get("wsl_version") == 2):
+        if not facts.get("have_bubblewrap"):
+            problems.append("doctor: 샌드박스에 bubblewrap이 없다\ndoctor: 고치는 명령: sudo apt install bubblewrap")
+        if not facts.get("have_socat"):
+            problems.append("doctor: 샌드박스에 socat이 없다\ndoctor: 고치는 명령: sudo apt install socat")
+    return problems
+
+
+def version_binary(name):
+    """A single tool name to ask `--version`, or None. Paths are not names."""
+    if not skill_entry_name(name):
+        return None
+    return "python3" if name == "python" else name
+
+
+def tool_version(argv):
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    line = ((result.stdout or result.stderr).strip().splitlines() or [""])[0]
+    match = re.search(r"(\d+\.\d+(?:\.\d+)?)", line)
+    return match.group(1) if match else None
+
+
+def skill_entries(folder):
+    if not folder.is_dir():
+        return []
+    entries = []
+    for path in sorted(folder.iterdir(), key=lambda item: item.name):
+        if path.name.startswith(".") or not (path.is_symlink() or path.is_dir()):
+            continue
+        names = {path.name}
+        if path.is_symlink():
+            try:
+                names.add(path.resolve().name)
+            except (OSError, RuntimeError):
+                pass
+        entries.append({"entry": path.name, "names": sorted(names)})
+    return entries
+
+
+def repo_skill_names(root):
+    """Managed skill-copy folder names in this repo. A project skill is not a copy."""
+    managed = {rel[len(SKILLS):].split("/", 1)[0] for rel in MANAGED if rel.startswith(SKILLS)}
+    return sorted(item["entry"] for item in skill_entries(root / ".claude/skills") if item["entry"] in managed)
+
+
+def github_org(url):
+    match = re.search(r"github\.com[:/]([^/]+)/", url or "")
+    return match.group(1) if match else None
+
+
+def parse_mise_pins(text):
+    """Top-level min_version and [tools] plain version strings."""
+    min_version, tools, section = None, {}, ""
+    for raw in (text or "").splitlines():
+        line = raw.split("#", 1)[0].strip()
+        if not line:
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = line[1:-1].strip()
+            continue
+        if "=" not in line:
+            continue
+        key, value = (part.strip() for part in line.split("=", 1))
+        if (len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'"):
+            parsed = value[1:-1]
+        elif value.startswith("["):
+            parsed = re.findall(r"""["']([^"']+)["']""", value)
+        else:
+            parsed = None
+        if key == "min_version" and isinstance(parsed, str):
+            min_version = parsed
+        elif section == "tools" and parsed and key != "min_version":
+            tools[key] = parsed if isinstance(parsed, list) else [parsed]
+    return min_version, tools
+
+
+def version_at_least(installed, minimum):
+    def parts(text):
+        return tuple(int(part) for part in text.split("."))
+    try:
+        got, need = parts(installed), parts(minimum)
+    except (TypeError, ValueError):
+        return False
+    width = max(len(got), len(need))
+    return got + (0,) * (width - len(got)) >= need + (0,) * (width - len(need))
+
+
+def pins_from(doctor_versions, mise_text, installed_mise):
+    """Version pins doctor compares. .mise.toml [tools] wins. min_version is a floor for mise."""
+    want = {name: value for name, value in (doctor_versions or {}).items()
+            if skill_entry_name(name) and isinstance(value, str) and value}
+    min_version, tools = parse_mise_pins(mise_text)
+    for name, requested in tools.items():
+        concrete = next((item for item in requested if doctor_version(item)), None)
+        if skill_entry_name(name) and concrete:
+            want[name] = concrete
+    if doctor_version(min_version):
+        pinned_mise = want.get("mise")
+        version = pinned_mise if pinned_mise is not None else installed_mise
+        if (pinned_mise is None or doctor_version(pinned_mise)) and (
+                not version or not version_at_least(version, min_version)):
+            want["mise"] = min_version
+    return want
+
+
+def show_is_trusted(returncode, show_text, root):
+    """Trust only a successful `mise trust --show` whose line for this directory says trusted."""
+    return returncode == 0 and mise_config_trusted(show_text, root)
+
+
+def mise_config_trusted(show_text, root):
+    """True only when `mise trust --show` lists this directory as trusted."""
+    try:
+        root_text = str(Path(root).resolve())
+    except OSError:
+        root_text = str(root)
+    for line in (show_text or "").splitlines():
+        if ":" not in line:
+            continue
+        path, status = line.rsplit(":", 1)
+        try:
+            shown = str(Path(path.strip()).resolve())
+        except OSError:
+            continue
+        if shown == root_text:
+            return status.strip().lower() == "trusted"
+    return False
+
+
+def repo_bytes(root, rel):
+    """(bytes or None, refused). A missing file is (None, False).
+
+    Same rule as read_file: no symlink on the way, at most MAX_READ bytes.
+    """
+    root = Path(root)
+    try:
+        if linked(root, rel):
+            return None, True
+        (root / rel).stat()
+    except FileNotFoundError:
+        return None, False
+    except OSError:
+        return None, True
+    try:
+        return read_file(root, rel), False
+    except OSError:
+        return None, True
+
+
+def read_json_object(path):
+    """(dict or None, unreadable). A missing file is (None, False). At most MAX_READ bytes."""
+    try:
+        if path.is_symlink() and not path.is_file():
+            return None, True
+        if not path.is_file():
+            return None, False
+        with path.open("rb") as handle:
+            raw = handle.read(MAX_READ + 1)
+    except OSError:
+        return None, True
+    if len(raw) > MAX_READ:
+        return None, True
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except ValueError:
+        return None, True
+    return (data, False) if isinstance(data, dict) else (None, True)
+
+
+def sandbox_enabled(data):
+    sandbox = data.get("sandbox") if isinstance(data, dict) else None
+    return isinstance(sandbox, dict) and sandbox.get("enabled") is True
+
+
+def tool_text(argv):
+    try:
+        result = subprocess.run(argv, capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (result.stdout or "") + "\n" + (result.stderr or "")
+
+
+def kernel_text():
+    chunks = []
+    for rel in ("/proc/sys/kernel/osrelease", "/proc/version"):
+        path = Path(rel)
+        if not path.is_file():
+            continue
+        try:
+            chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    return "\n".join(chunks).lower()
+
+
+def gather_doctor(root=None):
+    root = Path(root) if root is not None else repo_root()
+    git_text = tool_text(["git", "--version"])
+    versions = {
+        "python": tool_version(["python3", "--version"]) or tool_version([sys.executable, "--version"]),
+        "git": tool_version(["git", "--version"]),
+        "gh": tool_version(["gh", "--version"]),
+        "claude": tool_version(["claude", "--version"]),
+        "mise": tool_version(["mise", "--version"]),
+    }
+    commands, _ = load_commands(root)
+    pinned = commands.get("doctor_versions") if isinstance(commands, dict) else None
+    if not isinstance(pinned, dict):
+        pinned = {}
+    mise_data, mise_unreadable = repo_bytes(root, ".mise.toml")
+    mise_body = ""
+    if mise_data is not None:
+        try:
+            mise_body = mise_data.decode("utf-8")
+        except ValueError:
+            mise_unreadable = True
+            mise_data = None
+    want = pins_from(pinned, "" if mise_unreadable else mise_body, versions.get("mise"))
+    for name in want:
+        if name in versions:
+            continue
+        binary = version_binary(name)
+        if binary:
+            versions[name] = tool_version([binary, "--version"])
+    release = kernel_text()
+    wsl = "microsoft" in release or "wsl" in release
+    if not wsl:
+        wsl_version = None
+    elif "wsl2" in release or "microsoft-standard" in release:
+        wsl_version = 2
+    else:
+        wsl_version = 1
+    user_data, settings_unreadable = read_json_object(Path.home() / ".claude/settings.json")
+    environment = []
+    if isinstance(user_data, dict):
+        auto = user_data.get("autoMode")
+        if isinstance(auto, dict) and isinstance(auto.get("environment"), list):
+            environment = auto["environment"]
+    sandbox = sandbox_enabled(user_data)
+    project_settings_unreadable = []
+    for rel in DOCTOR_PROJECT_SETTINGS:
+        data, refused = repo_bytes(root, rel)
+        if refused:
+            project_settings_unreadable.append(rel)
+            continue
+        if data is None:
+            continue
+        try:
+            parsed = json.loads(data.decode("utf-8"))
+        except ValueError:
+            project_settings_unreadable.append(rel)
+            continue
+        if not isinstance(parsed, dict):
+            project_settings_unreadable.append(rel)
+            continue
+        sandbox = sandbox or sandbox_enabled(parsed)
+    remote = ""
+    try:
+        result = subprocess.run(["git", "remote", "get-url", "origin"], cwd=root, capture_output=True, text=True, timeout=15)
+        remote = result.stdout.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        remote = ""
+    trusted = True
+    if mise_data is not None:
+        trusted = False
+        if shutil.which("mise"):
+            try:
+                show = subprocess.run(["mise", "trust", "--show"], cwd=root, capture_output=True, text=True, timeout=15)
+                trusted = show_is_trusted(show.returncode, (show.stdout or "") + "\n" + (show.stderr or ""), root)
+            except (OSError, subprocess.TimeoutExpired):
+                trusted = False
+    return {
+        "versions": versions, "want": want, "os": "linux" if sys.platform.startswith("linux") else sys.platform,
+        "wsl": wsl, "wsl_version": wsl_version, "repo": root.as_posix(), "git_path": shutil.which("git") or "",
+        "git_version": git_text, "skills_repo": repo_skill_names(root),
+        "skills_user": skill_entries(Path.home() / ".claude/skills"),
+        "org": github_org(remote), "environment": environment, "settings_unreadable": settings_unreadable,
+        "project_settings_unreadable": project_settings_unreadable,
+        "mise_toml": root.joinpath(".mise.toml").as_posix() if mise_data is not None else None,
+        "mise_trusted": trusted, "mise_unreadable": mise_unreadable,
+        "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,
+        "have_socat": shutil.which("socat") is not None,
+    }
+
+
+def cmd_doctor(args):
+    if sys.stdin.isatty():
+        raw = ""
+    else:
+        raw = sys.stdin.read(MAX_READ + 1)
+        if len(raw) > MAX_READ:
+            print("doctor: 사실을 읽지 못했다: 너무 크다", file=sys.stderr)
+            return 2
+    try:
+        facts = json.loads(raw) if raw.strip() else gather_doctor()
+    except ValueError as error:
+        print(f"doctor: 사실을 읽지 못했다: {error}", file=sys.stderr)
+        return 2
+    problems = doctor_problems(facts)
+    if problems:
+        print("\n".join(problems), file=sys.stderr)
+        return 1
+    print("doctor: 통과")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="baseline.py", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1283,10 +1801,11 @@ def main(argv=None):
     enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     bump_parser = sub.add_parser("skills-bump", help="스킬 출처마다 7일 지난 새 판으로 사본을 바꾼다(repo-baseline 전용)")
     bump_parser.add_argument("--check", action="store_true", help="바꾸지 않고 새 판이 있는지만 본다(있으면 1)")
+    sub.add_parser("doctor", help="로컬 기기와 기준이 다른 곳을 보고 고치는 명령을 출력한다")
     args = parser.parse_args(argv)
     return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
             "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue,
-            "skills-bump": cmd_skills_bump}[args.command](args)
+            "skills-bump": cmd_skills_bump, "doctor": cmd_doctor}[args.command](args)
 
 
 if __name__ == "__main__":
