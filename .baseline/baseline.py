@@ -1166,7 +1166,8 @@ def report_problems(text, head):
     problems = [] if fields["리뷰한 head"] == head else [f"「리뷰한 head」가 지금 PR head {head}가 아니다"]
     if fields["등급"] not in GRADES:
         problems.append(f"「등급」이 {'·'.join(GRADES)} 중 하나 한 줄이 아니다")
-    at = next((i for i, line in enumerate(lines) if line.startswith("남은 지적:")), len(lines))
+    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
+    at = starts[0] if len(starts) == 1 else len(lines)  # none or two lines: items stay empty and it is refused
     items = []
     for line in lines[at + 1:]:
         if not line.startswith(("- ", "* ")):

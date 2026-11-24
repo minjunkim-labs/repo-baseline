@@ -1538,6 +1538,7 @@ class ReviewReportTests(unittest.TestCase):
     def test_a_report_enqueue_would_refuse_is_not_written(self):
         for text in (self.SECTION.format(head=HEAD, left="").replace("남은 지적: \n", "남은 지적:\n- 없음\n"),
                      self.SECTION.format(head=HEAD, left="없음\n- [Spec] P1 a:1 x"),
+                     self.SECTION.format(head=HEAD, left="\n- [Spec] P1 a:1 x") + "남은 지적: 없음\n",
                      self.SECTION.format(head="d" * 40, left="없음"),
                      self.SECTION.format(head=HEAD, left="없음").replace("등급: 쉬움", "등급: 보통"),
                      self.SECTION.format(head=HEAD, left="없음") + "## Summary\n"):
