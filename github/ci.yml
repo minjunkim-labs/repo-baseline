@@ -32,6 +32,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      # The project's own setup (for example npm ci); "N/A: ..." prints and passes.
+      - name: run setup
+        run: python3 -I .baseline/baseline.py run setup
       - name: baseline check
         run: python3 -I .baseline/baseline.py check
       - name: baseline budget

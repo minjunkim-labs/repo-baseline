@@ -590,7 +590,9 @@ class ApplyTests(unittest.TestCase):
         code, out, _ = self.run_tool(server)
         self.assertEqual(code, 0, out)
         self.assertIn("차이 없음: owner/repo", out)
-        self.assertEqual({label["name"] for label in server.labels} - {"bug"}, {label["name"] for label in b.LABELS})
+        # Written out, not b.LABELS: a label dropped from the constant must fail here.
+        self.assertEqual({label["name"] for label in server.labels} - {"bug"},
+                         {"needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"})
         self.assertIn({"name": "bug", "color": "d73a4a", "description": "Something isn't working"}, server.labels)
 
     def test_labels_are_created_or_fixed_and_never_deleted(self):
@@ -983,6 +985,19 @@ class OpsTests(unittest.TestCase):
         self.assertIn(b.OPS_PATH, problems())
         recorded["profiles"] = "ops"  # not a list: no crash, no ops check
         self.assertNotIn(b.OPS_PATH, problems())
+
+
+class GithubReadTests(unittest.TestCase):
+    def test_an_oversized_response_stops_the_run(self):
+        huge = subprocess.CompletedProcess([], 0, stdout="[" + " " * (b.MAX_READ * 32) + "]", stderr="")
+        with patch.object(b.subprocess, "run", return_value=huge):
+            with self.assertRaisesRegex(OSError, "너무 크다"):
+                b.github_read("repos/owner/repo/labels")
+
+    def test_a_normal_response_is_parsed(self):
+        small = subprocess.CompletedProcess([], 0, stdout='[{"name": "bug"}]', stderr="")
+        with patch.object(b.subprocess, "run", return_value=small):
+            self.assertEqual(b.github_read("repos/owner/repo/labels"), [{"name": "bug"}])
 
 
 if __name__ == "__main__":

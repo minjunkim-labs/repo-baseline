@@ -2043,6 +2043,8 @@ def github_read(path):
     """GET through `gh api` (REST). A 404 raises CalledProcessError with "HTTP 404" in stderr."""
     result = subprocess.run(["gh", "api", "--method", "GET", path], capture_output=True, text=True,
                             check=True, timeout=60)
+    if len(result.stdout) > MAX_READ * 32:  # the same cap as gh_api
+        raise OSError(f"gh api {path}: 응답이 너무 크다")
     return json.loads(result.stdout) if result.stdout.strip() else None
 
 
