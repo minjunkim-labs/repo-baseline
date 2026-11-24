@@ -936,6 +936,8 @@ class ApplyTests(unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertEqual(server.writes, [("PUT", "actions/permissions")])  # the list is never written
         self.assertNotIn(f"{PREFIX}/actions/permissions/selected-actions", reads)  # nor read (409 under "all")
+        self.assertIn("건너뜀: actions.allowed_actions가 selected가 아니라", out)
+        self.assertNotIn("건너뜀", self.run_tool(FakeGitHub())[1])  # the default "selected" policy says nothing
 
     def test_apply_deny_matches_spacing_and_quoting(self):
         import fnmatch

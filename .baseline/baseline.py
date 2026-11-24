@@ -2380,6 +2380,8 @@ def github(root, apply, read=github_read, write=github_write, sleep=time.sleep):
                     attempt = None
         for line in manual:
             print(f"github: 사람이 할 일: {plain(line)}")
+        if skipped(profile, "allowed_actions"):
+            print("github: 건너뜀: actions.allowed_actions가 selected가 아니라 allowed_actions 목록은 쓰지도 보지도 않는다")
         for path, entry in sorted(profile.get("exceptions", {}).items()):
             print(plain(f"github: 예외({entry['status']}): {path}: {entry['reason']} ({entry['evidence']})")
                   + ". 쓰지도 보지도 않는다")
