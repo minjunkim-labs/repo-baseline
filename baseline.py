@@ -2056,11 +2056,17 @@ def github_write(method, path, body):
 
 def read_rulesets(read, prefix):
     """(id, ruleset) for each repository ruleset; the summary list omits the rules, so read each one."""
-    summaries = read(f"{prefix}/rulesets?includes_parents=false") or []
-    # The id goes into a request path, so only an integer from the server is used.
-    if not isinstance(summaries, list) or any(not isinstance(item, dict) or type(item.get("id")) is not int
-                                              for item in summaries):
-        raise ValueError("rulesets: id가 정수인 목록이 아니다")
+    summaries, page = [], 1
+    while True:
+        chunk = read(f"{prefix}/rulesets?includes_parents=false&per_page=100&page={page}") or []
+        # The id goes into a request path, so only an integer from the server is used.
+        if not isinstance(chunk, list) or any(not isinstance(item, dict) or type(item.get("id")) is not int
+                                              for item in chunk):
+            raise ValueError("rulesets: id가 정수인 목록이 아니다")
+        summaries += chunk
+        if len(chunk) < 100:
+            break
+        page += 1
     return [(item["id"], {key: detail.get(key) for key in RULESET_FIELDS})
             for item in summaries for detail in [read(f"{prefix}/rulesets/{item['id']}")]]
 
@@ -2128,13 +2134,13 @@ def audit(profile, read):
     for name, expected in profile["expected"].items():
         if name == "repository":
             actual = metadata
-        elif name == "dependabot_alerts":
-            read(f"{prefix}/{endpoint(name, branch)}")  # 204 when on; 404 and permission errors stop the run
-            actual = {"enabled": True}
         elif name == "rulesets":
             actual = known_parameters(expected, [ruleset for _, ruleset in read_rulesets(read, prefix)])
         else:
-            actual = read(f"{prefix}/{endpoint(name, branch)}")
+            # A 404 is "not set", as in settings_plan: it differs (1), it does not fail the run (2).
+            actual, found = get(read, f"{prefix}/{endpoint(name, branch)}")
+            if name == "dependabot_alerts":
+                actual = {"enabled": found}  # 204 with no body when on, 404 when off
         result.extend(differences(expected, actual, name))
     return result + [path for shown, _ in label_changes(read, prefix) for path, _, _ in shown]
 

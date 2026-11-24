@@ -164,8 +164,9 @@ class FakeGitHub:
         if rel == "code-scanning/default-setup" and self.codeql_pending:
             self.codeql_pending -= 1
             return {"state": "not-configured"}
-        if rel == "rulesets?includes_parents=false":
-            return [{"id": key, "name": value["name"], "source_type": "Repository"} for key, value in self.rulesets.items()]
+        if rel.startswith("rulesets?includes_parents=false&"):
+            return label_page(rel, [{"id": key, "name": value["name"], "source_type": "Repository"}
+                                    for key, value in self.rulesets.items()])
         if rel.startswith("rulesets/"):
             ruleset = self.rulesets[int(rel.split("/")[1])]
             return {"id": int(rel.split("/")[1]), "node_id": "RRS_x", "source_type": "Repository",
@@ -259,7 +260,7 @@ class SettingsAuditTests(unittest.TestCase):
         if path.startswith("repos/owner/repo/labels?"):
             return label_page(path, labels())
         endpoints = {
-            "branches/main/protection": "protection", "rulesets?includes_parents=false": "rulesets",
+            "branches/main/protection": "protection", "rulesets?includes_parents=false&per_page=100&page=1": "rulesets",
             "actions/permissions": "actions", "actions/permissions/selected-actions": "allowed_actions",
             "actions/permissions/workflow": "workflow_token",
             "actions/permissions/fork-pr-contributor-approval": "fork_policy",
@@ -286,7 +287,7 @@ class SettingsAuditTests(unittest.TestCase):
         profile["expected"]["rulesets"] = [QUEUE]
         live = {"id": 7, "node_id": "RRS_x", "created_at": "2026-11-16T00:00:00Z", **copy.deepcopy(QUEUE)}
         def read(path):
-            if path.endswith("/rulesets?includes_parents=false"):
+            if path.endswith("/rulesets?includes_parents=false&per_page=100&page=1"):
                 return [{"id": 7, "name": "merge-queue"}]
             if path.endswith("/rulesets/7"):
                 return copy.deepcopy(live)
@@ -471,7 +472,7 @@ class SettingsAuditTests(unittest.TestCase):
             if rel.startswith("labels?"):
                 return label_page(rel, labels())
             views = {"": {"id": 12, "full_name": "owner/repo", **server["repository"]},
-                     "rulesets?includes_parents=false": [{"id": 1}], "rulesets/1": server["rulesets"][0],
+                     "rulesets?includes_parents=false&per_page=100&page=1": [{"id": 1}], "rulesets/1": server["rulesets"][0],
                      "branches/main/protection": server["protection"], "actions/permissions": server["actions"],
                      "actions/permissions/selected-actions": server["allowed_actions"],
                      "actions/permissions/workflow": server["workflow_token"],
@@ -611,6 +612,26 @@ class ApplyTests(unittest.TestCase):
         # GitHub answers colours in either case; that alone is not a difference.
         server.labels[0]["color"] = server.labels[0]["color"].upper()
         self.assertEqual(b.label_changes(server.read, PREFIX), [])
+
+    def test_rulesets_are_read_across_pages(self):
+        profile = copy.deepcopy(BASELINE)
+        profile["expected"]["rulesets"] = [QUEUE]
+        server = FakeGitHub()
+        server.rulesets = {i: dict(copy.deepcopy(QUEUE), name=f"other-{i}") for i in range(1, 121)}
+        server.rulesets[121] = copy.deepcopy(QUEUE)
+        changes, manual = b.settings_plan(b.merged(profile), server.read)
+        self.assertEqual(changes, [])  # merge-queue is on the second page: found, not created again
+        self.assertEqual(len(manual), 120)
+
+    def test_feature_turned_off_is_a_difference_after_apply_not_a_failure(self):
+        profile = copy.deepcopy(BASELINE)
+        profile["expected"]["dependabot_alerts"]["enabled"] = False
+        profile["expected"]["repository"]["security_and_analysis"]["dependabot_security_updates"]["status"] = "disabled"
+        server = FakeGitHub()
+        self.assertEqual(self.run_tool(server, profile, apply=True)[0], 0)
+        self.assertEqual(self.run_tool(server, profile, apply=True)[0], 0)  # alerts already off: 404, still 0
+        drift = b.audit(advanced(BASELINE), server.read)  # alerts off and no CodeQL workflow: both 404
+        self.assertLessEqual({"dependabot_alerts.enabled", "codeql_workflow"}, set(drift))
 
     def test_labels_are_read_across_pages(self):
         server = FakeGitHub()
