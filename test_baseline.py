@@ -1956,6 +1956,14 @@ class DoctorTests(unittest.TestCase):
     def test_an_untrusted_mise_toml_prints_mise_trust(self):
         text = self.problems(mise_toml="/home/u/repo/.mise.toml", mise_trusted=False)
         self.assertIn("고치는 명령: mise trust /home/u/repo/.mise.toml", text)
+        home = self.problems(mise_toml="~/repo/mise.local.toml", mise_trusted=False)
+        self.assertIn("고치는 명령: mise trust " + os.path.expanduser("~/repo/mise.local.toml"), home)
+        self.assertNotIn("mise trust '~", home)
+
+    def test_a_failed_mise_config_ls_is_a_problem_not_a_pass(self):
+        text = self.problems(mise_failed="mise ERROR failed to parse .mise.toml")
+        self.assertIn("doctor: mise config ls가 실패했다: mise ERROR failed to parse .mise.toml", text)
+        self.assertNotIn("mise config ls가 실패했다", self.problems())
 
     def test_sandbox_on_linux_or_wsl2_requires_bubblewrap_and_socat(self):
         text = self.problems(sandbox=True, os="linux", have_bubblewrap=False, have_socat=False)

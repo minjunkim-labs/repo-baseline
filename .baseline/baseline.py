@@ -1532,7 +1532,12 @@ def doctor_problems(facts):
     else:
         mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
         if mise_toml and not facts.get("mise_trusted"):
-            problems.append(f"doctor: mise 설정이 신뢰되지 않았다: {mise_toml}\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
+            # mise shortens paths under home to ~/...; a quoted ~ is not expanded by the shell.
+            trust_path = os.path.expanduser(mise_toml)
+            problems.append(f"doctor: mise 설정이 신뢰되지 않았다: {mise_toml}\ndoctor: 고치는 명령: mise trust {shlex.quote(trust_path)}")
+        if facts.get("mise_failed"):
+            problems.append(f"doctor: mise config ls가 실패했다: {facts['mise_failed']}\n"
+                            f"doctor: 저장소에서 mise config ls를 돌려 오류를 본다")
     if facts.get("sandbox") and (os_name == "linux" or facts.get("wsl_version") == 2):
         if not facts.get("have_bubblewrap"):
             problems.append("doctor: 샌드박스에 bubblewrap이 없다\ndoctor: 고치는 명령: sudo apt install bubblewrap")
@@ -1783,15 +1788,20 @@ def gather_doctor(root=None):
         remote = result.stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         remote = ""
-    untrusted = None
+    untrusted = mise_failed = None
     if shutil.which("mise"):
         # mise itself decides which config needs trust; it reads mise.local.toml and the rest too.
         try:
             shown = subprocess.run(["mise", "config", "ls"], cwd=root, stdin=subprocess.DEVNULL,  # no trust prompt
                                    capture_output=True, text=True, timeout=15)
             untrusted = untrusted_config((shown.stdout or "") + "\n" + (shown.stderr or ""))
-        except (OSError, subprocess.TimeoutExpired):
-            untrusted = None
+            if untrusted is None and shown.returncode:  # a broken config is not a passing one
+                lines = [line for line in (shown.stderr or "").splitlines() if line.strip()]
+                mise_failed = lines[0] if lines else f"종료 코드 {shown.returncode}"
+        except subprocess.TimeoutExpired:
+            mise_failed = "15초 안에 끝나지 않았다"
+        except OSError as error:
+            mise_failed = str(error)
     return {
         "versions": versions, "want": want, "os": "linux" if sys.platform.startswith("linux") else sys.platform,
         "wsl": wsl, "wsl_version": wsl_version, "repo": root.as_posix(), "git_path": shutil.which("git") or "",
@@ -1800,6 +1810,7 @@ def gather_doctor(root=None):
         "org": github_org(remote), "environment": environment, "settings_unreadable": settings_unreadable,
         "project_settings_unreadable": project_settings_unreadable,
         "mise_toml": untrusted, "mise_trusted": untrusted is None, "mise_unreadable": mise_unreadable,
+        "mise_failed": mise_failed,
         "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,
         "have_socat": shutil.which("socat") is not None,
     }
