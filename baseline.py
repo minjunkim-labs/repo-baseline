@@ -1019,7 +1019,8 @@ def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     for c in line_comments:
         by_review.setdefault(c.get("pull_request_review_id"), []).append(c.get("id") in settled)
     items = [(r.get("submitted_at"), r) for r in reviews
-             if not (is_bot(r.get("user")) and by_review.get(r.get("id")) and all(by_review[r.get("id")]))]
+             if not (is_bot(r.get("user")) and not (r.get("body") or "").strip()  # a review body is a finding
+                     and by_review.get(r.get("id")) and all(by_review[r.get("id")]))]
     for path, found in (("pulls", line_comments), ("issues", pages(f"repos/{repo}/issues/{number}/comments"))):
         for c in found:
             if is_bot(c.get("user")) and path == "pulls" and c.get("id") in settled:
@@ -1132,7 +1133,7 @@ def replace_review(body, text):
     end = next((i for i in range(at[0] + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
     old = [p.strip("\n") for p in "\n".join(lines[at[0] + 1:end]).split("\n\n") if p.strip()]
     # Paragraphs after the last one with a field stay: the tool's attribution line, a bot's markers (CodeRabbit).
-    last = max((i for i, p in enumerate(old) if any(line.startswith(REPORT_FIELDS + ("-", "*"))
+    last = max((i for i, p in enumerate(old) if any(line.startswith(REPORT_FIELDS + ("- ", "* "))  # `*강조*` is not a list
                                                      for line in p.split("\n"))), default=-1)
     keep = old[last + 1:]
     tail = [""] + lines[end:] if end < len(lines) else []
@@ -1169,6 +1170,10 @@ def cmd_review_report(args):
                 return 1
             # The replies endpoint takes the thread's first comment, not a reply in it.
             judged = [(comments[cid].get("in_reply_to_id") or cid, reply) for cid, reply in judged]
+            roots = [cid for cid, _ in judged]
+            if len(set(roots)) != len(roots):
+                print("review-report: 쓰지 않는다: 같은 스레드를 --thread로 두 번 줬다")
+                return 1
         if judged and not cloud:
             owner, name = repo.split("/")
             nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][

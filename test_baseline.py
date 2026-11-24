@@ -1383,6 +1383,9 @@ class EnqueueTests(unittest.TestCase):
         gh.extra["repos/o/r/pulls/7/comments"] = [late]
         gh.extra["repos/o/r/pulls/7/reviews"] = [review]  # each CodeRabbit answer is its own review (#216)
         self.assertQueued(gh)
+        gh.extra["repos/o/r/pulls/7/reviews"] = [dict(review, body="새 지적")]  # a review body still counts
+        gh.mutations = []
+        self.assertRefused(gh, "판정하지 않은 외부 리뷰")
         gh = self.gh()  # a new bot thread after the report still counts once someone resolves it
         gh.threads = [{"id": "T1", "isResolved": True, "comments": {"nodes": [{"databaseId": 9}]}}]
         gh.extra["repos/o/r/pulls/7/comments"] = [dict(late, in_reply_to_id=None)]
@@ -1489,13 +1492,13 @@ class ReviewReportTests(unittest.TestCase):
 
     def test_a_real_body_keeps_its_attribution_and_bot_markers(self):
         gh = self.gh()
-        gh.body = ("## Summary\nx\n\n## Review \n\n리뷰어(구현과 다른 컨텍스트):\n리뷰한 head:\n남은 지적:\n\n🤖 footer\n\n\n"
+        gh.body = ("## Summary\nx\n\n## Review \n\n리뷰어(구현과 다른 컨텍스트):\n리뷰한 head:\n남은 지적:\n\n🤖 footer\n\n*자동 생성*\n\n\n"
                    "<!-- release notes by coderabbit.ai -->\n\n<!-- coderabbit-ai-generated:v1 -->\n\n"
                    "## Summary by CodeRabbit\nc\n")
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"))
         self.assertEqual(code, 0, out)
         self.assertEqual(gh.body, "## Summary\nx\n\n## Review\n\n" + self.SECTION.format(head=HEAD, left="없음")
-                         + "\n🤖 footer\n\n<!-- release notes by coderabbit.ai -->\n\n<!-- coderabbit-ai-generated:v1 -->"
+                         + "\n🤖 footer\n\n*자동 생성*\n\n<!-- release notes by coderabbit.ai -->\n\n<!-- coderabbit-ai-generated:v1 -->"
                          "\n\n## Summary by CodeRabbit\nc\n")
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"))  # a second run changes nothing
         self.assertEqual((code, gh.writes[-1][2]["body"]), (0, gh.writes[-2][2]["body"]), out)
@@ -1514,6 +1517,11 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/6/replies"),
                                                      ("RESOLVE", "T2"), ("PATCH", "repos/o/r/pulls/7")])
+
+    def test_one_thread_twice_is_not_written(self):
+        gh = self.gh()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=a", "--thread", "9=b")
+        self.assertEqual((code, gh.writes), (1, []), out)
 
     def test_a_kept_paragraph_that_changes_a_field_is_not_written(self):
         gh = self.gh()
