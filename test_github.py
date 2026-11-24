@@ -868,6 +868,24 @@ class ApplyTests(unittest.TestCase):
         self.assertIn("통과", out)
         self.assertEqual(server.writes, [("PUT", PROTECTION)])
 
+    def test_server_ruleset_ids_and_text_cannot_steer_paths_or_the_terminal(self):
+        server = FakeGitHub()
+        server.rulesets["1/../../collaborators"] = dict(copy.deepcopy(QUEUE), name="x")
+        code, _, err = self.run_tool(server, apply=True)
+        self.assertEqual((code, server.writes), (2, []))
+        self.assertIn("id가 정수인 목록이 아니다", err)
+        server = FakeGitHub()
+        server.rulesets[1] = dict(copy.deepcopy(QUEUE), name="team\x1b]0;x\x07")
+        code, out, _ = self.run_tool(server)
+        self.assertEqual(code, 1)
+        self.assertNotIn("\x1b", out)
+        self.assertIn("rulesets.team?]0;x?은 기준에 없다", out)
+
+    def test_agents_cannot_run_apply(self):
+        for rel in ("core/.claude/settings.json", ".claude/settings.json"):
+            deny = json.loads((ROOT / rel).read_text(encoding="utf-8"))["permissions"]["deny"]
+            self.assertIn("Bash(*baseline.py github apply*)", deny, rel)
+
     def test_cli_runs_plan_from_the_repo_root(self):
         server = FakeGitHub()
         root = project(self, BASELINE)

@@ -2034,6 +2034,11 @@ def validate_target(profile):
         raise ValueError("default_branch가 맞지 않는다")
 
 
+def plain(text):
+    """Server and project text goes to a terminal; control characters must not reach it."""
+    return "".join(c if c.isprintable() else "?" for c in str(text))
+
+
 def github_read(path):
     """GET through `gh api` (REST). A 404 raises CalledProcessError with "HTTP 404" in stderr."""
     result = subprocess.run(["gh", "api", "--method", "GET", path], capture_output=True, text=True,
@@ -2050,6 +2055,10 @@ def github_write(method, path, body):
 def read_rulesets(read, prefix):
     """(id, ruleset) for each repository ruleset; the summary list omits the rules, so read each one."""
     summaries = read(f"{prefix}/rulesets?includes_parents=false") or []
+    # The id goes into a request path, so only an integer from the server is used.
+    if not isinstance(summaries, list) or any(not isinstance(item, dict) or type(item.get("id")) is not int
+                                              for item in summaries):
+        raise ValueError("rulesets: id가 정수인 목록이 아니다")
     return [(item["id"], {key: detail.get(key) for key in RULESET_FIELDS})
             for item in summaries for detail in [read(f"{prefix}/rulesets/{item['id']}")]]
 
@@ -2333,7 +2342,7 @@ def github(root, apply, read=github_read, write=github_write, sleep=time.sleep):
         changes, manual = settings_plan(profile, read)
         for shown, requests in changes:
             for path, before, after in shown:
-                print(f"github: 차이: {path}: {json.dumps(before, sort_keys=True, ensure_ascii=False)} -> "
+                print(f"github: 차이: {plain(path)}: {json.dumps(before, sort_keys=True, ensure_ascii=False)} -> "
                       f"{json.dumps(after, sort_keys=True, ensure_ascii=False)}")
             for method, path, body in requests:
                 print(f"github: {'적용' if apply else '계획'}: {method} {path}"
@@ -2344,9 +2353,10 @@ def github(root, apply, read=github_read, write=github_write, sleep=time.sleep):
                     done.append(attempt)
                     attempt = None
         for line in manual:
-            print(f"github: 사람이 할 일: {line}")
+            print(f"github: 사람이 할 일: {plain(line)}")
         for path, entry in sorted(profile.get("exceptions", {}).items()):
-            print(f"github: 예외({entry['status']}): {path}: {entry['reason']} ({entry['evidence']}). 쓰지도 보지도 않는다")
+            print(plain(f"github: 예외({entry['status']}): {path}: {entry['reason']} ({entry['evidence']})")
+                  + ". 쓰지도 보지도 않는다")
         if apply:
             if any(path.endswith("code-scanning/default-setup") for path in done):
                 wait_for_codeql(profile, read, sleep)

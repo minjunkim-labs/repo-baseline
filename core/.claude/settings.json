@@ -8,7 +8,7 @@
               "-I",
               "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
               "--sha256",
-              "0221707dc4a263431c2edca11fd27807966a04efc73642d62a3021b9c76344af"
+              "15a9e2311af2161fd1488cde22181b457c452c49872700e202d9eca597fd068f"
             ],
             "command": "python3",
             "timeout": 15,
@@ -72,7 +72,8 @@
       "Bash(gh api *pulls/*/merge*)",
       "Bash(gh api *mergePullRequest*)",
       "Bash(gh api *enqueuePullRequest*)",
-      "Bash(gh api *enablePullRequestAutoMerge*)"
+      "Bash(gh api *enablePullRequestAutoMerge*)",
+      "Bash(*baseline.py github apply*)"
     ]
   }
 }
