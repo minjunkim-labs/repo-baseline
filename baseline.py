@@ -362,7 +362,7 @@ def mise_prefix(root):
         refused = True
     if refused:
         sys.exit("run: .mise.toml을 읽지 못했다")
-    if not any(section != "settings" for section, _ in mise_keys(text)):
+    if not any(section != "settings" for section, _, _ in mise_keys(text)):
         return []
     if not shutil.which("mise"):
         sys.exit("run: .mise.toml이 툴체인 판을 정하는데 mise가 없다. doctor가 설치 명령을 출력한다")
@@ -371,21 +371,30 @@ def mise_prefix(root):
 
 
 def mise_keys(text):
-    """(section, key) of every key line in .mise.toml; "" is the top level."""
+    """(section, key, value) of every key line in .mise.toml; "" is the top level."""
     keys, section = [], ""
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if line.startswith("[") and line.endswith("]"):
             section = line.strip("[]").strip()
         elif "=" in line:
-            keys.append((section, line.split("=", 1)[0].strip()))
+            key, value = (part.strip() for part in line.split("=", 1))
+            keys.append((section, key, value))
     return keys
 
 
+PLAIN_VERSION = re.compile(r"""\s*(["'])(?!path:|spm:)[^"'\[\]{}]*\1\s*""")
+
+
 def mise_needs_trust(text):
-    """mise trusts plain min_version and [tools] by itself; anything else, or a template, needs trust."""
-    return "{{" in text or "{%" in text or any(
-        not (section == "tools" or (section, key) == ("", "min_version")) for section, key in mise_keys(text))
+    """mise trusts min_version and [tools] with plain version strings (or arrays of them) by itself
+    (https://mise.jdx.dev/security.html, 2026-11-24). Anything else, or a template, needs trust."""
+    def plain(value):
+        items = value[1:-1].split(",") if value.startswith("[") and value.endswith("]") else [value]
+        return all(PLAIN_VERSION.fullmatch(item) for item in items if item.strip())
+    return any(mark in text for mark in ("{{", "{%", "{#")) or any(
+        not ((section, key) == ("", "min_version") or (section == "tools" and "[" not in key and plain(value)))
+        for section, key, value in mise_keys(text))
 
 
 def mise_failed(root, code):
@@ -502,9 +511,9 @@ def is_manifest(name):
 
 def is_mise_config(path):
     """Files mise reads as config (https://mise.jdx.dev/configuration.html, 2026-11-24)."""
-    name = path.split("/")[-1]
-    return (fnmatch.fnmatchcase(name, "*mise*.toml") or name == ".tool-versions"
-            or ".mise" in path.split("/") or "/.config/mise/" in "/" + path)
+    *folders, name = path.split("/")
+    return (fnmatch.fnmatchcase(name, "*mise*.toml") or name in {".tool-versions", "mise.lock"}
+            or any(folder in {".mise", "mise"} for folder in folders))
 
 
 def is_sensitive(path, patterns):

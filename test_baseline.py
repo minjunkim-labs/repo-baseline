@@ -346,13 +346,17 @@ class RunBudgetTests(unittest.TestCase):
         import baseline as b
         for text in ("", "[tools]\n", 'min_version = "2026.11.0"\n[tools]\nnode = "22"\n'):
             self.assertFalse(b.mise_needs_trust(text), text)
-        for text in ('[env]\nA = "1"\n', '[tools]\nnode = "{{ env.V }}"\n', '[hooks]\nenter = "x"\n'):
+        self.assertFalse(b.mise_needs_trust('[tools]\nnode = ["22", "20"]\n'))
+        for text in ('[env]\nA = "1"\n', '[tools]\nnode = "{{ env.V }}"\n', '[hooks]\nenter = "x"\n',
+                     '[tools]\nnode = { version = "22", postinstall = "x" }\n', '[tools]\n"node[postinstall=x]" = "22"\n',
+                     '[tools]\nbin = "path:./bin"\n', '[tools]\nnode = "22" {# x #}\n', '[tools]\nnode = 22\n'):
             self.assertTrue(b.mise_needs_trust(text), text)
 
     def test_every_mise_config_name_is_sensitive(self):
         import baseline as b
         for path in (".mise.toml", "mise.toml", "mise.dev.toml", ".mise.local.toml", ".tool-versions",
-                     ".mise/config.toml", ".config/mise/config.toml", "sub/mise.toml"):
+                     ".mise/config.toml", ".config/mise/config.toml", "sub/mise.toml", "mise/config.toml",
+                     "mise/conf.d/a.toml", "mise.lock"):
             self.assertTrue(b.is_sensitive(path, []), path)
         self.assertFalse(b.is_sensitive("src/app.py", []))
 
