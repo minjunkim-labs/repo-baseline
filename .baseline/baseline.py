@@ -362,7 +362,7 @@ def mise_prefix(root):
         refused = True
     if refused:
         sys.exit("run: .mise.toml을 읽지 못했다")
-    if not any(section != "settings" for section, _, _ in mise_keys(text)):
+    if not any(section != "settings" for section, _ in mise_keys(text)):
         return []
     if not shutil.which("mise"):
         sys.exit("run: .mise.toml이 툴체인 판을 정하는데 mise가 없다. doctor가 설치 명령을 출력한다")
@@ -371,40 +371,15 @@ def mise_prefix(root):
 
 
 def mise_keys(text):
-    """(section, key, value) of every key line in .mise.toml; "" is the top level."""
+    """(section, key) of every key line in .mise.toml; "" is the top level."""
     keys, section = [], ""
     for raw in text.splitlines():
         line = raw.split("#", 1)[0].strip()
         if line.startswith("[") and line.endswith("]"):
             section = line.strip("[]").strip()
         elif "=" in line:
-            key, value = (part.strip() for part in line.split("=", 1))
-            keys.append((section, key, value))
+            keys.append((section, line.split("=", 1)[0].strip()))
     return keys
-
-
-PLAIN_VERSION = re.compile(r"""\s*(["'])(?!path:|spm:)[^"'\[\]{}]*\1\s*""")
-# A bare tool name, or a quoted backend:name. Dots outside quotes make an options table; spm: and URLs
-# send a forge token to another host.
-PLAIN_TOOL = re.compile(r"""[A-Za-z0-9_-]+|(["'])(?!spm:)[^"'\[\]{}]*\1""")
-
-
-def mise_needs_trust(text):
-    """mise trusts min_version and [tools] with plain version strings (or arrays of them) by itself
-    (https://mise.jdx.dev/security.html, 2026-11-24). Anything else, or a template, needs trust.
-    An allowlist: whatever this does not recognise as plain needs trust."""
-    def plain(value):
-        items = value[1:-1].split(",") if value.startswith("[") and value.endswith("]") else [value]
-        return all(PLAIN_VERSION.fullmatch(item) for item in items if item.strip())
-    if any(mark in text for mark in ("{{", "{%", "{#", '"""', "'''")):
-        return True
-    # mise_keys cuts at any "#" and at every Unicode line break; TOML does neither, so refuse both here.
-    if re.search("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x85\u2028\u2029]", text) or any(
-            "#" in line and not line.lstrip().startswith("#") for line in text.split("\n")):
-        return True
-    return any(not (((section, key) == ("", "min_version") or section == "tools")
-                    and PLAIN_TOOL.fullmatch(key) and "://" not in key and plain(value))
-               for section, key, value in mise_keys(text))
 
 
 def mise_failed(root, code):
@@ -1557,7 +1532,7 @@ def doctor_problems(facts):
     else:
         mise_toml = facts.get("mise_toml") if isinstance(facts.get("mise_toml"), str) else None
         if mise_toml and not facts.get("mise_trusted"):
-            problems.append(f"doctor: .mise.toml이 신뢰되지 않았다\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
+            problems.append(f"doctor: mise 설정이 신뢰되지 않았다: {mise_toml}\ndoctor: 고치는 명령: mise trust {shlex.quote(mise_toml)}")
     if facts.get("sandbox") and (os_name == "linux" or facts.get("wsl_version") == 2):
         if not facts.get("have_bubblewrap"):
             problems.append("doctor: 샌드박스에 bubblewrap이 없다\ndoctor: 고치는 명령: sudo apt install bubblewrap")
@@ -1666,28 +1641,13 @@ def pins_from(doctor_versions, mise_text, installed_mise):
     return want
 
 
-def show_is_trusted(returncode, show_text, root):
-    """Trust only a successful `mise trust --show` whose line for this directory says trusted."""
-    return returncode == 0 and mise_config_trusted(show_text, root)
+UNTRUSTED = re.compile(r"Config files in (.+?) are not trusted")
 
 
-def mise_config_trusted(show_text, root):
-    """True only when `mise trust --show` lists this directory as trusted."""
-    try:
-        root_text = str(Path(root).resolve())
-    except OSError:
-        root_text = str(root)
-    for line in (show_text or "").splitlines():
-        if ":" not in line:
-            continue
-        path, status = line.rsplit(":", 1)
-        try:
-            shown = str(Path(path.strip()).resolve())
-        except OSError:
-            continue
-        if shown == root_text:
-            return status.strip().lower() == "trusted"
-    return False
+def untrusted_config(output):
+    """The config file mise names as untrusted in its own error, or None."""
+    found = UNTRUSTED.search(output or "")
+    return found.group(1) if found else None
 
 
 def repo_bytes(root, rel):
@@ -1823,15 +1783,14 @@ def gather_doctor(root=None):
         remote = result.stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         remote = ""
-    trusted = True
-    if mise_data is not None and mise_needs_trust(mise_body):
-        trusted = False
-        if shutil.which("mise"):
-            try:
-                show = subprocess.run(["mise", "trust", "--show"], cwd=root, capture_output=True, text=True, timeout=15)
-                trusted = show_is_trusted(show.returncode, (show.stdout or "") + "\n" + (show.stderr or ""), root)
-            except (OSError, subprocess.TimeoutExpired):
-                trusted = False
+    untrusted = None
+    if shutil.which("mise"):
+        # mise itself decides which config needs trust; it reads mise.local.toml and the rest too.
+        try:
+            shown = subprocess.run(["mise", "config", "ls"], cwd=root, capture_output=True, text=True, timeout=15)
+            untrusted = untrusted_config((shown.stdout or "") + "\n" + (shown.stderr or ""))
+        except (OSError, subprocess.TimeoutExpired):
+            untrusted = None
     return {
         "versions": versions, "want": want, "os": "linux" if sys.platform.startswith("linux") else sys.platform,
         "wsl": wsl, "wsl_version": wsl_version, "repo": root.as_posix(), "git_path": shutil.which("git") or "",
@@ -1839,8 +1798,7 @@ def gather_doctor(root=None):
         "skills_user": skill_entries(Path.home() / ".claude/skills"),
         "org": github_org(remote), "environment": environment, "settings_unreadable": settings_unreadable,
         "project_settings_unreadable": project_settings_unreadable,
-        "mise_toml": root.joinpath(".mise.toml").as_posix() if mise_data is not None else None,
-        "mise_trusted": trusted, "mise_unreadable": mise_unreadable,
+        "mise_toml": untrusted, "mise_trusted": untrusted is None, "mise_unreadable": mise_unreadable,
         "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,
         "have_socat": shutil.which("socat") is not None,
     }

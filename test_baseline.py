@@ -342,20 +342,6 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("N/A", result.stdout)
 
-    def test_mise_trust_is_needed_only_beyond_plain_tools(self):
-        import baseline as b
-        for text in ("", "[tools]\n", 'min_version = "2026.11.0"\n[tools]\nnode = "22"\n'):
-            self.assertFalse(b.mise_needs_trust(text), text)
-        self.assertFalse(b.mise_needs_trust('[tools]\nnode = ["22", "20"]\n"npm:prettier" = "3"\n'))
-        for text in ('[env]\nA = "1"\n', '[tools]\nnode = "{{ env.V }}"\n', '[hooks]\nenter = "x"\n',
-                     '[tools]\nnode = { version = "22", postinstall = "x" }\n', '[tools]\n"node[postinstall=x]" = "22"\n',
-                     '[tools]\nbin = "path:./bin"\n', '[tools]\nnode = "22" {# x #}\n', '[tools]\nnode = 22\n',
-                     '[tools]\nnode.postinstall = "x"\n', '[tools]\n"spm:https://e.example/x" = "1"\n',
-                     '[tools]\n"ubi:https://e.example/x" = "1"\n', 'min_version = """\n[tools]\n"""\n',
-                     'min_version = 2026\n', '[tools]\n"a#" = "1"\nnode.postinstall = "x"\n',
-                     '[tools]\nnode = "22"\u2028[env]\n', '[tools]\nnode = "22"\x85x = 1\n'):
-            self.assertTrue(b.mise_needs_trust(text), text)
-
     def test_every_mise_config_name_is_sensitive(self):
         import baseline as b
         for path in (".mise.toml", "mise.toml", "mise.dev.toml", ".mise.local.toml", ".tool-versions",
@@ -2017,11 +2003,10 @@ class DoctorTests(unittest.TestCase):
         import baseline as b
         folder = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, folder, True)
-        self.assertFalse(b.mise_config_trusted(f"{folder}: untrusted\n", folder))
-        self.assertTrue(b.mise_config_trusted(f"{folder}: trusted\n", folder))
-        self.assertFalse(b.mise_config_trusted(f"{folder}/.mise.toml: untrusted\n", folder))
-        self.assertFalse(b.show_is_trusted(1, f"{folder}: trusted\n", folder))
-        self.assertTrue(b.show_is_trusted(0, f"{folder}: trusted\n", folder))
+        error = (f"mise ERROR Config files in {folder}/mise.local.toml are not trusted.\n"
+                 "Trust them with `mise trust`.\n")
+        self.assertEqual(b.untrusted_config(error), f"{folder}/mise.local.toml")
+        self.assertIsNone(b.untrusted_config("Path  Tools\n.mise.toml  node\n"))
         text = 'min_version = "2026.11.0"\n\n[tools]\npython = "3.12"\n'
         self.assertEqual(b.pins_from({}, text, "2026.11.9"), {"python": "3.12"})
         self.assertEqual(b.pins_from({}, text, "2026.10.0")["mise"], "2026.11.0")
