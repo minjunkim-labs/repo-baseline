@@ -1266,6 +1266,7 @@ def cmd_skills_bump(args):
 
 
 DOCTOR_TOOLS = ("python", "git", "gh", "claude", "mise")
+DOCTOR_PROJECT_SETTINGS = (".claude/settings.json", ".claude/settings.local.json")
 
 
 def doctor_version(value):
@@ -1278,10 +1279,21 @@ def skill_entry_name(value):
 
 def doctor_install(name, expected, os_name, present=False):
     if name == "claude":
-        return "claude update" if present else "claude를 설치한다"
-    # mise cannot install itself. These are the documented install commands.
-    if name == "mise" and not present:
-        return "brew install mise" if os_name == "darwin" else "curl -fsSL https://mise.run | sh"
+        if present:
+            return "claude update"
+        # https://code.claude.com/docs/en/setup#install-claude-code (2026-11-24)
+        if os_name == "win32":
+            return "PowerShell에서 irm https://claude.ai/install.ps1 | iex"
+        return "curl -fsSL https://claude.ai/install.sh | bash"
+    if name == "mise":
+        if not present:
+            return "brew install mise" if os_name == "darwin" else "curl -fsSL https://mise.run | sh"
+        # https://mise.jdx.dev/cli/self-update.html (2026-11-24)
+        if expected and expected.count(".") == 2:
+            update = f"mise self-update --no-plugins {expected}"
+        else:
+            update = "mise self-update --no-plugins"
+        return f"직접 설치: {update}. 패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다"
     if expected and name in DOCTOR_TOOLS:
         return f"mise install {name}@{expected}"
     if expected:
@@ -1341,6 +1353,12 @@ def doctor_problems(facts):
     os_name = facts.get("os") if isinstance(facts.get("os"), str) else ""
     if facts.get("settings_unreadable"):
         problems.append("doctor: ~/.claude/settings.json을 읽지 못했다\ndoctor: 고치기: JSON 객체로 고친다")
+    project_errors = facts.get("project_settings_unreadable")
+    if isinstance(project_errors, list):
+        for rel in DOCTOR_PROJECT_SETTINGS:
+            if rel in project_errors:
+                problems.append(f"doctor: {rel}을 읽지 못했다\n"
+                                "doctor: 고치기: 읽을 수 있는 일반 파일의 JSON 객체로 고친다")
     names = list(DOCTOR_TOOLS)
     for name in sorted(want):
         if skill_entry_name(name) and name not in names:
@@ -1504,10 +1522,9 @@ def pins_from(doctor_versions, mise_text, installed_mise):
             want[name] = concrete
     if doctor_version(min_version):
         pinned_mise = want.get("mise")
-        pin_low = (isinstance(pinned_mise, str) and doctor_version(pinned_mise)
-                   and not version_at_least(pinned_mise, min_version))
-        installed_low = not installed_mise or not version_at_least(installed_mise, min_version)
-        if pin_low or installed_low:
+        version = pinned_mise if pinned_mise is not None else installed_mise
+        if (pinned_mise is None or doctor_version(pinned_mise)) and (
+                not version or not version_at_least(version, min_version)):
             want["mise"] = min_version
     return want
 
@@ -1542,8 +1559,14 @@ def repo_bytes(root, rel):
     Same rule as read_file: no symlink on the way, at most MAX_READ bytes.
     """
     root = Path(root)
-    if not (root / rel).exists() and not linked(root, rel):
+    try:
+        if linked(root, rel):
+            return None, True
+        (root / rel).stat()
+    except FileNotFoundError:
         return None, False
+    except OSError:
+        return None, True
     try:
         return read_file(root, rel), False
     except OSError:
@@ -1640,13 +1663,21 @@ def gather_doctor(root=None):
         if isinstance(auto, dict) and isinstance(auto.get("environment"), list):
             environment = auto["environment"]
     sandbox = sandbox_enabled(user_data)
-    for rel in (".claude/settings.json", ".claude/settings.local.json"):
+    project_settings_unreadable = []
+    for rel in DOCTOR_PROJECT_SETTINGS:
         data, refused = repo_bytes(root, rel)
-        if refused or not data:
+        if refused:
+            project_settings_unreadable.append(rel)
+            continue
+        if data is None:
             continue
         try:
             parsed = json.loads(data.decode("utf-8"))
         except ValueError:
+            project_settings_unreadable.append(rel)
+            continue
+        if not isinstance(parsed, dict):
+            project_settings_unreadable.append(rel)
             continue
         sandbox = sandbox or sandbox_enabled(parsed)
     remote = ""
@@ -1670,6 +1701,7 @@ def gather_doctor(root=None):
         "git_version": git_text, "skills_repo": repo_skill_names(root),
         "skills_user": skill_entries(Path.home() / ".claude/skills"),
         "org": github_org(remote), "environment": environment, "settings_unreadable": settings_unreadable,
+        "project_settings_unreadable": project_settings_unreadable,
         "mise_toml": root.joinpath(".mise.toml").as_posix() if mise_data is not None else None,
         "mise_trusted": trusted, "mise_unreadable": mise_unreadable,
         "sandbox": sandbox, "have_bubblewrap": shutil.which("bwrap") is not None or shutil.which("bubblewrap") is not None,

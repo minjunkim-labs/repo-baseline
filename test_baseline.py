@@ -1828,7 +1828,7 @@ class DoctorTests(unittest.TestCase):
     def test_a_missing_claude_or_mise_does_not_require_itself(self):
         missing = {"python": "3.12.0", "git": "2.39.0", "gh": "2.40.0", "claude": None, "mise": "2026.1.0"}
         text = self.problems(versions=missing, want={"claude": "2.1.0"})
-        self.assertIn("고치는 명령: claude를 설치한다", text)
+        self.assertIn("고치는 명령: curl -fsSL https://claude.ai/install.sh | bash", text)
         self.assertNotIn("claude update", text)
         mismatch = self.problems(want={"claude": "2.1.0"})
         self.assertIn("고치는 명령: claude update", mismatch)
@@ -1898,9 +1898,11 @@ class DoctorTests(unittest.TestCase):
         text = 'min_version = "2026.11.0"\n\n[tools]\npython = "3.12"\n'
         self.assertEqual(b.pins_from({}, text, "2026.11.9"), {"python": "3.12"})
         self.assertEqual(b.pins_from({}, text, "2026.10.0")["mise"], "2026.11.0")
+        self.assertEqual(b.pins_from({}, text, None)["mise"], "2026.11.0")
         self.assertEqual(b.pins_from({"claude": "2.1.283"}, "", "2026.11.9"), {"claude": "2.1.283"})
         self.assertEqual(b.pins_from({"mise": "2026.1.0"}, text, "2026.11.9")["mise"], "2026.11.0")
         self.assertEqual(b.pins_from({"mise": "2026.12.0"}, 'min_version = "2026.11.0"\n', "2026.12.1")["mise"], "2026.12.0")
+        self.assertEqual(b.pins_from({"mise": "2026.12.0"}, text, "2026.10.0")["mise"], "2026.12.0")
         self.assertNotIn("./probe", b.pins_from({"./probe": "1.0.0", "godot": "4.3"}, "", None))
         self.assertEqual(b.version_binary("godot"), "godot")
         self.assertEqual(b.version_binary("python"), "python3")
@@ -1920,7 +1922,9 @@ class DoctorTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-I", str(ROOT / "baseline.py"), "doctor"],
                                 input=json.dumps(facts), capture_output=True, text=True)
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-        self.assertIn("고치는 명령: mise install mise@2026.11.0", result.stderr)
+        self.assertIn("직접 설치: mise self-update --no-plugins 2026.11.0", result.stderr)
+        self.assertIn("패키지 관리자로 설치했다면 같은 관리자로 기준 판을 설치한다", result.stderr)
+        self.assertNotIn("mise install mise", result.stderr)
 
     def test_a_linked_or_unreadable_mise_file_is_not_parsed(self):
         import baseline as b
@@ -1941,12 +1945,33 @@ class DoctorTests(unittest.TestCase):
         self.assertNotEqual(facts["want"].get("python"), "9.8.7")
         text = "\n".join(b.doctor_problems(facts))
         self.assertIn(".mise.toml을 읽지 못했다", text)
+        self.assertIn(".claude/settings.json을 읽지 못했다", text)
         self.assertNotIn("9.8.7", text)
         (folder / ".mise.toml").unlink()
         (folder / ".mise.toml").write_bytes(b"\xff")
         self.assertTrue(b.gather_doctor(folder)["mise_unreadable"])
         (folder / ".mise.toml").write_bytes(b"x" * (b.MAX_READ + 1))
         self.assertTrue(b.gather_doctor(folder)["mise_unreadable"])
+
+    def test_project_settings_errors_are_reported_and_missing_files_are_allowed(self):
+        import baseline as b
+        with tempfile.TemporaryDirectory() as tmp:
+            folder = Path(tmp)
+            project_settings = folder / ".claude/settings.json"
+            local_settings = folder / ".claude/settings.local.json"
+            project_settings.parent.mkdir()
+            project_settings.write_bytes(b"x" * (b.MAX_READ + 1))
+            for content in (b"", b"[]", b'{"sandbox":', b"\xff"):
+                with self.subTest(content=content):
+                    local_settings.write_bytes(content)
+                    facts = b.gather_doctor(folder)
+                    text = self.problems(project_settings_unreadable=facts["project_settings_unreadable"])
+                    self.assertIn(".claude/settings.json을 읽지 못했다", text)
+                    self.assertIn(".claude/settings.local.json을 읽지 못했다", text)
+            project_settings.unlink()
+            local_settings.write_text("{}", encoding="utf-8")
+            facts = b.gather_doctor(folder)
+            self.assertEqual(self.problems(project_settings_unreadable=facts["project_settings_unreadable"]), "")
 
     def test_oversized_stdin_is_refused(self):
         import baseline as b
