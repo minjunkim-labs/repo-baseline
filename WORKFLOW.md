@@ -71,6 +71,7 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 {
   "sandbox": {
     "enabled": true,
+    "enableWeakerNetworkIsolation": true,
     "filesystem": {
       "denyRead": ["~/.ssh", "~/.aws", "./**/.env*"]
     },
@@ -83,4 +84,4 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 
 `allowedDomains`에는 그 스택의 패키지 저장소를 더한다.
 
-엄격 모드(`allowUnsandboxedCommands: false`, 데스크톱 앱의 「엄격한 샌드박스 모드」)는 끈다. macOS 샌드박스 안에서는 `gh`가 TLS 검증에 실패한다(2026-11-24 실측: `x509: OSStatus -26276`). `baseline.py`는 GitHub을 `gh`로 부르므로 `review-preflight`·`enqueue`·`budget`도 샌드박스 안에서 실패한다. 엄격 모드가 꺼져 있으면 에이전트가 샌드박스 밖에서 다시 실행하고, 이 재실행은 보통의 권한 확인을 거친다. 엄격 모드는 묻지 않고 막는다. `excludedCommands`의 `gh *`는 `gh`를 직접 부를 때만 맞고, `baseline.py`처럼 안에서 `gh`를 부르는 명령에는 맞지 않는다. 근거: [Sandboxing](https://code.claude.com/docs/en/sandboxing) 「Go-based CLIs fail TLS verification on macOS」, 「The unsandboxed retry escape hatch」 (2026-11-24 확인).
+macOS 샌드박스는 시스템의 인증서 확인 서비스(trustd)를 막는다. 그래서 Go로 만든 `gh`가 TLS 검증에 실패하고(`x509: OSStatus -26276`), `gh`를 부르는 `baseline.py`의 `review-preflight`·`enqueue`·`github plan`도 실패한다. 위 예시의 `enableWeakerNetworkIsolation: true`가 그 서비스를 연다. 2026-11-24에 macOS에서 `gh api`, `gh pr view`, `baseline.py review-preflight`가 샌드박스 안에서 권한 확인 없이 도는 것을 확인했다. 대가로 샌드박스 안의 명령이 trustd에 닿는다. `excludedCommands`의 `gh *`는 `gh`를 직접 부를 때만 맞고 `baseline.py` 안의 `gh`에는 맞지 않으므로 대신 쓰지 않는다. 엄격 모드(`allowUnsandboxedCommands: false`, 데스크톱 앱의 「엄격한 샌드박스 모드」)는 그래도 끈다. 엄격 모드는 샌드박스가 막은 명령을 묻지 않고 막는다. 끄면 그 명령을 샌드박스 밖에서 다시 실행할 수 있고, 그때 보통의 권한 확인을 거친다. 근거: [Sandboxing](https://code.claude.com/docs/en/sandboxing) 「Go-based CLIs fail TLS verification on macOS」, [All settings](https://code.claude.com/docs/en/settings-reference) `sandbox.enableWeakerNetworkIsolation`(2026-11-24 확인).
