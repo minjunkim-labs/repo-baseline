@@ -904,10 +904,53 @@ class ApplyTests(unittest.TestCase):
         self.assertNotIn("\x1b", out)
         self.assertIn("rulesets.team?]0;x?은 기준에 없다", out)
 
+    def test_codeql_workflow_is_read_at_the_path_the_profile_names(self):
+        profile = advanced(BASELINE)
+        profile["expected"]["codeql_workflow"]["path"] = ".github/workflows/codeql-analysis.yml"
+        server = FakeGitHub()
+        server.state["code-scanning/default-setup"] = {"state": "configured"}
+        server.state["actions/workflows/codeql-analysis.yml"] = {"path": ".github/workflows/codeql-analysis.yml",
+                                                                "state": "active"}
+        reads = []
+        server_read = server.read
+        server.read = lambda path: reads.append(path) or server_read(path)
+        code, out, err = self.run_tool(server, profile, apply=True)
+        self.assertEqual(code, 0, out + err)
+        self.assertIn(("PATCH", "code-scanning/default-setup"), server.writes)
+        self.assertIn(f"{PREFIX}/actions/workflows/codeql-analysis.yml", reads)
+        self.assertNotIn(f"{PREFIX}/actions/workflows/codeql.yml", reads)
+        for path in ("../codeql.yml", ".github/workflows/x/../../y.yml", ".github/workflows/codeql.yml?ref=x"):
+            profile["expected"]["codeql_workflow"]["path"] = path
+            with self.subTest(path), self.assertRaisesRegex(ValueError, "codeql_workflow.path"):
+                b.validate_profile(profile)
+
+    def test_allowed_actions_list_is_ignored_under_another_policy(self):
+        profile = copy.deepcopy(BASELINE)
+        profile["expected"]["actions"]["allowed_actions"] = "all"
+        server = FakeGitHub(profile)
+        server.state["actions/permissions"]["allowed_actions"] = "selected"
+        reads = []
+        server_read = server.read
+        server.read = lambda path: reads.append(path) or server_read(path)
+        code, out, err = self.run_tool(server, profile, apply=True)
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(server.writes, [("PUT", "actions/permissions")])  # the list is never written
+        self.assertNotIn(f"{PREFIX}/actions/permissions/selected-actions", reads)  # nor read (409 under "all")
+
+    def test_apply_deny_matches_spacing_and_quoting(self):
+        import fnmatch
+        rule = "*baseline.py*github*ap" + "ply*"
+        for command in ("python3 -I .baseline/baseline.py github ap" + "ply",
+                        "python3 -I .baseline/baseline.py  github   ap" + "ply",
+                        "python3 -I .baseline/baseline.py 'github' \"ap" + "ply\"",
+                        "cd x && python3 baseline.py github ap" + "ply"):
+            self.assertTrue(fnmatch.fnmatchcase(command, rule), command)
+        self.assertFalse(fnmatch.fnmatchcase("python3 -I .baseline/baseline.py github plan", rule))
+
     def test_agents_cannot_run_apply(self):
         for rel in ("core/.claude/settings.json", ".claude/settings.json"):
             deny = json.loads((ROOT / rel).read_text(encoding="utf-8"))["permissions"]["deny"]
-            self.assertIn("Bash(*baseline.py github apply*)", deny, rel)
+            self.assertIn("Bash(*baseline.py*github*apply*)", deny, rel)
 
     def test_cli_runs_plan_from_the_repo_root(self):
         server = FakeGitHub()
