@@ -141,7 +141,10 @@ STANDING_COMMAND = "`python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 he
 SHA_RE = re.compile(r"[0-9a-f]{40}")
 PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
-            "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}}}}}")
+            "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
+            "reviewThreads(first:100){totalCount nodes{id isResolved comments(first:100){nodes{databaseId}}}}}}}")
+REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+RESOLVE = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}"
 ENQUEUE = ("mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha})"
            "{mergeQueueEntry{position}}}")
 HASH_RE = re.compile(r"\b[0-9a-f]{32,}\b|sha(?:1|256|384|512)-[A-Za-z0-9+/]+=*")
@@ -908,7 +911,7 @@ def cmd_review_preflight(args):
 
 
 def gh_graphql(query, **fields):
-    """GitHub GraphQL. Only enqueue uses it: the merge queue has no REST endpoint, and cloud proxies block it."""
+    """GitHub GraphQL. Only the merge queue and review threads need it (no REST endpoint); cloud proxies block it."""
     argv = ["gh", "api", "graphql", "-f", f"query={query}"]
     for key, value in fields.items():
         argv += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
@@ -1000,15 +1003,20 @@ def changes_requested(reviews):
     return sorted(login for login, state in last.items() if state == "CHANGES_REQUESTED")
 
 
-def external_reviews(repo, number, reported, reviews):
+def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     """Reviews and comments written after the review report, or edited by a person after it: nobody judged them.
 
     An edit to a bot's comment does not count: CodeRabbit rewrites its summary comment after every body edit,
     so the report could never come last (#215). Its line findings arrive as new reviews and comments, but the
-    summary's pre-merge checks are re-scored in place, and REST does not say who edited a comment."""
+    summary's pre-merge checks are re-scored in place, and REST does not say who edited a comment.
+    A bot's reply in a thread already resolved (settled: its comment ids) does not count either: CodeRabbit
+    answers the reviewer's judgment after the report (#216). shortcut: a new finding a bot posts inside a resolved
+    thread goes unseen; reopen such threads if that happens."""
     items = [(r.get("submitted_at"), r) for r in reviews]
     for path in (f"pulls/{number}/comments", f"issues/{number}/comments"):
         for c in pages(f"repos/{repo}/{path}"):
+            if is_bot(c.get("user")) and path.startswith("pulls/") and c.get("id") in settled:
+                continue
             # shortcut: a finding added only by editing a bot's old comment (by the bot, or by a person with
             # write access) goes unseen, e.g. a pre-merge check turning red; count those edits if that happens.
             items.append((c["created_at"] if is_bot(c.get("user")) else max(c["created_at"], c.get("updated_at") or ""), c))
@@ -1043,6 +1051,10 @@ def enqueue_problems(repo, number, sha, remote):
         problems.append(f"리뷰 보고의 「리뷰한 head」가 {sha}가 아니다")
     if (grade == "쉬움" or fields["남은 지적"] is not None) and fields["남은 지적"] != "없음":
         problems.append("리뷰 보고의 「남은 지적」이 「없음」 한 줄이 아니다")
+    threads = pr["reviewThreads"]
+    open_threads = sum(1 for t in threads["nodes"] if not t["isResolved"]) + threads["totalCount"] - len(threads["nodes"])
+    if open_threads:  # GitHub refuses with "All comments must be resolved"; say which thing is missing
+        problems.append(f"해결하지 않은 리뷰 스레드 {open_threads}개")
     problems += ci_problems(repo, report["head"], required_checks(repo, report["base_branch"]))
     reviews = pages(f"repos/{repo}/pulls/{number}/reviews")
     blocked = changes_requested(reviews)
@@ -1052,7 +1064,8 @@ def enqueue_problems(repo, number, sha, remote):
         # The report's time is the last body edit by a person: bots (CodeRabbit) also rewrite the body.
         edits = [e["editedAt"] for e in pr["userContentEdits"]["nodes"]
                  if (e.get("editor") or {}).get("__typename") == "User"]
-        late = external_reviews(repo, number, max(edits, default=pr["createdAt"]), reviews)
+        settled = {c["databaseId"] for t in threads["nodes"] if t["isResolved"] for c in t["comments"]["nodes"]}
+        late = external_reviews(repo, number, max(edits, default=pr["createdAt"]), reviews, settled)
         if late:
             problems.append("리뷰 보고 뒤의 판정하지 않은 외부 리뷰: " + ", ".join(late))
     return pr["id"], problems
@@ -1078,6 +1091,92 @@ def cmd_enqueue(args):
         print(f"enqueue: 실행 실패: {error}", file=sys.stderr)
         return 2
     print(f"enqueue: {repo}#{number}을 {args.sha}로 머지 큐에 넣었다")
+    return 0
+
+
+def report_problems(text, head):
+    """Why a `## Review` section text is not one enqueue can read, checked with enqueue's own parser."""
+    if any(line.startswith("## ") for line in text.splitlines()):
+        return ["Review 칸 안에 `## ` 제목 줄이 있다"]
+    lines = section(("## Review\n" + text).encode("utf-8"), "Review")
+    fields = review_fields("## Review\n" + text)
+    problems = [] if fields["리뷰한 head"] == head else [f"「리뷰한 head」가 지금 PR head {head}가 아니다"]
+    if fields["등급"] not in GRADES:
+        problems.append(f"「등급」이 {'·'.join(GRADES)} 중 하나 한 줄이 아니다")
+    at = next((i for i, line in enumerate(lines) if line.startswith("남은 지적:")), len(lines))
+    items = []
+    for line in lines[at + 1:]:
+        if not line.startswith(("-", "*")):
+            break
+        items.append(line[1:].strip())
+    left = (fields["남은 지적"] or "").removesuffix(" (목록이 이어진다)")
+    if not (left == "없음" and not items or left == "" and items and "없음" not in items
+            or left and not left.startswith("없음") and not items):
+        problems.append("「남은 지적」은 「남은 지적: 없음」 한 줄이거나 빈 값 뒤의 `- [Spec|Standards] …` 목록이다")
+    return problems
+
+
+def replace_review(body, text):
+    """The body with its one `## Review` section (heading up to the next `## ` heading) replaced by text."""
+    lines = body.split("\n")
+    at = [i for i, line in enumerate(lines) if line.rstrip() == "## Review"]
+    if len(at) != 1:
+        raise ValueError(f"본문에 `## Review` 제목이 {len(at)}개다(1개여야 한다)")
+    end = next((i for i in range(at[0] + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    old = "\n".join(lines[at[0] + 1:end]).strip("\n").split("\n\n")
+    # The last paragraph stays when it holds no field (e.g. the tool's attribution line under the template).
+    keep = [old[-1]] if len(old) > 1 and not any(line.startswith(REPORT_FIELDS + ("-", "*"))
+                                                 for line in old[-1].split("\n")) else []
+    tail = [""] + lines[end:] if end < len(lines) else []
+    out = lines[:at[0] + 1] + [""] + text.strip("\n").split("\n") + [x for k in keep for x in ("", k)] + tail
+    return "\n".join(out) + ("" if tail else "\n")
+
+
+def cmd_review_report(args):
+    """Write the `## Review` section last: thread replies and resolutions first, so the report is the latest record."""
+    try:
+        text = open(args.file, encoding="utf-8").read()
+        text = re.sub(r"\A\s*## Review[ \t]*\n", "", text)
+        judged = []
+        for item in args.thread:
+            cid, _, reply = item.partition("=")
+            if not cid.isdigit() or not reply.strip():
+                raise ValueError(f"--thread는 <댓글 id>=<판정>이다: {item!r}")
+            judged.append((int(cid), reply.strip()))
+        repo, number = pr_target(args.pr, args.remote)
+        head = gh_api(f"repos/{repo}/pulls/{number}")["head"]["sha"]
+        problems = report_problems(text, head)
+        if problems:
+            for problem in problems:
+                print(f"review-report: 쓰지 않는다: {problem}")
+            return 1
+        cloud = os.environ.get("CLAUDE_CODE_REMOTE") == "true"
+        threads = {}
+        if judged and not cloud:
+            owner, name = repo.split("/")
+            nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
+                "reviewThreads"]["nodes"]
+            threads = {c["databaseId"]: t["id"] for t in nodes for c in t["comments"]["nodes"]}
+            missing = [str(cid) for cid, _ in judged if cid not in threads]
+            if missing:
+                print(f"review-report: 쓰지 않는다: 리뷰 스레드에 없는 댓글 id: {', '.join(missing)}")
+                return 1
+        for cid, reply in judged:
+            github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
+            if cloud:
+                print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
+            else:
+                gh_graphql(RESOLVE, id=threads[cid])
+                print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
+        pr = gh_api(f"repos/{repo}/pulls/{number}")  # read again: bots rewrite the body while threads are answered
+        if pr["head"]["sha"] != head:
+            print(f"review-report: 쓰지 않는다: 실행 중에 head가 {pr['head']['sha']}로 바뀌었다")
+            return 1
+        github_write("PATCH", f"repos/{repo}/pulls/{number}", {"body": replace_review(pr["body"] or "", text)})
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        print(f"review-report: 실행 실패: {error}", file=sys.stderr)
+        return 2
+    print(f"review-report: {repo}#{number}의 Review 칸을 썼다(head {head})")
     return 0
 
 
@@ -2537,6 +2636,12 @@ def main(argv=None):
     enqueue_parser.add_argument("pr", help="PR URL 또는 번호")
     enqueue_parser.add_argument("sha", help="리뷰한 head(40자 SHA)")
     enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
+    report_parser = sub.add_parser("review-report", help="스레드 판정에 답하고 해결한 뒤 PR 본문의 Review 칸만 바꾼다")
+    report_parser.add_argument("pr", help="PR URL 또는 번호")
+    report_parser.add_argument("--file", required=True, help="Review 칸의 줄(「리뷰한 head:」「등급:」「남은 지적:」 등)")
+    report_parser.add_argument("--thread", action="append", default=[], metavar="ID=판정",
+                               help="판정한 리뷰 스레드 댓글 id와 답글(여러 번)")
+    report_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     bump_parser = sub.add_parser("skills-bump", help="스킬 출처마다 7일 지난 새 판으로 사본을 바꾼다(repo-baseline 전용)")
     bump_parser.add_argument("--check", action="store_true", help="바꾸지 않고 새 판이 있는지만 본다(있으면 1)")
     sub.add_parser("doctor", help="로컬 기기와 기준이 다른 곳을 보고 고치는 명령을 출력한다")
@@ -2544,7 +2649,7 @@ def main(argv=None):
                    ).add_argument("action", choices=("plan", "apply"))
     args = parser.parse_args(argv)
     return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
-            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue,
+            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue, "review-report": cmd_review_report,
             "skills-bump": cmd_skills_bump, "doctor": cmd_doctor, "github": cmd_github}[args.command](args)
 
 

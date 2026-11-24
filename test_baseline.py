@@ -1160,6 +1160,7 @@ class EnqueueGitHub(FakeGitHub):
         super().__init__(base, head, **kwargs)
         self.body, self.mutations, self.commit_author = body, [], {"login": self.author}
         self.edits = [(REPORTED, "User", "owner")]
+        self.threads, self.writes = [], []
         self.checks = [{"id": 1, "name": "ci", "status": "completed", "conclusion": "success", "app": {"id": 15368}}]
         self.permission = {"owner": "admin", "helper": "write", "reader": "read"}
         self.extra.update({
@@ -1169,8 +1170,19 @@ class EnqueueGitHub(FakeGitHub):
             f"repos/o/r/commits/{HEAD}/status": {"statuses": []},
             "repos/o/r/pulls/7/reviews": [], "repos/o/r/pulls/7/comments": [], "repos/o/r/issues/7/comments": []})
 
+    def run(self, argv, **kwargs):
+        if argv[:3] == ["gh", "api", "--method"]:
+            self.calls.append(list(argv))
+            self.writes.append((argv[3], argv[4], json.loads(kwargs["input"])))
+            if argv[3] == "PATCH":
+                self.body = self.writes[-1][2]["body"]
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        return super().run(argv, **kwargs)
+
     def answer(self, path):
         route = path.split("?")[0]
+        if route == "repos/o/r/pulls/7" and "page=" not in path:
+            return dict(super().answer(path), body=self.body)
         if route == f"repos/o/r/commits/{HEAD}/check-runs":
             return {"check_runs": self.checks}
         if route == "repos/o/r/pulls/7/commits" and "page=1" in path:
@@ -1184,10 +1196,15 @@ class EnqueueGitHub(FakeGitHub):
         if "enqueuePullRequest" in fields["query"]:
             self.mutations.append(fields)
             data = {"enqueuePullRequest": {"mergeQueueEntry": {"position": 1}}}
+        elif "resolveReviewThread" in fields["query"]:
+            self.writes.append(("RESOLVE", fields["id"], None))
+            data = {"resolveReviewThread": {"thread": {"isResolved": True}}}
         else:
             edits = [{"editedAt": t, "editor": {"__typename": kind, "login": login}} for t, kind, login in self.edits]
             data = {"repository": {"pullRequest": {"id": "PR_7", "body": self.body, "createdAt": "2026-01-01T00:00:00Z",
-                                                   "userContentEdits": {"totalCount": len(edits), "nodes": edits}}}}
+                                                   "userContentEdits": {"totalCount": len(edits), "nodes": edits},
+                                                   "reviewThreads": {"totalCount": len(self.threads),
+                                                                     "nodes": self.threads}}}}
         return subprocess.CompletedProcess(argv, 0, json.dumps({"data": data}).encode(), b"")
 
 
@@ -1348,6 +1365,24 @@ class EnqueueTests(unittest.TestCase):
                                                     "created_at": "2026-01-01T00:20:00Z"}]
         self.assertRefused(gh, "판정하지 않은 외부 리뷰")
 
+    def test_unresolved_review_threads_are_named(self):
+        gh = self.gh()
+        gh.threads = [{"id": "T1", "isResolved": False, "comments": {"nodes": [{"databaseId": 5}]}},
+                      {"id": "T2", "isResolved": True, "comments": {"nodes": [{"databaseId": 6}]}}]
+        self.assertRefused(gh, "해결하지 않은 리뷰 스레드 1개")
+
+    def test_a_bot_reply_in_a_resolved_thread_after_the_report_is_not_a_new_review(self):
+        late = {"user": {"login": "coderabbitai[bot]", "type": "Bot"}, "id": 9, "in_reply_to_id": 5,
+                "created_at": "2026-01-01T00:20:00Z", "updated_at": "2026-01-01T00:20:00Z"}
+        gh = self.gh()
+        gh.threads = [{"id": "T1", "isResolved": True, "comments": {"nodes": [{"databaseId": 5}, {"databaseId": 9}]}}]
+        gh.extra["repos/o/r/pulls/7/comments"] = [late]
+        self.assertQueued(gh)
+        gh = self.gh()  # the same reply from a person still counts
+        gh.threads = [{"id": "T1", "isResolved": True, "comments": {"nodes": [{"databaseId": 5}, {"databaseId": 9}]}}]
+        gh.extra["repos/o/r/pulls/7/comments"] = [dict(late, user={"login": "helper", "type": "User"})]
+        self.assertRefused(gh, "판정하지 않은 외부 리뷰")
+
     def test_base_must_hold_the_standing_instruction(self):
         tree = core_tree()
         tree["AGENTS.md"] = b"".join(l for l in tree["AGENTS.md"].splitlines(True) if "상시 지시" not in l.decode())
@@ -1378,6 +1413,74 @@ class EnqueueTests(unittest.TestCase):
         code, out = self.enqueue(gh, sha="c" * 39)
         self.assertEqual(code, 2)
         self.assertEqual(gh.calls, [])
+
+
+class ReviewReportTests(unittest.TestCase):
+    SECTION = "리뷰어(구현과 다른 컨텍스트): 하위 에이전트\n리뷰한 head: {head}\n등급: 쉬움\n고친 것: 없음\n남은 지적: {left}\n"
+    BODY = "## Summary\n완료 기준: x\n\n## Review\n\n리뷰한 head:\n남은 지적:\n\n🤖 footer\n\n## Summary by CodeRabbit\nc\n"
+
+    def report(self, gh, text, *extra, remote="false"):
+        import baseline as b
+        import tempfile
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        out = StringIO()
+        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
+            f.write(text)
+        with mock.patch.object(b.subprocess, "run", gh.run), mock.patch.dict(b.os.environ, {"CLAUDE_CODE_REMOTE": remote}), \
+                redirect_stdout(out), redirect_stderr(out):
+            code = b.main(["review-report", PR_URL, "--file", f.name, *extra])
+        os.unlink(f.name)
+        return code, out.getvalue()
+
+    def gh(self):
+        tree = core_tree()
+        gh = EnqueueGitHub(tree, dict(tree, **{"src/app.py": b"x\n"}), body=self.BODY)
+        gh.threads = [{"id": "T1", "isResolved": False, "comments": {"nodes": [{"databaseId": 5}]}}]
+        return gh
+
+    def test_replies_and_resolves_first_then_writes_only_the_review_section(self):
+        gh = self.gh()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림. 이유")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/5/replies"),
+                                                     ("RESOLVE", "T1"), ("PATCH", "repos/o/r/pulls/7")])
+        self.assertEqual(gh.writes[0][2], {"body": "판정: 버림. 이유"})
+        self.assertEqual(gh.body, "## Summary\n완료 기준: x\n\n## Review\n\n" + self.SECTION.format(head=HEAD, left="없음")
+                         + "\n🤖 footer\n\n## Summary by CodeRabbit\nc\n")
+        gh.threads[0]["isResolved"] = True  # what it wrote is what enqueue reads
+        gh.edits = [("2026-01-01T00:30:00Z", "User", "owner")]
+        self.assertEqual(EnqueueTests.enqueue(EnqueueTests(), gh)[0], 0)
+
+    def test_a_report_enqueue_would_refuse_is_not_written(self):
+        for text in (self.SECTION.format(head=HEAD, left="").replace("남은 지적: \n", "남은 지적:\n- 없음\n"),
+                     self.SECTION.format(head=HEAD, left="없음\n- [Spec] P1 a:1 x"),
+                     self.SECTION.format(head="d" * 40, left="없음"),
+                     self.SECTION.format(head=HEAD, left="없음").replace("등급: 쉬움", "등급: 보통"),
+                     self.SECTION.format(head=HEAD, left="없음") + "## Summary\n"):
+            gh = self.gh()
+            code, out = self.report(gh, text, "--thread", "5=판정")
+            self.assertEqual(code, 1, (text, out))
+            self.assertEqual(gh.writes, [])
+        gh = self.gh()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "77=판정")
+        self.assertEqual((code, gh.writes), (1, []), out)
+        self.assertIn("77", out)
+
+    def test_a_list_of_findings_is_a_valid_report(self):
+        gh = self.gh()
+        code, out = self.report(gh, "## Review\n" + self.SECTION.format(head=HEAD, left="\n- [Spec] P1 a:1 x"))
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[0] for w in gh.writes], ["PATCH"])
+
+    def test_cloud_answers_threads_but_leaves_resolving_to_a_local_session(self):
+        gh = self.gh()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정", remote="true")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[0] for w in gh.writes], ["POST", "PATCH"])
+        self.assertFalse(any(argv[2] == "graphql" for argv in gh.calls))
+        self.assertIn("로컬 세션", out)
 
 
 class AllowEnqueueHookTests(unittest.TestCase):
