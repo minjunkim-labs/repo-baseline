@@ -352,7 +352,8 @@ class RunBudgetTests(unittest.TestCase):
                      '[tools]\nbin = "path:./bin"\n', '[tools]\nnode = "22" {# x #}\n', '[tools]\nnode = 22\n',
                      '[tools]\nnode.postinstall = "x"\n', '[tools]\n"spm:https://e.example/x" = "1"\n',
                      '[tools]\n"ubi:https://e.example/x" = "1"\n', 'min_version = """\n[tools]\n"""\n',
-                     'min_version = 2026\n'):
+                     'min_version = 2026\n', '[tools]\n"a#" = "1"\nnode.postinstall = "x"\n',
+                     '[tools]\nnode = "22"\u2028[env]\n', '[tools]\nnode = "22"\x85x = 1\n'):
             self.assertTrue(b.mise_needs_trust(text), text)
 
     def test_every_mise_config_name_is_sensitive(self):

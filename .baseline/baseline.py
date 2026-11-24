@@ -398,6 +398,10 @@ def mise_needs_trust(text):
         return all(PLAIN_VERSION.fullmatch(item) for item in items if item.strip())
     if any(mark in text for mark in ("{{", "{%", "{#", '"""', "'''")):
         return True
+    # mise_keys cuts at any "#" and at every Unicode line break; TOML does neither, so refuse both here.
+    if re.search("[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x85\u2028\u2029]", text) or any(
+            "#" in line and not line.lstrip().startswith("#") for line in text.split("\n")):
+        return True
     return any(not (((section, key) == ("", "min_version") or section == "tools")
                     and PLAIN_TOOL.fullmatch(key) and "://" not in key and plain(value))
                for section, key, value in mise_keys(text))
