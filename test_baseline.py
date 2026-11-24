@@ -1331,10 +1331,15 @@ class EnqueueTests(unittest.TestCase):
                 gh = self.gh()
                 gh.extra[f"repos/o/r/{route}"] = [{"user": user, "created_at": "2026-01-01T00:05:00Z", "updated_at": late}]
                 self.assertQueued(gh)
-        gh = self.gh()  # a new bot comment after the report still counts
-        gh.extra["repos/o/r/issues/7/comments"] = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"},
-                                                    "created_at": late, "updated_at": late}]
-        self.assertRefused(gh, "판정하지 않은 외부 리뷰")
+        for route in ("issues/7/comments", "pulls/7/comments"):
+            gh = self.gh()  # a new bot comment after the report still counts
+            gh.extra[f"repos/o/r/{route}"] = [{"user": {"login": "coderabbitai[bot]", "type": "Bot"},
+                                               "created_at": late, "updated_at": late}]
+            self.assertRefused(gh, "판정하지 않은 외부 리뷰")
+            gh = self.gh()  # a person's edit after the report still counts
+            gh.extra[f"repos/o/r/{route}"] = [{"user": {"login": "helper", "type": "User"},
+                                               "created_at": "2026-01-01T00:05:00Z", "updated_at": late}]
+            self.assertRefused(gh, "판정하지 않은 외부 리뷰")
 
     def test_a_bot_editing_the_body_does_not_move_the_report_time(self):
         gh = self.gh()
