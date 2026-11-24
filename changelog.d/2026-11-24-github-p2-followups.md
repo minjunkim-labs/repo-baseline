@@ -1,0 +1,1 @@
+- `github plan|apply`가 `codeql_workflow.path`에 적은 workflow 파일을 읽고, Actions 정책이 `selected`가 아니면 허용 action 목록을 건너뛴다. 에이전트 deny 줄은 `Bash(*baseline.py*github*apply*)`로 넓어졌으므로 v2 저장소의 `.claude/settings.json`에서 같은 줄을 바꾼다.

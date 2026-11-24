@@ -1859,11 +1859,11 @@ REQUIRED_FIELDS = {
     "codeql_workflow": "path state",
 }
 ENDPOINTS = {
-    "dependabot_alerts": "vulnerability-alerts", "protection": "branches/{}/protection", "rulesets": "rulesets",
+    "dependabot_alerts": "vulnerability-alerts", "protection": "branches/{branch}/protection", "rulesets": "rulesets",
     "actions": "actions/permissions", "allowed_actions": "actions/permissions/selected-actions",
     "workflow_token": "actions/permissions/workflow", "fork_policy": "actions/permissions/fork-pr-contributor-approval",
     "immutable_releases": "immutable-releases", "private_vulnerability_reporting": "private-vulnerability-reporting",
-    "codeql": "code-scanning/default-setup", "codeql_workflow": "actions/workflows/codeql.yml",
+    "codeql": "code-scanning/default-setup", "codeql_workflow": "actions/workflows/{workflow}",
 }
 # A ruleset as the baseline records it: the rule itself, not ids or timestamps.
 RULESET_FIELDS = ("name", "target", "enforcement", "conditions", "rules", "bypass_actors")
@@ -1876,8 +1876,21 @@ EXCEPTION_PATHS = (set(REQUIRED_FIELDS) - {"repository"} - ADVANCED_CODEQL) | {
     if field.startswith("security_and_analysis.")} | {"actions.sha_pinning_required"}
 
 
-def endpoint(name, branch):
-    return ENDPOINTS[name].format(branch)
+WORKFLOW_PATH = re.compile(r"\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml")
+
+
+def endpoint(name, branch, workflow="codeql.yml"):
+    return ENDPOINTS[name].format(branch=branch, workflow=workflow)
+
+
+def workflow_file(profile):
+    """The advanced CodeQL workflow file the profile names; GitHub reads a workflow by its file name."""
+    return Path(profile["expected"].get("codeql_workflow", {}).get("path", "codeql.yml")).name
+
+
+def skipped(profile, name):
+    """GitHub has a selected-actions list only under the "selected" policy, so another policy ignores it."""
+    return name == "allowed_actions" and profile["expected"].get("actions", {}).get("allowed_actions", "selected") != "selected"
 
 
 def placeholders(value, path=""):
@@ -2017,6 +2030,9 @@ def validate_profile(profile):
                 not isinstance(check, dict) or not isinstance(check.get("context"), str)
                 or not check["context"] or type(check.get("app_id")) is not int for check in checks)):
             raise ValueError("필수 체크에는 이름(context)과 App ID가 있어야 한다")
+    workflow = expected.get("codeql_workflow")
+    if isinstance(workflow, dict) and not WORKFLOW_PATH.fullmatch(str(workflow.get("path"))):
+        raise ValueError("codeql_workflow.path는 .github/workflows/<이름>.yml이어야 한다")
     if type(profile.get("repository_id")) is not int or profile["repository_id"] <= 0:
         raise ValueError("repository_id가 맞지 않는다")
 
@@ -2130,15 +2146,17 @@ def audit(profile, read):
     metadata = read(prefix)
     if not isinstance(metadata, dict) or metadata.get("id") != profile["repository_id"] or metadata.get("full_name") != repo:
         raise ValueError("저장소가 repository·repository_id와 다르다")
-    result = []
+    result, workflow = [], workflow_file(profile)
     for name, expected in profile["expected"].items():
+        if skipped(profile, name):
+            continue
         if name == "repository":
             actual = metadata
         elif name == "rulesets":
             actual = known_parameters(expected, [ruleset for _, ruleset in read_rulesets(read, prefix)])
         else:
             # A 404 is "not set", as in settings_plan: it differs (1), it does not fail the run (2).
-            actual, found = get(read, f"{prefix}/{endpoint(name, branch)}")
+            actual, found = get(read, f"{prefix}/{endpoint(name, branch, workflow)}")
             if name == "dependabot_alerts":
                 actual = {"enabled": found}  # 204 with no body when on, 404 when off
         result.extend(differences(expected, actual, name))
@@ -2270,9 +2288,9 @@ def settings_plan(profile, read):
     if metadata.get("default_branch") != branch:
         raise ValueError("저장소의 기본 브랜치가 default_branch와 다르다")
     changes, manual, current = [], [], {}
-    expected = profile["expected"]
+    expected, workflow = profile["expected"], workflow_file(profile)
     for name in SETTINGS_ORDER + SETTINGS_MANUAL:
-        if name not in expected:
+        if name not in expected or skipped(profile, name):
             continue
         if name == "repository":
             actual = metadata
@@ -2284,7 +2302,7 @@ def settings_plan(profile, read):
         elif name == "allowed_actions" and "actions" in current and current["actions"].get("allowed_actions") != "selected":
             actual = None  # GitHub lists selected actions only under a "selected" policy; the actions write comes first
         else:
-            actual, found = get(read, f"{prefix}/{endpoint(name, branch)}")
+            actual, found = get(read, f"{prefix}/{endpoint(name, branch, workflow)}")
             if name == "dependabot_alerts":
                 actual = {"enabled": found}  # 204 with no body when on, 404 when off
             if name == "private_vulnerability_reporting" and not found:
@@ -2320,10 +2338,10 @@ def settings_plan(profile, read):
                 manual.extend(f"protection.{key}가 켜져 있다. protection을 쓰면 지워진다" for key in kept)
                 continue
         if name == "codeql" and expected[name]["state"] == "not-configured" and "codeql_workflow" in expected:
-            workflow = get(read, f"{prefix}/{endpoint('codeql_workflow', branch)}")[0]
+            live = get(read, f"{prefix}/{endpoint('codeql_workflow', branch, workflow)}")[0]
             # The workflow must really run, whatever state the baseline records for it.
-            ready = (workflow or {}).get("state") == "active" and not differences(
-                expected["codeql_workflow"], workflow, "codeql_workflow")
+            ready = (live or {}).get("state") == "active" and not differences(
+                expected["codeql_workflow"], live, "codeql_workflow")
             if not ready:
                 manual.append("codeql.state: 고급 설정 workflow가 돌 때까지 기본 설정을 켜 둔다")
                 continue
@@ -2362,6 +2380,8 @@ def github(root, apply, read=github_read, write=github_write, sleep=time.sleep):
                     attempt = None
         for line in manual:
             print(f"github: 사람이 할 일: {plain(line)}")
+        if skipped(profile, "allowed_actions"):
+            print("github: 건너뜀: actions.allowed_actions가 selected가 아니라 allowed_actions 목록은 쓰지도 보지도 않는다")
         for path, entry in sorted(profile.get("exceptions", {}).items()):
             print(plain(f"github: 예외({entry['status']}): {path}: {entry['reason']} ({entry['evidence']})")
                   + ". 쓰지도 보지도 않는다")
