@@ -384,17 +384,23 @@ def mise_keys(text):
 
 
 PLAIN_VERSION = re.compile(r"""\s*(["'])(?!path:|spm:)[^"'\[\]{}]*\1\s*""")
+# A bare tool name, or a quoted backend:name. Dots outside quotes make an options table; spm: and URLs
+# send a forge token to another host.
+PLAIN_TOOL = re.compile(r"""[A-Za-z0-9_-]+|(["'])(?!spm:)[^"'\[\]{}]*\1""")
 
 
 def mise_needs_trust(text):
     """mise trusts min_version and [tools] with plain version strings (or arrays of them) by itself
-    (https://mise.jdx.dev/security.html, 2026-11-24). Anything else, or a template, needs trust."""
+    (https://mise.jdx.dev/security.html, 2026-11-24). Anything else, or a template, needs trust.
+    An allowlist: whatever this does not recognise as plain needs trust."""
     def plain(value):
         items = value[1:-1].split(",") if value.startswith("[") and value.endswith("]") else [value]
         return all(PLAIN_VERSION.fullmatch(item) for item in items if item.strip())
-    return any(mark in text for mark in ("{{", "{%", "{#")) or any(
-        not ((section, key) == ("", "min_version") or (section == "tools" and "[" not in key and plain(value)))
-        for section, key, value in mise_keys(text))
+    if any(mark in text for mark in ("{{", "{%", "{#", '"""', "'''")):
+        return True
+    return any(not (((section, key) == ("", "min_version") or section == "tools")
+                    and PLAIN_TOOL.fullmatch(key) and "://" not in key and plain(value))
+               for section, key, value in mise_keys(text))
 
 
 def mise_failed(root, code):
