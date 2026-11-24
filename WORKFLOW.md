@@ -61,7 +61,7 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 | --- | --- | --- | --- | --- | --- |
 | Claude Code 로컬·원격 연결 | `CLAUDE.md`(`@AGENTS.md`) | `.claude/skills/` | `.claude/settings.json` 적용 | 로컬 `gh` 전부 | 내 기기 |
 | Claude Code 클라우드 단독 | 같음 | 같음 | 적용 | push·REST 됨, GraphQL은 프록시가 막음 | 클라우드 환경 |
-| Claude Code 클라우드 다중(Projects 스레드) | 같음 | 같음 | 적용 안 됨 | 같음 | 클라우드 환경 |
+| Claude Code 클라우드 다중(Projects 스레드) | 같음 | 같음. 이름이 `.`으로 시작하는 저장소가 있거나 자체 호스팅 환경이면 불러오지 않는다 | 적용 안 됨 | 같음 | 클라우드 환경 |
 | Codex 로컬·원격 연결 | `AGENTS.md`(`CLAUDE.md`는 fallback 설정 때만) | `.agents/skills/` | `.codex/`(신뢰한 프로젝트만) | 로컬 | 내 기기 |
 | Codex 클라우드 단독 | `AGENTS.md` | `.agents/skills/` | ? | push·PR 됨, `gh`·GraphQL ? | network secret은 자리표시자만 보임 |
 | Cursor 로컬 | `AGENTS.md`, `.cursor/rules/`(CLI는 `CLAUDE.md`도) | `.agents/`·`.cursor/`·`.claude/`·`.codex/`의 `skills/` | `.cursor/hooks.json`, `.cursor/cli.json` deny, `.cursor/sandbox.json` | 로컬 | 내 기기 |
@@ -80,10 +80,10 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 
 ### v2에 주는 뜻
 
-- 지침의 원본은 `AGENTS.md` 하나로 맞다. 모든 도구가 읽거나 읽게 설정할 수 있다. Gemini CLI만 `context.fileName` 설정이 필요하다.
+- 지침의 원본은 `AGENTS.md` 하나로 맞다. 표에서 확인된 도구는 모두 읽거나 읽게 설정할 수 있고, Gemini CLI만 `context.fileName` 설정이 필요하다. `?`인 곳(Grok Bot, Antigravity 클라우드)은 저장소 지침이 적용된다고 보지 않고 로컬에서 한다.
 - 스킬 사본은 `.claude/skills/`에만 있다. Codex, Antigravity, Gemini CLI는 이 폴더를 읽는다고 문서가 말하지 않는다. 이 도구들이 함께 읽는 곳은 `.agents/skills/`다. 사본을 어디에 둘지는 아직 정하지 않았다.
 - 저장소 deny·훅은 도구마다 형식이 다르고, 코어는 `.claude/settings.json`만 둔다. 로컬에서는 Claude Code와 Grok CLI만 이 파일을 적용하고, 클라우드는 대부분 적용하지 않거나 문서가 없다. 어느 위치에서나 남는 바닥은 서버(브랜치 보호, 필수 CI, 머지 큐)와 `enqueue` 자신의 검사다. 그래서 check는 CI가 반드시 다시 돌린다.
-- 클라우드는 모든 도구가 브랜치 push와 PR까지는 된다. GraphQL은 Claude에서 막히고 다른 도구는 문서가 없다. `enqueue`는 로컬 전용으로 둔다. 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다.
+- 클라우드에서 브랜치 push와 PR이 된다고 확인된 것은 Claude, Codex, Cursor, Jules다. Grok Bot과 Antigravity 클라우드는 문서가 없으니 로컬에서 한다. GraphQL은 Claude에서 막히고 다른 도구는 문서가 없다. `enqueue`는 로컬 전용으로 둔다. 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다.
 - 비밀값이 필요한 일과 큐 넣기는 로컬이나 원격 연결에서 한다. 클라우드에는 병합 권한이 없는 비밀값만 둔다(POLICY §7).
 - 흐름은 클라우드 다중에 기대지 않는다. 쓰더라도 스레드마다 위 클라우드 단독 행을 따른다.
 
