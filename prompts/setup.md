@@ -11,7 +11,7 @@
 - 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 태그 `v2.0.0`(또는 소유자가 정한 더 새 태그)이다. 저장소 밖의 새 임시 폴더에 받는다: `B="$(mktemp -d)/repo-baseline" && git clone --depth 1 --branch v2.0.0 https://github.com/minjunkim-labs/repo-baseline "$B"`. 아래 `B`는 이 클론이다. 이미 있는 폴더(예: `/tmp/repo-baseline`)를 원본으로 쓰지 않는다.
 - 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 지금 판과 새 판 사이의 `docs/releases/v*.md`도 읽는다. `templates/`·`profiles/`·`tools/`는 v1 도구라 읽지 않는다. 예외: `github/README.md`가 가리키는 `templates/github/` 파일(Dependabot, `SECURITY.md`, `.coderabbit.yaml`)은 읽고 복사한다. 이름이 낯설면 `GLOSSARY.md`를 읽는다.
 - 관리 블록(`<!-- baseline:start -->`~`<!-- baseline:end -->`)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다. `docs/agents/`의 Matt 스킬 설정 세 파일(`issue-tracker.md`·`domain.md`·`triage-labels.md`)은 시작 파일이라 고쳐도 된다. 같은 폴더의 `LICENSE`는 관리 파일이고, ops 프로필의 `ops.md`는 `check`가 본다. `.gitattributes`는 맨 앞 줄 아래에만 더한다.
-- `migrate`가 막힘으로 보고한 파일은 그 프로젝트 내용을 옮기기 전에는 덮어쓰거나 지우지 않는다. 옮길 곳(관리 블록이 있는 파일이면 블록 밖, 아니면 프로젝트의 다른 파일)이 분명하면 옮긴 뒤 그 파일을 지우고 다시 `migrate`한다. 분명하지 않으면 소유자에게 묻는다.
+- `migrate` 막힘은 원본 `docs/start.md` 2절의 표대로 푼다. 프로젝트 내용을 옮기기 전에는 어떤 파일도 지우지 않고, 관리 블록이 있는 파일(`AGENTS.md`, `REVIEW.md`)과 `CLAUDE.md`는 지우지 않는다. 옮길 곳이 분명하지 않으면 소유자에게 묻는다.
 - 비밀값 파일(`.env*`, 키)을 읽거나 만들거나 커밋하지 않는다.
 - `main`에 직접 push하지 않는다. PR을 병합하지 않는다.
 - 서버 쓰기(`github apply`, 브랜치 보호·저장소 설정)는 하지 않는다. 소유자가 자기 기기에서 한다.
@@ -38,8 +38,8 @@
 ## 2. 이미 있는 저장소
 
 1. `python3 -I "$B/baseline.py" migrate .`을 돌리고 출력(충돌, 계획, `commands.json` 초안)을 보고에 붙인다.
-2. 막힘을 하나씩 푼다. 같은 이름 스킬은 이름을 바꾸거나, 프로젝트 것이 아니면 지운다. `CLAUDE.md`의 명령 칸은 `AGENTS.md` 명령 칸으로 옮긴다. 관리 파일 자리의 프로젝트 내용은 「지킬 것」대로 한다.
-3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`. 막힘이 남았으면 4·5번도 하지 않고 여기서 멈춘 뒤, 남은 막힘과 고친 것을 보고한다.
+2. 막힘을 원본 `docs/start.md` 2절의 표대로 하나씩 푼다.
+3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`. 막힘이 남았거나 `--apply`가 실패(종료 코드가 0이 아님)하면 4·5번도 하지 않고 여기서 멈춘 뒤, 남은 막힘이나 오류와 고친 것을 보고한다.
 4. `commands.json` 초안을 1절 2번의 명령 4칸 기준으로 확인하고, 돌려 본 결과로 고친다.
 5. 확인 줄을 처리한다. CI workflow는 3절에서 고친다. 옛 hash-copy manifest(`.github/repo-baseline.json`)는 그 check를 부르는 CI 단계와 함께 지운다. 도구별 지침 파일은 내용을 `AGENTS.md`로 옮기고 지운다. 관리 블록과 겹치는 절은 비교한 뒤 지운다. `.gitattributes`에 코어 줄을 넣었다고 알리면 `git add --renormalize .`을 커밋한다. v1 ops 블록(`<!-- repo-baseline:ops -->`)이 있으면 지우고, 배포하는 앱이면 3절의 ops 프로필을 켠다.
 

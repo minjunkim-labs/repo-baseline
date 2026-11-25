@@ -25,7 +25,7 @@ python3 -I .baseline/baseline.py check
 
 `init`은 코어 파일이 하나라도 이미 있으면 아무것도 쓰지 않고 멈춘다. 그때는 2절 `migrate`를 쓴다.
 
-복사한 뒤 블록 밖의 칸을 채운다. 관리 블록(`<!-- baseline:start -->`부터 `<!-- baseline:end -->`까지)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다. `docs/agents/`의 Matt 스킬 설정은 시작 파일이라 저장소에 맞게 고쳐도 된다. `.gitattributes`는 맨 앞의 `* text=auto eol=lf` 줄만 관리하니, 저장소의 규칙(binary, LFS)은 그 아래에 더한다. 네 가지 말은 [GLOSSARY.md](../GLOSSARY.md)에 있다.
+복사한 뒤 블록 밖의 칸을 채운다. 관리 블록(`<!-- baseline:start -->`부터 `<!-- baseline:end -->`까지)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다. `docs/agents/`의 Matt 스킬 설정 세 파일(`issue-tracker.md`·`domain.md`·`triage-labels.md`)은 시작 파일이라 저장소에 맞게 고쳐도 된다. `.gitattributes`는 맨 앞의 `* text=auto eol=lf` 줄만 관리하니, 저장소의 규칙(binary, LFS)은 그 아래에 더한다. 네 가지 말은 [GLOSSARY.md](../GLOSSARY.md)에 있다.
 
 - `AGENTS.md`: 제목과 한 줄 설명, 길잡이 표. 코드에서 알 수 없는 것만 쓴다. `budget`은 200줄 이상이면 실패한다.
 - 명령 4칸(setup/check/test/build): `.baseline/commands.json`에 argv 배열로 쓴다. 셸 문법이 필요하면 `["sh", "-c", "..."]`로 쓰고, 없는 칸은 `"N/A: <이유>"`다. `AGENTS.md` 「명령」의 줄은 `check`가 출력하는 한 줄과 글자까지 같게 고친다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 한 번씩 돌려 본다.
@@ -46,11 +46,22 @@ python3 -I "$B/baseline.py" migrate .
 - 계획: 새로 쓰거나 고칠 파일. `CLAUDE.md`의 내용은 `AGENTS.md` 블록 밖으로 옮기고 `CLAUDE.md`는 `@AGENTS.md` 한 줄이 된다.
 - `commands.json` 초안: 기존 `AGENTS.md` 명령 칸에서 만든다. 사람이 확인한다.
 
-막힘을 하나씩 푼 뒤 다시 돌린다. 관리 파일 자리에 프로젝트 내용이 있으면(예: 고쳐 쓴 PR 템플릿) `migrate`는 덮어쓰지 않고 막힘으로 보고한다. 그 내용은 지우지 않는다. 옮길 곳(관리 블록이 있는 파일이면 블록 밖, 아니면 프로젝트의 다른 파일)이 분명하면 옮기고, 분명하지 않으면 소유자에게 묻는다. 옮긴 뒤 그 파일을 지우고 다시 `migrate`한다. 시작 파일(`docs/agents/`의 설정)은 있으면 그대로 두고 코어 판과 다르다고 확인으로만 알린다. `.gitattributes`에 코어 줄이 없으면 맨 앞에 넣고, `git add --renormalize .`을 커밋하라고 알린다.
+막힘을 하나씩 푼 뒤 다시 돌린다. 어느 경우에도 프로젝트 내용을 옮기기 전에는 파일을 지우지 않는다. 옮길 곳이 분명하지 않으면 소유자에게 묻는다.
+
+| 막힘 | 할 일 |
+| --- | --- |
+| `<파일>: 프로젝트 내용이 있다` (관리 파일 자리, 예: 고쳐 쓴 PR 템플릿) | 내용을 프로젝트의 다른 파일로 옮긴 뒤 그 파일을 지운다. `migrate`가 코어 판을 쓴다 |
+| `AGENTS.md`·`REVIEW.md`: 관리 블록 표시가 하나씩 있어야 한다 | 파일을 지우지 않는다. 표시 줄(`<!-- baseline:start -->`, `<!-- baseline:end -->`)이 하나씩 짝을 이루게 고치거나 둘 다 지운다. 둘 다 없으면 `migrate`가 파일 끝에 블록을 더한다 |
+| `AGENTS.md`: 명령 칸이 관리 블록 안에 있다, 여러 줄이다, backtick이 없다 | 파일을 지우지 않는다. 명령 칸을 블록 밖 한 줄로, 명령은 backtick 안에 쓴다 |
+| `CLAUDE.md`: 명령 칸이 있다, 관리 블록 표시가 있다 | 파일을 지우지 않는다. 명령 칸은 `AGENTS.md` 명령 칸으로 옮기고 표시 줄은 지운다. 나머지 내용은 `migrate`가 `AGENTS.md`로 옮긴다 |
+| `.claude/skills/<이름>/`: 같은 이름 스킬이 있다 | 프로젝트 스킬이면 폴더 이름을 바꾼다. 아니면 지운다 |
+| symlink, 폴더 자리에 파일, UTF-8이 아님, 크기 초과 | 출력이 가리키는 대로 고친다 |
+
+시작 파일(`docs/agents/`의 `issue-tracker.md`·`domain.md`·`triage-labels.md`)은 막힘이 아니다. 있으면 그대로 두고, 코어 판과 다르다고 확인으로만 알린다. `.gitattributes`에 코어 줄이 없으면 맨 앞에 넣고, `git add --renormalize .`을 커밋하라고 알린다.
 
 v1 `AGENTS.md`의 ops 블록(`<!-- repo-baseline:ops -->`)은 `migrate`가 따로 다루지 않는다. 블록이 든 절은 "관리 블록과 겹친다" 확인으로만 나온다. 그 절을 지울 때 v1 ops 블록도 지우고, [ops 프로필](../ops/README.md) 「켜기」로 다시 켠다.
 
-막힘이 없으면 쓴다.
+막힘이 없으면 쓴다. `--apply`가 실패(종료 코드가 0이 아님)하면 쓰다 만 파일을 `git status`로 보고, 그 뒤 일(옛 파일·CI 단계 지우기)은 하지 않는다.
 
 ```bash
 python3 -I "$B/baseline.py" migrate . --apply

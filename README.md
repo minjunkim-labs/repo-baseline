@@ -32,7 +32,7 @@
 
 ## 코어와 프로필
 
-코어는 `AGENTS.md`·`REVIEW.md`(관리 블록), `CLAUDE.md`(`@AGENTS.md` 한 줄), PR 템플릿, `.gitattributes`(맨 앞 줄만 관리), `.mise.toml`, Stop 훅과 `enqueue` 허용 훅, Matt 스킬 설정 `docs/agents/`(시작 파일), 판을 고정한 스킬 사본 `.claude/skills/`, `.baseline/`이다. 파일마다 저장소가 고칠 수 있는 범위는 [GLOSSARY.md](GLOSSARY.md)(관리 파일, 관리 블록, 시작 파일, 앞줄 관리 파일)에 있다. 단계별로 쓰는 스킬은 [WORKFLOW.md](WORKFLOW.md)에 있다.
+코어는 `AGENTS.md`·`REVIEW.md`(관리 블록), `CLAUDE.md`(`@AGENTS.md` 한 줄), PR 템플릿, `.gitattributes`(맨 앞 줄만 관리), `.mise.toml`, Stop 훅과 `enqueue` 허용 훅, Matt 스킬 설정 `docs/agents/`(`issue-tracker.md`·`domain.md`·`triage-labels.md`는 시작 파일, `LICENSE`는 관리 파일), 판을 고정한 스킬 사본 `.claude/skills/`, `.baseline/`이다. 파일마다 저장소가 고칠 수 있는 범위는 [GLOSSARY.md](GLOSSARY.md)(관리 파일, 관리 블록, 시작 파일, 앞줄 관리 파일)에 있다. 단계별로 쓰는 스킬은 [WORKFLOW.md](WORKFLOW.md)에 있다.
 
 | 층 | 프로필 | 언제 켜는가 |
 | --- | --- | --- |
