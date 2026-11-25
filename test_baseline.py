@@ -337,6 +337,33 @@ class MigrateTests(unittest.TestCase):
         self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
         self.assertNotIn("AGENTS.md: 명령 칸", self.migrate().stdout)
 
+    def test_control_characters_in_a_cell_block(self):
+        self.write("AGENTS.md", "- check: `touch x|true \x1b[2K\x1b[1G- check: npm test`\n")
+        self.assertBlocked("명령 칸 check에 출력할 수 없는 문자가 있다")
+
+    def test_crlf_cells_still_draft(self):
+        (self.repo / "AGENTS.md").write_bytes(b"- test: `make test`\r\n")
+        self.assertEqual(self.migrate().returncode, 0, self.migrate().stdout)
+
+    def test_check_refuses_control_characters_in_commands_json(self):
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        path = self.repo / ".baseline/commands.json"
+        commands = json.loads(path.read_text(encoding="utf-8"))
+        commands["test"] = ["make", "test\x1b[2K"]
+        path.write_text(json.dumps(commands), encoding="utf-8")
+        self.assertIn("출력할 수 없는 문자", self.check().stderr)
+
+    def test_apply_replaces_files_instead_of_writing_through_links(self):
+        outside = Path(self.tmp.name + "-outside.md")
+        self.addCleanup(lambda: outside.unlink() if outside.exists() else None)
+        outside.write_text("# outside\n", encoding="utf-8")
+        (self.repo / "AGENTS.md").unlink()
+        os.link(outside, self.repo / "AGENTS.md")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "# outside\n")
+        self.assertIn("<!-- baseline:start -->", (self.repo / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertEqual([p.name for p in self.repo.glob(".*.migrate-*")], [])
+
     def test_an_indented_first_cell_in_claude_md_blocks(self):
         self.write("AGENTS.md", "# I\n")
         self.write("CLAUDE.md", "  - test: `x`\n")

@@ -243,6 +243,10 @@ def repo_root():
 
 
 def command_problem(name, value):
+    # Control characters can make a printed command look like another one (hooks, CI and the cloud run it).
+    parts = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    if not all(not isinstance(a, str) or a.isprintable() for a in parts):
+        return f"{name}: 출력할 수 없는 문자가 있다"
     if isinstance(value, str):
         return None if value.startswith("N/A: ") and len(value) > 5 else f"{name}: 문자열이면 'N/A: <이유>'여야 한다"
     if not isinstance(value, list) or not value or not all(isinstance(a, str) and a for a in value):
@@ -384,6 +388,9 @@ def migrate_agents(data, core_data, extra, blocks, notes):
         if not match:
             continue
         name, cell = match.groups()
+        if not cell.strip().isprintable():
+            blocks.append(f"AGENTS.md 명령 칸 {name}에 출력할 수 없는 문자가 있다. 지운 뒤 다시 migrate한다")
+            return None, None
         if name in drafts:
             blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다. 한 줄만 남긴다")
             return None, None
@@ -544,6 +551,23 @@ def migrate_plan(target):
     return blocks, notes, writes, drafts
 
 
+def replace_file(path, data):
+    """Write through a new file in the same folder, then rename it over path. A link at path (hard or
+    symbolic, even one made after the plan) is replaced, not written through, and a failed write leaves no half file."""
+    tmp = path.with_name(f".{path.name}.migrate-{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        if path.is_file() and not path.is_symlink():
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        if tmp.exists():
+            tmp.unlink()
+        raise
+
+
 def cmd_migrate(args):
     target = Path(args.path)
     need_core("migrate", target)
@@ -558,7 +582,7 @@ def cmd_migrate(args):
     if skills:
         print(f"- 새로 쓴다 {SKILLS}: " + ", ".join(skills))
     if drafts is not None:
-        print("commands.json 초안(사람이 확인한다):")
+        print("commands.json 초안(사람이 확인한다. check는 Stop 훅에서, setup·check·test는 CI와 클라우드에서 돈다):")
         for name in COMMANDS:
             print(command_line(name, drafts[name]))
     if blocks:
@@ -570,7 +594,7 @@ def cmd_migrate(args):
     # CLAUDE.md last: its text is in the new AGENTS.md only once that write has landed.
     for rel in sorted(writes, key=lambda rel: rel == "CLAUDE.md"):
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
-        (target / rel).write_bytes(writes[rel])
+        replace_file(target / rel, writes[rel])
     print(f"migrate: 파일 {len(writes)}개를 썼다. commands.json 초안을 확인하고 check를 돌린다")
     return 0
 
