@@ -305,7 +305,7 @@ def cmd_init(args):
     # .gitignore is the project's file, so add only the secret lines it lacks. Read it before any write.
     ignore = target / ".gitignore"
     try:
-        old = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+        old = ignore.read_bytes().decode("utf-8") if ignore.exists() else ""  # bytes: read_text turns CRLF into LF
     except (OSError, ValueError) as error:
         sys.exit(f"init: .gitignore를 읽지 못했다(아무것도 쓰지 않았다): {error}")
     added = [line for line in SECRET_IGNORE if line not in old.splitlines() and line != "!.env.example"]
@@ -315,9 +315,10 @@ def cmd_init(args):
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
     if added:
-        lead = ("" if old.endswith("\n") else "\n") + "\n" if old else ""
-        ignore.write_text(old + lead + "# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)\n"
-                          + "".join(line + "\n" for line in added), encoding="utf-8")
+        nl = "\r\n" if "\r\n" in old else "\n"  # keep the file's own line endings
+        lead = ("" if old.endswith("\n") else nl) + nl if old else ""
+        text = lead + "# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)" + nl + "".join(line + nl for line in added)
+        ignore.write_bytes((old + text).encode("utf-8"))
         print("init: .gitignore (비밀값 줄 추가)")
     return 0
 

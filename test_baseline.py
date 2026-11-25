@@ -85,6 +85,15 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual(lines[-5:], [".env.*", "*.pem", "*.key", "*.p12", "!.env.example"])
         self.assertCheck(0)  # .env.example stays tracked: the exception comes after .env.*
 
+    def test_init_keeps_crlf_line_endings_in_gitignore(self):
+        (self.repo / ".gitignore").write_bytes(b"node_modules/\r\n")
+        self.init()
+        data = (self.repo / ".gitignore").read_bytes()
+        self.assertTrue(data.startswith(b"node_modules/\r\n\r\n"))
+        self.assertEqual(data.count(b"\n"), data.count(b"\r\n"))
+        self.assertTrue(data.endswith(b"!.env.example\r\n"))
+        self.assertCheck(0)
+
     def test_init_stops_before_any_write_when_gitignore_is_unreadable(self):
         (self.repo / ".gitignore").mkdir()
         result = cli("init", self.repo)
