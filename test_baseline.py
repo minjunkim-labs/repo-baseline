@@ -85,6 +85,22 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual(lines[-5:], [".env.*", "*.pem", "*.key", "*.p12", "!.env.example"])
         self.assertCheck(0)  # .env.example stays tracked: the exception comes after .env.*
 
+    def test_init_adds_the_exception_when_only_it_is_missing(self):
+        (self.repo / ".gitignore").write_text(".env\n.env.*\n*.pem\n*.key\n*.p12\n", encoding="utf-8")
+        self.init()
+        self.assertTrue((self.repo / ".gitignore").read_text(encoding="utf-8").endswith("!.env.example\n"))
+        self.assertCheck(0)
+
+    def test_check_ignores_a_git_template_with_an_exclude_file(self):
+        self.init()
+        (self.repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        template = self.repo / "template"
+        (template / "info").mkdir(parents=True)
+        (template / "info/exclude").write_text(".env\n.env.*\n*.pem\n*.key\n*.p12\n", encoding="utf-8")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"GIT_TEMPLATE_DIR": str(template)}):
+            self.assertCheck(1, ".gitignore: 비밀값 파일을 ignore하지 않는다")
+
     def test_init_keeps_crlf_line_endings_in_gitignore(self):
         (self.repo / ".gitignore").write_bytes(b"node_modules/\r\n")
         self.init()

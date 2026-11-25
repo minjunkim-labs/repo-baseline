@@ -309,7 +309,8 @@ def cmd_init(args):
     except (OSError, ValueError) as error:
         sys.exit(f"init: .gitignore를 읽지 못했다(아무것도 쓰지 않았다): {error}")
     added = [line for line in SECRET_IGNORE if line not in old.splitlines() and line != "!.env.example"]
-    added += ["!.env.example"] if added else []  # the last matching rule wins, so the exception goes after .env.*
+    # The last matching rule wins, so the exception goes after .env.*, also when only the exception is missing.
+    added += ["!.env.example"] if added or "!.env.example" not in old.splitlines() else []
     for rel, data in files.items():
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
@@ -336,7 +337,7 @@ def ignore_problems(root):
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / ".gitignore").write_bytes(data)
         env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
-        result = subprocess.run(["git", "init", "-q", tmp], capture_output=True, env=env)
+        result = subprocess.run(["git", "init", "-q", "--template=", tmp], capture_output=True, env=env)  # no info/exclude
         if not result.returncode:
             result = subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "check-ignore", "--no-index",
                                      "--stdin"], cwd=tmp, capture_output=True, env=env,
