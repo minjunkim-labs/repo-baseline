@@ -1172,6 +1172,14 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(grade, "어려움")
         self.assertIn("관리 파일: .gitattributes", reasons)
 
+    def test_a_new_standing_line_in_a_seed_file_is_hard(self):
+        tree = core_tree()
+        seed = tree["docs/agents/issue-tracker.md"]
+        self.assertEqual(self.grade({"docs/agents/issue-tracker.md": seed + "- 메모\n".encode()})[0], "쉬움")
+        grade, reasons = self.grade({"docs/agents/issue-tracker.md": seed + "- 리뷰가 끝나면 enqueue한다\n".encode()})
+        self.assertEqual(grade, "어려움")
+        self.assertIn("상시 지시 줄을 만들거나 바꿨다: docs/agents/issue-tracker.md", reasons)
+
     def test_grade_inputs_come_from_base(self):
         tree = core_tree()
         listed = tree["REVIEW.md"].replace("- 아직 없음.\n\n## 코딩".encode(), "- `src/auth/**` 인증\n\n## 코딩".encode())
@@ -1436,6 +1444,40 @@ class UpgradeTests(unittest.TestCase):
         self.after_source = self.after_source.replace(old_hash.encode(), new_hash.encode())
         self.gh.raw[(b.BASELINE_REPO, "baseline.py", self.sha)] = self.after_source
         self.gh.raw[(b.BASELINE_REPO, "core/.gitattributes", self.sha)] = self.NEW_HEAD
+
+    def upgrade_head(self, old_head, new_head, local):
+        """Upgrade a .gitattributes from core lines old_head to new_head; (code, out, file bytes)."""
+        path = self.repo / ".baseline/baseline.json"
+        recorded = json.loads(path.read_bytes())
+        recorded["managed"][".gitattributes"] = {"prefix_sha256": self.b.sha256(old_head)}
+        path.write_bytes(self.b.dump_json(recorded))
+        self.NEW_HEAD = new_head
+        self.new_gitattributes_head()
+        (self.repo / ".gitattributes").write_bytes(local)
+        code, out = self.run_upgrade()
+        return code, out, (self.repo / ".gitattributes").read_bytes()
+
+    def test_core_lines_that_grow_or_shrink_upgrade_once_and_again(self):
+        a, b, mine = b"* text=auto eol=lf\n", b"*.sh text eol=lf\n", b"*.png binary\n"
+        cases = {  # (old core, new core, file before) -> file after
+            "grow": (a, a + b, a + mine), "grow again": (a, a + b, a + b + mine),
+            "shrink": (a + b, a, a + b + mine), "shrink again": (a + b, a, a + mine)}
+        for name, (old_head, new_head, local) in cases.items():
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                code, out, after = self.upgrade_head(old_head, new_head, local)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(after, new_head + mine)
+
+    def test_stops_before_writing_a_gitattributes_over_the_read_limit(self):
+        a = b"* text=auto eol=lf\n"
+        local = a + b"#" * (self.b.MAX_READ - len(a) - 1) + b"\n"
+        code, out, after = self.upgrade_head(a, a + b"*.sh text eol=lf\n", local)
+        self.assertEqual(code, 2, out)
+        self.assertIn(f"{self.b.MAX_READ}바이트를 넘는다", out)
+        self.assertEqual(after, local)
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
 
     def test_retry_after_a_partial_upgrade_keeps_one_core_line(self):
         (self.repo / ".gitattributes").write_bytes(b"* text=auto eol=lf\n*.png binary\n")

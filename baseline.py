@@ -35,7 +35,7 @@ MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "5a0264145665fe22598322b9a6c3bbf0f9f96c2c2ffd0b281e948ceb112ef8f1"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
+    "REVIEW.md": {"block_sha256": "25b2312c47d48ad39f14cd413895cc088d45042d96ce8013b0712bfe726d52a7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
@@ -1115,9 +1115,11 @@ def upgrade(root, tag_name):
         if kind == "prefix_sha256":
             old_spec = recorded["managed"].get(rel)
             old_want = next(iter(old_spec.values()), None) if isinstance(old_spec, dict) else None
-            # The new line first: after a partial upgrade the old line can also match its first lines.
-            rest = after_prefix(local, managed[rel]["prefix_sha256"])
-            rest = rest if rest is not None else after_prefix(local, old_want)
+            # Both versions can match (a partial upgrade, core lines that grow or shrink): the longer
+            # core lines win, so the shorter rest is the repo's.
+            rests = [r for r in (after_prefix(local, old_want), after_prefix(local, managed[rel]["prefix_sha256"]))
+                     if r is not None]
+            rest = min(rests, key=len) if rests else None
             if rest is None:
                 raise OSError(f"{rel}: 맨 앞 줄이 판 {recorded.get('version')}의 코어 줄과 다르다. check를 통과하게 고친 뒤 다시 upgrade한다")
             writes[rel] = data + rest
@@ -1137,6 +1139,9 @@ def upgrade(root, tag_name):
     if touch_settings:
         writes[settings] = re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"',
                                   b'\\g<1>' + sha256(source).encode() + b'"', read_file(root, settings))
+    big = sorted(rel for rel, data in writes.items() if len(data) > MAX_READ)
+    if big:  # check could not read them
+        raise OSError(f"쓸 내용이 {MAX_READ}바이트를 넘는다: " + ", ".join(big))
     record = dump_json(dict(recorded, version=version, managed=managed))
     for rel, data in writes.items():
         path = root / rel
@@ -1365,11 +1370,14 @@ def preflight(repo, number, remote):
                 hard = kind == "sha256" or old(rel) is None or new(rel) is None or block(old(rel)) != block(new(rel))
             if hard:
                 reasons.append(f"관리 {'블록' if kind == 'block_sha256' else '파일'}: {rel}")
-        if "AGENTS.md" in paths:
-            before = set((old("AGENTS.md") or b"").decode("utf-8", "replace").splitlines())
+        # Seed files instruct the skills too, so a new standing line there is as hard as in AGENTS.md.
+        for rel in ["AGENTS.md"] + [rel for rel in MANAGED if kind_of(rel) == "seed_sha256"]:
+            if rel not in paths:
+                continue
+            before = set((old(rel) or b"").decode("utf-8", "replace").splitlines())
             if any(("enqueue" in line or "상시 지시" in line) and line not in before
-                   for line in (new("AGENTS.md") or b"").decode("utf-8", "replace").splitlines()):
-                reasons.append("상시 지시 줄을 만들거나 바꿨다: AGENTS.md")
+                   for line in (new(rel) or b"").decode("utf-8", "replace").splitlines()):
+                reasons.append(f"상시 지시 줄을 만들거나 바꿨다: {rel}")
         if "REVIEW.md" in paths and set(patterns) - set(sensitive_patterns(new("REVIEW.md"))):
             reasons.append("「민감한 파일」 경로를 지웠다: REVIEW.md")
         exceptions = []
