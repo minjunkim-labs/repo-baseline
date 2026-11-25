@@ -18,24 +18,30 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import quote
 
 VERSION = "2.0.0"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
+ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
+ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
 # The hashes of this version. check trusts these, not only baseline.json, so editing a managed
 # file together with baseline.json still fails. test_baseline.py keeps them equal to core/.
+# Each value is the sha256 of the source file, keyed by what the repo may change (GLOSSARY.md):
+# sha256 nothing, block_sha256 all but the managed block, prefix_sha256 the lines below the source's
+# lines at the top, seed_sha256 everything (written only when missing, never checked or upgraded).
 MANAGED = {
-    ".gitattributes": {"sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
+    ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "5a0264145665fe22598322b9a6c3bbf0f9f96c2c2ffd0b281e948ceb112ef8f1"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
+    "REVIEW.md": {"block_sha256": "25b2312c47d48ad39f14cd413895cc088d45042d96ce8013b0712bfe726d52a7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
-    "docs/agents/issue-tracker.md": {"sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
-    "docs/agents/triage-labels.md": {"sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
-    "docs/agents/domain.md": {"sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
+    "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
+    "docs/agents/triage-labels.md": {"seed_sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
+    "docs/agents/domain.md": {"seed_sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
     "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/arena/SKILL.md": {"sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"},
@@ -205,11 +211,32 @@ def block(data):
     return b"".join(lines[start + 1:end]) if start < end else None
 
 
+KINDS = ("sha256", "block_sha256", "prefix_sha256", "seed_sha256")
+
+
 def digest(data, kind):
-    if kind == "sha256":
+    """The hash a source file is recorded with. Only a managed block hashes part of the file."""
+    if kind != "block_sha256":
         return sha256(data)
     inner = block(data)
     return None if inner is None else sha256(inner)
+
+
+def after_prefix(data, want):
+    """The bytes after the leading lines whose sha256 is want, or None when data does not start with them."""
+    h, at = hashlib.sha256(), 0
+    for line in (data or b"").splitlines(keepends=True):
+        h.update(line)
+        at += len(line)
+        if h.hexdigest() == want:
+            return data[at:]
+    return None
+
+
+def kind_of(rel, managed=None):
+    """The MANAGED kind of a path, or None when it is not managed."""
+    spec = (MANAGED if managed is None else managed).get(rel)
+    return next(iter(spec)) if isinstance(spec, dict) and len(spec) == 1 else None
 
 
 def source(rel):
@@ -310,17 +337,78 @@ def cmd_init(args):
     target = Path(args.path)
     need_core("init", target)
     files = core_files(DEFAULT_COMMANDS)
-    links = symlinks(target, files)
+    links = symlinks(target, (*files, ".gitignore"))
     if links:
         sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
-    existing = sorted(rel for rel in files if (target / rel).exists())
+    kept = {rel for rel in files if kind_of(rel) == "seed_sha256" and (target / rel).exists()}
+    existing = sorted(rel for rel in files if (target / rel).exists() and rel not in kept)
     if existing:
         sys.exit("init: 이미 있다(기존 저장소는 migrate로 옮긴다): " + ", ".join(existing))
+    # Read it before any write.
+    try:
+        ignore = with_env_ignore(target)
+    except (OSError, ValueError) as error:
+        sys.exit(f"init: .gitignore를 읽지 못했다(아무것도 쓰지 않았다): {error}")
     for rel, data in files.items():
+        if rel in kept:
+            print(f"init: {rel}: 시작 파일이 이미 있어 둔다")
+            continue
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
+    if ignore is not None:
+        (target / ".gitignore").write_bytes(ignore)
+        print("init: .gitignore (비밀값 줄 추가)")
     return 0
+
+
+def with_env_ignore(target):
+    """target's .gitignore with the secret lines it lacks added, or None when it has them all.
+    It is the project's file, so nothing else changes. OSError or ValueError when it cannot be read as UTF-8."""
+    ignore = target / ".gitignore"
+    old = ignore.read_bytes().decode("utf-8") if ignore.exists() else ""  # bytes: read_text turns CRLF into LF
+    added = [line for line in ENV_IGNORE if line not in old.splitlines() and line != "!.env.example"]
+    # The last matching rule wins, so the exception goes after .env.*, also when only the exception is missing.
+    added += ["!.env.example"] if added or "!.env.example" not in old.splitlines() else []
+    if not added:
+        return None
+    nl = "\r\n" if "\r\n" in old else "\n"  # keep the file's own line endings
+    lead = ("" if old.endswith("\n") else nl) + nl if old else ""
+    text = lead + "# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)" + nl + "".join(line + nl for line in added)
+    return (old + text).encode("utf-8")
+
+
+def ignore_problems(root):
+    """Secret file names the repository's own .gitignore does not ignore (POLICY §7).
+
+    Checked in an empty repo holding only that file, so this machine's global ignore and
+    .git/info/exclude cannot make it pass here and fail in CI."""
+    path = root / ".gitignore"
+    try:
+        data = read_file(root, ".gitignore") if path.exists() or path.is_symlink() else b""
+    except OSError as error:
+        return [f".gitignore: {error}"]
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / ".gitignore").write_bytes(data)
+        # No GIT_* from the caller: a git hook sets GIT_DIR, and git would then use that repo and its info/exclude.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        result = subprocess.run(["git", "init", "-q", "--template=", tmp], capture_output=True, env=env)  # no info/exclude
+        if not result.returncode:
+            result = subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "check-ignore", "--no-index",
+                                     "--stdin"], cwd=tmp, capture_output=True, env=env,
+                                    input="\n".join(ENV_SAMPLES + (".env.example",)).encode())
+    if result.returncode not in (0, 1):
+        return [f".gitignore를 확인하지 못했다: {result.stderr.decode('utf-8', 'replace').strip()}"]
+    ignored = result.stdout.decode("utf-8", "replace").splitlines()
+    problems = []
+    missing = [name for name in ENV_SAMPLES if name not in ignored]
+    if missing:
+        problems.append(f".gitignore: 비밀값 파일을 ignore하지 않는다({', '.join(missing)}). "
+                        f"이 줄을 더한다: {' '.join(ENV_IGNORE)}")
+    if ".env.example" in ignored:
+        problems.append(".gitignore: `.env.example`까지 ignore한다. `!.env.example`을 `.env.*` 뒤에 둔다")
+    return problems
 
 
 # migrate
@@ -446,7 +534,7 @@ def migrate_plan(target):
     if (target / ".baseline").exists() or (target / ".baseline").is_symlink():
         return [".baseline/: 이미 v2다. upgrade로 판을 올린다"], notes, writes, None
     files = core_files(DEFAULT_COMMANDS)
-    links = symlinks(target, files)
+    links = symlinks(target, (*files, ".gitignore"))
     if links:
         hint = ". CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다" if any(
             Path(link).name == "CLAUDE.md" for link in links) else ""
@@ -507,6 +595,15 @@ def migrate_plan(target):
             writes["AGENTS.md"] = new
     files[".baseline/commands.json"] = dump_json(drafts or DEFAULT_COMMANDS)
 
+    try:
+        ignore = with_env_ignore(target)
+    except (OSError, ValueError) as error:
+        blocks.append(f".gitignore를 읽지 못했다: {error}")
+    else:
+        if ignore is not None:
+            writes[".gitignore"] = ignore
+            notes.append(".gitignore: 비밀값 줄이 빠져 있어 더한다")
+
     recorded = recorded_hashes(target)
     for rel, data in files.items():
         if rel in ("AGENTS.md", "CLAUDE.md") or rel.startswith(SKILLS):
@@ -519,7 +616,13 @@ def migrate_plan(target):
         old = have(rel)
         if old is None or old == data:
             continue
-        if "block_sha256" in MANAGED.get(rel, {}):
+        if kind_of(rel) == "seed_sha256":
+            notes.append(f"{rel}: 코어 판과 다르다. 시작 파일이라 저장소 판을 둔다")
+        elif kind_of(rel) == "prefix_sha256":
+            if after_prefix(old, MANAGED[rel]["prefix_sha256"]) is None:
+                writes[rel] = data + old
+                notes.append(f"{rel}: 맨 앞에 코어 줄을 넣는다. `git add --renormalize .`로 줄 끝을 다시 맞춰 커밋한다")
+        elif kind_of(rel) == "block_sha256":
             new = with_block(old, data)
             if new is None:
                 blocks.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
@@ -622,15 +725,27 @@ def cmd_check(args):
             problems += ops_problems(root)
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
+        if kind == "seed_sha256":
+            if (root / rel).exists() or (root / rel).is_symlink():
+                try:  # the content is the repo's; a link would make the skills read a file outside it
+                    read_file(root, rel)
+                except OSError as error:
+                    problems.append(f"{rel}: {error}")
+            continue
         try:
-            got = digest(read_file(root, rel), kind)
+            data = read_file(root, rel)
         except OSError as error:
             problems.append(f"{rel}: {error}")
             continue
-        if got is None:
+        got = digest(data, kind)
+        if kind == "prefix_sha256":
+            if after_prefix(data, want) is None:
+                problems.append(f"{rel}: 맨 앞 줄이 이 판과 다르다")
+        elif got is None:
             problems.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         elif got != want:
             problems.append(f"{rel}: {'관리 블록이' if kind == 'block_sha256' else '파일이'} 이 판과 다르다")
+    problems += ignore_problems(root)
     # A file added to a skill copy changes the skill too. Other folders in .claude/skills/ are the project's.
     for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
         if linked(root, SKILLS + name):  # os.walk opens a linked top folder; read_file above already reported it
@@ -825,7 +940,8 @@ def is_mise_config(path):
 
 def is_sensitive(path, patterns):
     parts = path.split("/")
-    return (parts[-1] in {".mcp.json", "CODEOWNERS"} or is_manifest(parts[-1]) or is_mise_config(path)
+    # .gitattributes can hide a file's diff from review (`-diff`, `binary`), wherever its lines are.
+    return (parts[-1] in {".mcp.json", "CODEOWNERS", ".gitattributes"} or is_manifest(parts[-1]) or is_mise_config(path)
             or any(part in AGENT_DIRS or part in {".github", ".baseline"} for part in parts)
             or any(fnmatch.fnmatchcase(path, p) or path.startswith(p.rstrip("*").rstrip("/") + "/")
                    for p in patterns))
@@ -880,7 +996,7 @@ def embedded_managed(source):
     """MANAGED of a baseline.py, read with ast. The tag's code is never run."""
     value = embedded_assign(source, "MANAGED")
     if isinstance(value, dict) and all(isinstance(v, dict) and len(v) == 1 and
-                                       next(iter(v)) in ("sha256", "block_sha256") for v in value.values()):
+                                       next(iter(v)) in KINDS for v in value.values()):
         return value
     return None
 
@@ -977,6 +1093,8 @@ def upgrade(root, tag_name):
         return 1
     files = {}
     for rel in managed:
+        if kind_of(rel, managed) == "seed_sha256":
+            continue  # the repo owns it after init or migrate
         data = contents(BASELINE_REPO, repo_rel(rel), sha)
         if data is None:
             raise OSError(f"{repo_rel(rel)}: 태그 {tag}에 없다")
@@ -994,6 +1112,18 @@ def upgrade(root, tag_name):
             writes[rel] = data
             continue
         local = read_file(root, rel)
+        if kind == "prefix_sha256":
+            old_spec = recorded["managed"].get(rel)
+            old_want = next(iter(old_spec.values()), None) if isinstance(old_spec, dict) else None
+            # Both versions can match (a partial upgrade, core lines that grow or shrink): the longer
+            # core lines win, so the shorter rest is the repo's.
+            rests = [r for r in (after_prefix(local, old_want), after_prefix(local, managed[rel]["prefix_sha256"]))
+                     if r is not None]
+            rest = min(rests, key=len) if rests else None
+            if rest is None:
+                raise OSError(f"{rel}: 맨 앞 줄이 판 {recorded.get('version')}의 코어 줄과 다르다. check를 통과하게 고친 뒤 다시 upgrade한다")
+            writes[rel] = data + rest
+            continue
         if block(local) is None:
             raise OSError(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         writes[rel] = replace_block(local, block(data))
@@ -1009,6 +1139,9 @@ def upgrade(root, tag_name):
     if touch_settings:
         writes[settings] = re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"',
                                   b'\\g<1>' + sha256(source).encode() + b'"', read_file(root, settings))
+    big = sorted(rel for rel, data in writes.items() if len(data) > MAX_READ)
+    if big:  # check could not read them
+        raise OSError(f"쓸 내용이 {MAX_READ}바이트를 넘는다: " + ", ".join(big))
     record = dump_json(dict(recorded, version=version, managed=managed))
     for rel, data in writes.items():
         path = root / rel
@@ -1084,9 +1217,14 @@ def upgrade_problem(paths, old, new):
         elif path == ".claude/settings.json" and data is not None and old(path) is not None:
             pin = sha256(source).encode()
             same = data == re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + pin + b'"', old(path))
-        elif path in managed and data is not None:
+        elif path in managed and data is not None and kind_of(path, managed) != "seed_sha256":
             (kind, hash_), = managed[path].items()
-            if digest(data, kind) != hash_:
+            if kind == "prefix_sha256":
+                old_spec = old_managed.get(path)
+                old_want = next(iter(old_spec.values()), None) if isinstance(old_spec, dict) else None
+                rest = after_prefix(data, hash_)
+                same = rest is not None and (rest == b"" if old(path) is None else rest == after_prefix(old(path), old_want))
+            elif digest(data, kind) != hash_:
                 same = False
             elif kind == "sha256":
                 same = True
@@ -1223,15 +1361,23 @@ def preflight(repo, number, remote):
         reasons += [f"symlink·submodule: {p}" for p in links]
         reasons += [f"출력할 수 없는 문자가 있는 경로: {json.dumps(p)}" for p in sorted(paths) if not p.isprintable()]
         for rel, spec in MANAGED.items():
-            (kind, _), = spec.items()
-            if rel in paths and (kind == "sha256" or old(rel) is None or new(rel) is None
-                                 or block(old(rel)) != block(new(rel))):
+            (kind, want), = spec.items()
+            if rel not in paths or kind == "seed_sha256":  # a seed file is the repo's own
+                continue
+            if kind == "prefix_sha256":
+                hard = any(after_prefix(data, want) is None for data in (old(rel), new(rel)))
+            else:
+                hard = kind == "sha256" or old(rel) is None or new(rel) is None or block(old(rel)) != block(new(rel))
+            if hard:
                 reasons.append(f"관리 {'블록' if kind == 'block_sha256' else '파일'}: {rel}")
-        if "AGENTS.md" in paths:
-            before = set((old("AGENTS.md") or b"").decode("utf-8", "replace").splitlines())
+        # Seed files instruct the skills too, so a new standing line there is as hard as in AGENTS.md.
+        for rel in ["AGENTS.md"] + [rel for rel in MANAGED if kind_of(rel) == "seed_sha256"]:
+            if rel not in paths:
+                continue
+            before = set((old(rel) or b"").decode("utf-8", "replace").splitlines())
             if any(("enqueue" in line or "상시 지시" in line) and line not in before
-                   for line in (new("AGENTS.md") or b"").decode("utf-8", "replace").splitlines()):
-                reasons.append("상시 지시 줄을 만들거나 바꿨다: AGENTS.md")
+                   for line in (new(rel) or b"").decode("utf-8", "replace").splitlines()):
+                reasons.append(f"상시 지시 줄을 만들거나 바꿨다: {rel}")
         if "REVIEW.md" in paths and set(patterns) - set(sensitive_patterns(new("REVIEW.md"))):
             reasons.append("「민감한 파일」 경로를 지웠다: REVIEW.md")
         exceptions = []
@@ -1297,14 +1443,21 @@ def gh_graphql(query, **fields):
 
 
 def review_fields(body):
-    """The `## Review` fields enqueue reads, each from exactly one `name: value` line."""
+    """The `## Review` fields enqueue reads, each from exactly one `name: value` line.
+
+    None: no line, or one line left blank as the PR template has it. "": two lines, so neither is read."""
     lines = section(body.encode("utf-8"), "Review")
     fields = {}
     for name in ("리뷰한 head", "등급", "남은 지적"):
         at = [i for i, line in enumerate(lines) if line.startswith(f"{name}:")]
-        fields[name] = lines[at[0]][len(name) + 1:].strip().strip("`") if len(at) == 1 else None if not at else ""
-        if len(at) == 1 and at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("- ", "* ")):  # `*강조*` is not a list
-            fields[name] += " (목록이 이어진다)"  # 「남은 지적: 없음」 followed by a list is not 없음
+        if len(at) != 1:
+            fields[name] = None if not at else ""
+            continue
+        value = lines[at[0]][len(name) + 1:].strip().strip("`")
+        if at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("- ", "* ")):  # `*강조*` is not a list
+            fields[name] = value + " (목록이 이어진다)"  # 「남은 지적: 없음」 followed by a list is not 없음
+        else:
+            fields[name] = value or None
     return fields
 
 
@@ -1549,6 +1702,17 @@ def cmd_review_report(args):
             if len(set(roots)) != len(roots):
                 print("review-report: 쓰지 않는다: 같은 스레드를 --thread로 두 번 줬다")
                 return 1
+            # A cloud run answers without resolving; the local run that carries the report over resolves only.
+            # Only a writer's reply counts: in a public repo anyone can post the same words first.
+            wanted = set(judged)
+            posted = set()
+            for c in comments.values():
+                key = (c.get("in_reply_to_id"), (c.get("body") or "").strip())
+                login = (c.get("user") or {}).get("login")
+                if key in wanted and login and not is_bot(c.get("user")) and gh_api(
+                        f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission") in (
+                        "admin", "write"):
+                    posted.add(key)
         if judged and not cloud:
             owner, name = repo.split("/")
             nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
@@ -1564,8 +1728,11 @@ def cmd_review_report(args):
                 if not cloud and threads[cid]["isResolved"]:  # a rerun after a partial failure answers once
                     print(f"review-report: 댓글 {cid}의 스레드는 이미 해결됐다. 건너뛴다")
                     continue
-                github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
-                answered.append(str(cid))
+                if (cid, reply) in posted:
+                    print(f"review-report: 댓글 {cid}의 스레드에는 같은 판정이 이미 있다. 답은 다시 달지 않는다")
+                else:
+                    github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
+                    answered.append(str(cid))
                 if cloud:
                     print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
                 else:
@@ -2345,6 +2512,12 @@ LABELS = (
     {"name": "ready-for-agent", "color": "0e8a16", "description": "범위와 완료 기준이 정해져 에이전트가 시작할 수 있다"},
     {"name": "ready-for-human", "color": "fbca04", "description": "사람이 해야 한다"},
     {"name": "wontfix", "color": "ffffff", "description": "하지 않는다"},
+    # The wayfinder skill files maps and tickets with these; `gh issue create --label` fails on a missing one.
+    {"name": "wayfinder:map", "color": "5319e7", "description": "wayfinder 지도(결정과 남은 안개)"},
+    {"name": "wayfinder:research", "color": "c5def5", "description": "wayfinder 티켓: 조사"},
+    {"name": "wayfinder:prototype", "color": "c5def5", "description": "wayfinder 티켓: 버리는 시제품"},
+    {"name": "wayfinder:grilling", "color": "c5def5", "description": "wayfinder 티켓: 질문으로 결정"},
+    {"name": "wayfinder:task", "color": "c5def5", "description": "wayfinder 티켓: 작은 일"},
 )
 # Write order matters: security updates need alerts on; selected actions need allowed_actions=selected.
 SETTINGS_ORDER = ("dependabot_alerts", "repository", "protection", "rulesets", "actions", "allowed_actions",

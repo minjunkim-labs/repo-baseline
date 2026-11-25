@@ -9,9 +9,9 @@
 ## 지킬 것
 
 - 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 태그 `v2.0.0`(또는 소유자가 정한 더 새 태그)이다. 저장소 밖 임시 폴더에 받는다: `git clone --depth 1 --branch v2.0.0 https://github.com/minjunkim-labs/repo-baseline /tmp/repo-baseline`. 아래 `B`는 이 클론이다.
-- 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 지금 판과 새 판 사이의 `docs/releases/v*.md`도 읽는다. `templates/`·`profiles/`·`tools/`는 v1 도구라 읽지 않는다.
-- 관리 블록(`<!-- baseline:start -->`~`<!-- baseline:end -->`)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다.
-- `migrate`가 막힘으로 보고한 파일을 덮어쓰거나 지우지 않는다. 손으로 옮길 곳이 분명하지 않으면 소유자에게 묻는다. 관리 파일 자리(`docs/agents/*`, `.gitattributes` 등)의 프로젝트 내용을 어디로 옮길지는 아직 정하지 않았다(repo-baseline #175). 정하지 말고 보고한다.
+- 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 지금 판과 새 판 사이의 `docs/releases/v*.md`도 읽는다. `templates/`·`profiles/`·`tools/`는 v1 도구라 읽지 않는다. 예외: `github/README.md`가 가리키는 `templates/github/` 파일(Dependabot, `SECURITY.md`, `.coderabbit.yaml`)은 읽고 복사한다. 이름이 낯설면 `GLOSSARY.md`를 읽는다.
+- 관리 블록(`<!-- baseline:start -->`~`<!-- baseline:end -->`)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다. `docs/agents/`의 설정은 시작 파일이라 고쳐도 된다. `.gitattributes`는 맨 앞 줄 아래에만 더한다.
+- `migrate`가 막힘으로 보고한 파일을 덮어쓰거나 지우지 않는다. 그 파일의 프로젝트 내용을 어디로 옮길지 분명하지 않으면 소유자에게 묻는다.
 - 비밀값 파일(`.env*`, 키)을 읽거나 만들거나 커밋하지 않는다.
 - `main`에 직접 push하지 않는다. PR을 병합하지 않는다.
 - 서버 쓰기(`github apply`, 브랜치 보호·저장소 설정)는 하지 않는다. 소유자가 자기 기기에서 한다.
@@ -38,10 +38,10 @@
 ## 2. 이미 있는 저장소
 
 1. `python3 -I "$B/baseline.py" migrate .`을 돌리고 출력(충돌, 계획, `commands.json` 초안)을 보고에 붙인다.
-2. 막힘을 하나씩 푼다. 같은 이름 스킬은 이름을 바꾸거나, 프로젝트 것이 아니면 지운다. `CLAUDE.md`의 명령 칸은 `AGENTS.md` 명령 칸으로 옮긴다. 관리 파일 자리의 프로젝트 내용은 「지킬 것」대로 소유자에게 묻는다. 묻는 동안 남은 막힘이 있으면 `--apply`하지 않고 보고한다.
-3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`.
+2. 막힘을 하나씩 푼다. 같은 이름 스킬은 이름을 바꾸거나, 프로젝트 것이 아니면 지운다. `CLAUDE.md`의 명령 칸은 `AGENTS.md` 명령 칸으로 옮긴다. 관리 파일 자리의 프로젝트 내용은 「지킬 것」대로 한다.
+3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`. 막힘이 남았으면 4·5번도 하지 않고 여기서 멈춘 뒤, 남은 막힘과 고친 것을 보고한다.
 4. `commands.json` 초안을 1절 2번의 명령 4칸 기준으로 확인하고, 돌려 본 결과로 고친다.
-5. 확인 줄을 처리한다. CI workflow는 3절에서 고친다. 옛 hash-copy manifest(`.github/repo-baseline.json`)는 그 check를 부르는 CI 단계와 함께 지운다. 도구별 지침 파일은 내용을 `AGENTS.md`로 옮기고 지운다. 관리 블록과 겹치는 절은 비교한 뒤 지운다.
+5. 확인 줄을 처리한다. CI workflow는 3절에서 고친다. 옛 hash-copy manifest(`.github/repo-baseline.json`)는 그 check를 부르는 CI 단계와 함께 지운다. 도구별 지침 파일은 내용을 `AGENTS.md`로 옮기고 지운다. 관리 블록과 겹치는 절은 비교한 뒤 지운다. `.gitattributes`에 코어 줄을 넣었다고 알리면 `git add --renormalize .`을 커밋한다. v1 ops 블록(`<!-- repo-baseline:ops -->`)이 있으면 지우고, 배포하는 앱이면 3절의 ops 프로필을 켠다.
 
 ## 3. 프로필
 
@@ -59,11 +59,10 @@
 
 모두 실제로 돌리고 출력을 보고에 붙인다.
 
-- `python3 -I .baseline/baseline.py check`: `check: 통과`.
+- `python3 -I .baseline/baseline.py check`: `check: 통과`. `.gitignore`가 비밀값 파일을 무시하지 않으면 여기서 실패한다.
 - `python3 -I .baseline/baseline.py run <setup|check|test|build>`: 각각 결과 또는 `N/A: <이유>`.
 - `python3 -I .baseline/baseline.py budget`: 상한을 넘지 않는다.
 - `python3 -I .baseline/baseline.py doctor`: 출력 전체. 이 기기의 문제는 고치는 명령과 함께 보고한다.
-- `git check-ignore -q .env && git check-ignore -q .env.local && echo ignored`: `ignored`가 나온다.
 - `git status`: 비밀값 파일이 스테이징되지 않았다.
 - GitHub 프로필을 했으면: workflow 파일의 YAML이 파싱된다(쓸 수 있는 도구로). 확인하지 못했으면 그렇게 적는다.
 
@@ -71,7 +70,7 @@
 
 커밋하고 PR을 연다. 본문은 `.github/pull_request_template.md` 양식이다.
 
-- Summary: 한 일(새 저장소·옮기기·판 올리기, 켠 프로필). 완료 기준: `check`·`budget`이 통과한다, 명령 4칸이 돈다, `.env`가 무시된다, 비밀값이 스테이징되지 않았다. 전에 통과하던 프로젝트 명령은 그대로 통과한다.
+- Summary: 한 일(새 저장소·옮기기·판 올리기, 켠 프로필). 완료 기준: `check`·`budget`이 통과한다(`check`는 `.gitignore`의 비밀값 줄도 본다), 명령 4칸이 돈다, 비밀값이 스테이징되지 않았다. 전에 통과하던 프로젝트 명령은 그대로 통과한다.
 - Evidence: 5절 출력. 확인하지 않은 범위.
 - 등급: 1·2절은 `.baseline/`과 `.claude/`를 더하므로 어려움이다. 4절에서 관리 바이트만 바꿨으면 `review-preflight`가 쉬움으로 볼 수 있다.
 - Review: 비워 둔다. 리뷰는 다른 컨텍스트가 원본의 `prompts/review.md`로 한다.

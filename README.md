@@ -17,10 +17,10 @@
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `init <경로>` | 빈 저장소에 코어를 복사한다. 코어 파일이 하나라도 있으면 아무것도 쓰지 않고 `migrate`를 가리킨다 |
+| `init <경로>` | 빈 저장소에 코어를 복사하고 `.gitignore`에 비밀값 줄을 더한다. 코어 파일이 하나라도 있으면 아무것도 쓰지 않고 `migrate`를 가리킨다 |
 | `migrate <경로> [--apply]` | 기존 저장소의 충돌(막힘·확인), 쓸 계획, `commands.json` 초안을 출력한다. 막힘이 없을 때만 `--apply`가 쓴다 |
-| `upgrade <태그>` | 관리 블록·관리 파일·스킬 사본을 그 태그 판으로 바꾼다. 관리 블록을 고쳐 두었으면 diff를 출력하고 멈춘다. `gh`로 태그를 읽는다 |
-| `check` | 관리 파일·블록이 이 판과 같고 `AGENTS.md` 명령 칸이 `.baseline/commands.json`과 같은지 본다 |
+| `upgrade <태그>` | 관리 블록·관리 파일·`.gitattributes` 맨 앞 줄·스킬 사본을 그 태그 판으로 바꾼다. 시작 파일은 건드리지 않는다. 관리 블록을 고쳐 두었으면 diff를 출력하고 멈춘다. `gh`로 태그를 읽는다 |
+| `check` | 관리 파일·블록·`.gitattributes` 맨 앞 줄이 이 판과 같은지, `AGENTS.md` 명령 칸이 `.baseline/commands.json`과 같은지, `.gitignore`가 비밀값 파일을 무시하는지 본다. ops 프로필을 켰으면 `docs/agents/ops.md`도 본다 |
 | `run <setup\|check\|test\|build>` | `commands.json`의 명령을 돌린다. `.mise.toml`에 판이 있으면 `mise exec`로 돈다 |
 | `doctor` | 이 기기가 기준과 다른 곳(도구 판, WSL, 같은 이름 개인 스킬, `autoMode.environment`, `.mise.toml` 신뢰 등)과 고치는 명령을 출력한다 |
 | `review-preflight <PR>` | GitHub REST로 PR의 리뷰 등급(문서·쉬움·어려움)과 이유, diff 명령을 출력한다 |
@@ -32,7 +32,7 @@
 
 ## 코어와 프로필
 
-코어는 `AGENTS.md`·`REVIEW.md`(관리 블록), `CLAUDE.md`(`@AGENTS.md` 한 줄), PR 템플릿, `.gitattributes`, `.mise.toml`, Stop 훅과 `enqueue` 허용 훅, Matt 스킬 설정 `docs/agents/`, 판을 고정한 스킬 사본 `.claude/skills/`, `.baseline/`이다. 단계별로 쓰는 스킬은 [WORKFLOW.md](WORKFLOW.md)에 있다.
+코어는 `AGENTS.md`·`REVIEW.md`(관리 블록), `CLAUDE.md`(`@AGENTS.md` 한 줄), PR 템플릿, `.gitattributes`(맨 앞 줄만 관리), `.mise.toml`, Stop 훅과 `enqueue` 허용 훅, Matt 스킬 설정 `docs/agents/`(시작 파일), 판을 고정한 스킬 사본 `.claude/skills/`, `.baseline/`이다. 파일마다 저장소가 고칠 수 있는 범위는 [GLOSSARY.md](GLOSSARY.md)(관리 파일, 관리 블록, 시작 파일, 앞줄 관리 파일)에 있다. 단계별로 쓰는 스킬은 [WORKFLOW.md](WORKFLOW.md)에 있다.
 
 | 층 | 프로필 | 언제 켜는가 |
 | --- | --- | --- |

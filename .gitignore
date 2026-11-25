@@ -1,2 +1,10 @@
 __pycache__/
 .serena/
+
+# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12

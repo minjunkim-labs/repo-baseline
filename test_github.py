@@ -593,7 +593,8 @@ class ApplyTests(unittest.TestCase):
         self.assertIn("차이 없음: owner/repo", out)
         # Written out, not b.LABELS: a label dropped from the constant must fail here.
         self.assertEqual({label["name"] for label in server.labels} - {"bug"},
-                         {"needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix"})
+                         {"needs-triage", "needs-info", "ready-for-agent", "ready-for-human", "wontfix", "wayfinder:map",
+                          "wayfinder:research", "wayfinder:prototype", "wayfinder:grilling", "wayfinder:task"})
         self.assertIn({"name": "bug", "color": "d73a4a", "description": "Something isn't working"}, server.labels)
 
     def test_labels_are_created_or_fixed_and_never_deleted(self):
@@ -601,7 +602,7 @@ class ApplyTests(unittest.TestCase):
         server.labels = [dict(label) for label in labels() if label["name"] != "needs-info"]
         server.labels[0]["color"] = "000000"
         server.labels[1]["name"] = "NEEDS-TRIAGE" if server.labels[1]["name"] == "needs-triage" else server.labels[1]["name"]
-        server.labels[-1]["name"] = "Wontfix"
+        next(label for label in server.labels if label["name"] == "wontfix")["name"] = "Wontfix"
         server.labels.append({"name": "project-own", "color": "123456", "description": None})
         code, out, err = self.run_tool(server, apply=True)
         self.assertEqual(code, 0, out + err)

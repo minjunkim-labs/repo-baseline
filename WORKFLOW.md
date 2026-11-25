@@ -26,7 +26,7 @@ Matt 스킬은 트래커·라벨·도메인 문서 설정을 `docs/agents/`에�
 | `ready-for-human` | 사람이 해야 한다 |
 | `wontfix` | 하지 않는다 |
 
-라벨은 소유자가 `python3 -I .baseline/baseline.py github apply`로 만든다([github 프로필](github/README.md)).
+라벨은 소유자가 `python3 -I .baseline/baseline.py github apply`로 만든다([github 프로필](github/README.md)). wayfinder가 쓰는 `wayfinder:*` 라벨 5개도 함께 만든다.
 
 ## 스킬 사본
 

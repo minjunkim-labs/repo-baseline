@@ -24,7 +24,7 @@ python3 -I .baseline/baseline.py check
 
 `init`은 코어 파일이 하나라도 이미 있으면 아무것도 쓰지 않고 멈춘다. 그때는 2절 `migrate`를 쓴다.
 
-복사한 뒤 블록 밖의 칸을 채운다. 관리 블록(`<!-- baseline:start -->`부터 `<!-- baseline:end -->`까지)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다.
+복사한 뒤 블록 밖의 칸을 채운다. 관리 블록(`<!-- baseline:start -->`부터 `<!-- baseline:end -->`까지)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다. `docs/agents/`의 Matt 스킬 설정은 시작 파일이라 저장소에 맞게 고쳐도 된다. `.gitattributes`는 맨 앞의 `* text=auto eol=lf` 줄만 관리하니, 저장소의 규칙(binary, LFS)은 그 아래에 더한다. 네 가지 말은 [GLOSSARY.md](../GLOSSARY.md)에 있다.
 
 - `AGENTS.md`: 제목과 한 줄 설명, 길잡이 표. 코드에서 알 수 없는 것만 쓴다. `budget`은 200줄 이상이면 실패한다.
 - 명령 4칸(setup/check/test/build): `.baseline/commands.json`에 argv 배열로 쓴다. 셸 문법이 필요하면 `["sh", "-c", "..."]`로 쓰고, 없는 칸은 `"N/A: <이유>"`다. `AGENTS.md` 「명령」의 줄은 `check`가 출력하는 한 줄과 글자까지 같게 고친다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 한 번씩 돌려 본다.
@@ -45,7 +45,9 @@ python3 -I "$B/baseline.py" migrate .
 - 계획: 새로 쓰거나 고칠 파일. `CLAUDE.md`의 내용은 `AGENTS.md` 블록 밖으로 옮기고 `CLAUDE.md`는 `@AGENTS.md` 한 줄이 된다.
 - `commands.json` 초안: 기존 `AGENTS.md` 명령 칸에서 만든다. 사람이 확인한다.
 
-막힘을 하나씩 푼 뒤 다시 돌린다. 관리 파일 자리(`docs/agents/*`, `.gitattributes` 등)에 프로젝트 내용이 있으면 `migrate`는 덮어쓰지 않고 막힘으로 보고한다. 그 내용을 어디로 옮길지는 아직 정하지 않았다([#175](https://github.com/minjunkim-labs/repo-baseline/issues/175)). 에이전트는 정하지 말고 소유자에게 묻는다.
+막힘을 하나씩 푼 뒤 다시 돌린다. 관리 파일 자리에 프로젝트 내용이 있으면(예: 고쳐 쓴 PR 템플릿) `migrate`는 덮어쓰지 않고 막힘으로 보고한다. 그 내용을 지우거나 블록 밖으로 옮긴다. 시작 파일(`docs/agents/`의 설정)은 있으면 그대로 두고 코어 판과 다르다고 확인으로만 알린다. `.gitattributes`에 코어 줄이 없으면 맨 앞에 넣고, `git add --renormalize .`을 커밋하라고 알린다.
+
+v1 `AGENTS.md`의 ops 블록(`<!-- repo-baseline:ops -->`)은 `migrate`가 따로 다루지 않는다. 블록이 든 절은 "관리 블록과 겹친다" 확인으로만 나온다. 그 절을 지울 때 v1 ops 블록도 지우고, [ops 프로필](../ops/README.md) 「켜기」로 다시 켠다.
 
 막힘이 없으면 쓴다.
 
@@ -67,7 +69,7 @@ python3 -I .baseline/baseline.py doctor
 
 - `check`·`budget`은 `통과`나 상한 안의 크기를 출력해야 한다.
 - `doctor`는 저장소가 아니라 이 기기를 본다. 문제마다 고치는 명령을 출력한다. 개인 설정을 바꾸는 명령(예: 같은 이름의 개인 스킬 지우기)은 소유자가 정한다. 다른 기기에서 다시 돌릴 때마다 본다.
-- Git이 `.env`·`.env.*`를 무시하는지 본다: `git check-ignore -q .env && git check-ignore -q .env.local && echo ignored`.
+- `.gitignore`가 `.env`·`.env.*`·키 파일을 무시하는지는 `check`가 본다. `init`·`migrate`가 그 줄을 더하므로, 실패하면 누가 줄을 지운 것이다.
 
 ## 4. GitHub
 
@@ -76,7 +78,7 @@ python3 -I .baseline/baseline.py doctor
 - [github/ci.yml](../github/ci.yml)을 `.github/workflows/ci.yml`로 복사한다. ubuntu·macOS에서 `run setup`, `check`, `budget`, `run check`, `run test`를 돈다. 고칠 칸이 없다.
 - `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다.
 - 소유자가 최신 기본 브랜치에서 `python3 -I .baseline/baseline.py github plan`을 읽고 `github apply`로 적용한다. 에이전트는 `apply`를 돌리지 않는다.
-- Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 github 프로필 README의 표대로 복사한다.
+- Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 github 프로필 README의 표대로 `templates/github/`에서 복사한다.
 
 배포하는 앱이면 [ops 프로필](../ops/README.md), 쓰기 권한자가 둘 이상이면 [team 프로필](../team/README.md)을 켠다.
 
@@ -96,5 +98,6 @@ python3 -I .baseline/baseline.py check
 ```
 
 - 관리 블록을 고쳐 두었으면 아무것도 쓰지 않고 diff를 출력한 뒤 멈춘다. 그 수정을 repo-baseline에 반영할지 소유자에게 묻는다.
+- `.gitattributes`는 맨 앞 줄만 바뀐다. 그 줄이 없으면 쓰기 전에 멈춘다. 시작 파일은 건드리지 않는다.
 - 지금 판과 새 판 사이 태그의 릴리스 노트([docs/releases/](releases/))에서 소비 레포가 손으로 옮길 일을 한다.
 - 관리 바이트만 바꾼 PR은 `review-preflight`가 upgrade 예외로 쉬움으로 본다. 손으로 다른 파일을 고쳤으면 그 파일로 등급이 정해진다.
