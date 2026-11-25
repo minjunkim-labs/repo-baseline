@@ -18,6 +18,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import quote
 
@@ -301,35 +302,55 @@ def cmd_init(args):
     if existing:
         sys.exit("init: 이미 있다. 기존 저장소를 v2로 옮기는 명령은 없으니 이 파일을 코어와 손으로 합친다: "
                  + ", ".join(existing))
+    # .gitignore is the project's file, so add only the secret lines it lacks. Read it before any write.
+    ignore = target / ".gitignore"
+    try:
+        old = ignore.read_text(encoding="utf-8") if ignore.exists() else ""
+    except (OSError, ValueError) as error:
+        sys.exit(f"init: .gitignore를 읽지 못했다(아무것도 쓰지 않았다): {error}")
+    added = [line for line in SECRET_IGNORE if line not in old.splitlines() and line != "!.env.example"]
+    added += ["!.env.example"] if added else []  # the last matching rule wins, so the exception goes after .env.*
     for rel, data in files.items():
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
-    # .gitignore is the project's file, so add only the secret lines it lacks; check verifies the effect.
-    ignore = target / ".gitignore"
-    have = ignore.read_text(encoding="utf-8").splitlines() if ignore.exists() else []
-    missing = [line for line in SECRET_IGNORE if line not in have]
-    if missing:
-        lead = "\n" if have and ignore.read_bytes()[-1:] != b"\n" else ""
-        with ignore.open("a", encoding="utf-8") as f:
-            f.write(lead + ("\n" if have else "") + "# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)\n"
-                    + "".join(line + "\n" for line in missing))
+    if added:
+        lead = ("" if old.endswith("\n") else "\n") + "\n" if old else ""
+        ignore.write_text(old + lead + "# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)\n"
+                          + "".join(line + "\n" for line in added), encoding="utf-8")
         print("init: .gitignore (비밀값 줄 추가)")
     return 0
 
 
 def ignore_problems(root):
-    """Secret file names that .gitignore does not ignore (POLICY §7)."""
-    if not (root / ".git").exists():  # shortcut: check-ignore needs a git repo; consumer repos and CI always are one
-        return []
-    result = subprocess.run(["git", "check-ignore", "--no-index", "--stdin"], cwd=root, capture_output=True,
-                            input="\n".join(SECRET_SAMPLES).encode())
+    """Secret file names the repository's own .gitignore does not ignore (POLICY §7).
+
+    Checked in an empty repo holding only that file, so this machine's global ignore and
+    .git/info/exclude cannot make it pass here and fail in CI."""
+    path = root / ".gitignore"
+    try:
+        data = read_file(root, ".gitignore") if path.exists() or path.is_symlink() else b""
+    except OSError as error:
+        return [f".gitignore: {error}"]
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / ".gitignore").write_bytes(data)
+        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        result = subprocess.run(["git", "init", "-q", tmp], capture_output=True, env=env)
+        if not result.returncode:
+            result = subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "check-ignore", "--no-index",
+                                     "--stdin"], cwd=tmp, capture_output=True, env=env,
+                                    input="\n".join(SECRET_SAMPLES + (".env.example",)).encode())
     if result.returncode not in (0, 1):
         return [f".gitignore를 확인하지 못했다: {result.stderr.decode('utf-8', 'replace').strip()}"]
-    missing = [name for name in SECRET_SAMPLES if name not in result.stdout.decode("utf-8", "replace").splitlines()]
-    if not missing:
-        return []
-    return [f".gitignore: 비밀값 파일을 ignore하지 않는다({', '.join(missing)}). 이 줄을 더한다: {' '.join(SECRET_IGNORE)}"]
+    ignored = result.stdout.decode("utf-8", "replace").splitlines()
+    problems = []
+    missing = [name for name in SECRET_SAMPLES if name not in ignored]
+    if missing:
+        problems.append(f".gitignore: 비밀값 파일을 ignore하지 않는다({', '.join(missing)}). "
+                        f"이 줄을 더한다: {' '.join(SECRET_IGNORE)}")
+    if ".env.example" in ignored:
+        problems.append(".gitignore: `.env.example`까지 ignore한다. `!.env.example`을 `.env.*` 뒤에 둔다")
+    return problems
 
 
 def cmd_check(args):
@@ -1291,7 +1312,16 @@ def cmd_review_report(args):
                 print("review-report: 쓰지 않는다: 같은 스레드를 --thread로 두 번 줬다")
                 return 1
             # A cloud run answers without resolving; the local run that carries the report over resolves only.
-            posted = {(c.get("in_reply_to_id"), (c.get("body") or "").strip()) for c in comments.values()}
+            # Only a writer's reply counts: in a public repo anyone can post the same words first.
+            wanted = set(judged)
+            posted = set()
+            for c in comments.values():
+                key = (c.get("in_reply_to_id"), (c.get("body") or "").strip())
+                login = (c.get("user") or {}).get("login")
+                if key in wanted and login and not is_bot(c.get("user")) and gh_api(
+                        f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission") in (
+                        "admin", "write"):
+                    posted.add(key)
         if judged and not cloud:
             owner, name = repo.split("/")
             nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][

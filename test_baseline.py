@@ -77,19 +77,33 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual(self.copy.read_bytes(), (ROOT / "baseline.py").read_bytes())
 
     def test_init_adds_only_the_missing_secret_lines_to_gitignore(self):
-        (self.repo / ".gitignore").write_text("node_modules/\n.env\n", encoding="utf-8")
+        (self.repo / ".gitignore").write_text("node_modules/\n.env\n!.env.example\n", encoding="utf-8")
         self.init()
         lines = (self.repo / ".gitignore").read_text(encoding="utf-8").splitlines()
-        self.assertEqual(lines[:2], ["node_modules/", ".env"])
+        self.assertEqual(lines[:3], ["node_modules/", ".env", "!.env.example"])
         self.assertEqual(lines.count(".env"), 1)
-        self.assertEqual(lines[-5:], [".env.*", "!.env.example", "*.pem", "*.key", "*.p12"])
+        self.assertEqual(lines[-5:], [".env.*", "*.pem", "*.key", "*.p12", "!.env.example"])
+        self.assertCheck(0)  # .env.example stays tracked: the exception comes after .env.*
 
-    def test_check_in_a_git_repo_needs_secrets_ignored(self):
+    def test_init_stops_before_any_write_when_gitignore_is_unreadable(self):
+        (self.repo / ".gitignore").mkdir()
+        result = cli("init", self.repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".gitignore", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertFalse((self.repo / ".baseline").exists())
+
+    def test_check_needs_secrets_ignored_by_the_repo_gitignore_alone(self):
         self.init()
-        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
-        self.assertCheck(0)
         (self.repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
-        self.assertCheck(1, ".gitignore: 비밀값 파일을 ignore하지 않는다(.env, .env.local, a.pem, a.key, a.p12)")
+        home = self.repo / "home"  # a global ignore that has .env must not make check pass
+        (home / ".config/git").mkdir(parents=True)
+        (home / ".config/git/ignore").write_text(".env\n.env.*\n*.pem\n*.key\n*.p12\n", encoding="utf-8")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"HOME": str(home), "XDG_CONFIG_HOME": str(home / ".config")}):
+            self.assertCheck(1, ".gitignore: 비밀값 파일을 ignore하지 않는다(.env, .env.local, a.pem, a.key, a.p12)")
+        (self.repo / ".gitignore").write_text(".env\n.env.*\n*.pem\n*.key\n*.p12\n", encoding="utf-8")
+        self.assertCheck(1, "`.env.example`까지 ignore한다")
 
     def test_init_refuses_a_repo_that_already_has_core_files(self):
         (self.repo / "AGENTS.md").write_text("mine\n", encoding="utf-8")
@@ -1612,6 +1626,15 @@ class ReviewReportTests(unittest.TestCase):
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림")
         self.assertEqual(code, 0, out)
         self.assertEqual([w[:2] for w in gh.writes], [("RESOLVE", "T1"), ("PATCH", "repos/o/r/pulls/7")])
+
+    def test_the_same_words_from_an_outsider_do_not_count_as_answered(self):
+        gh = self.gh()
+        gh.extra["repos/o/r/pulls/7/comments"].append({"id": 11, "in_reply_to_id": 5, "body": "판정: 버림",
+                                                       "user": {"login": "reader", "type": "User"}})
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/5/replies"),
+                                                     ("RESOLVE", "T1"), ("PATCH", "repos/o/r/pulls/7")])
 
     def test_a_report_enqueue_would_refuse_is_not_written(self):
         for text in (self.SECTION.format(head=HEAD, left="").replace("남은 지적: \n", "남은 지적:\n- 없음\n"),
