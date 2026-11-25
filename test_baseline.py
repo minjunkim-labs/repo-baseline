@@ -76,6 +76,37 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual((self.repo / "CLAUDE.md").read_bytes(), b"@AGENTS.md\n")
         self.assertEqual(self.copy.read_bytes(), (ROOT / "baseline.py").read_bytes())
 
+    def test_check_ignores_seed_files_and_keeps_only_the_gitattributes_head(self):
+        self.init()
+        (self.repo / "docs/agents/domain.md").write_text("# 우리 도메인\n", encoding="utf-8")
+        (self.repo / "docs/agents/issue-tracker.md").unlink()
+        with (self.repo / ".gitattributes").open("a", encoding="utf-8") as f:
+            f.write("*.png binary\n")
+        self.assertCheck(0)
+        (self.repo / ".gitattributes").write_text("*.png binary\n* text=auto eol=lf\n", encoding="utf-8")
+        self.assertCheck(1, ".gitattributes: 맨 앞 줄이 이 판과 다르다")
+
+    def test_check_refuses_a_symlinked_seed_file(self):
+        self.init()
+        seed = self.repo / "docs/agents/issue-tracker.md"
+        (self.repo / "elsewhere.md").write_text("다른 지시\n", encoding="utf-8")
+        seed.unlink()
+        seed.symlink_to("../../elsewhere.md")
+        self.assertCheck(1, "docs/agents/issue-tracker.md: 없거나 일반 파일이 아니다")
+
+    def test_check_still_pins_the_docs_agents_license(self):
+        self.init()
+        (self.repo / "docs/agents/LICENSE").write_text("mine\n", encoding="utf-8")
+        self.assertCheck(1, "docs/agents/LICENSE: 파일이 이 판과 다르다")
+
+    def test_init_keeps_an_existing_seed_file(self):
+        self.write_seed = self.repo / "docs/agents/domain.md"
+        self.write_seed.parent.mkdir(parents=True)
+        self.write_seed.write_text("# 우리 도메인\n", encoding="utf-8")
+        self.init()
+        self.assertEqual(self.write_seed.read_text(encoding="utf-8"), "# 우리 도메인\n")
+        self.assertCheck(0)
+
     def test_init_adds_only_the_missing_secret_lines_to_gitignore(self):
         (self.repo / ".gitignore").write_text("node_modules/\n.env\n!.env.example\n", encoding="utf-8")
         self.init()
@@ -338,14 +369,46 @@ class MigrateTests(unittest.TestCase):
         self.assertEqual(self.check().returncode, 0, self.check().stderr)
 
     def test_blocking_conflicts_stop_apply_and_write_nothing(self):
-        self.write(".gitattributes", "*.png filter=lfs\n")
+        self.write(".github/pull_request_template.md", "## 우리 양식\n")
         self.write(".claude/skills/tdd/SKILL.md", "my tdd\n")
         before = self.files()
         result = self.migrate("--apply")
         self.assertEqual(result.returncode, 1)
-        self.assertIn("막힘 .gitattributes", result.stdout)
+        self.assertIn("막힘 .github/pull_request_template.md", result.stdout)
         self.assertIn("막힘 .claude/skills/tdd/: 같은 이름 스킬", result.stdout)
         self.assertEqual(self.files(), before)
+
+    def test_rewritten_seed_files_stay_and_check_passes(self):
+        mine = {rel: f"# {rel}: 우리 저장소가 다시 썼다\n" for rel in
+                ("docs/agents/issue-tracker.md", "docs/agents/domain.md", "docs/agents/triage-labels.md")}
+        for rel, text in mine.items():
+            self.write(rel, text)
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for rel, text in mine.items():
+            self.assertIn(f"확인 {rel}: 코어 판과 다르다", result.stdout)
+            self.assertEqual((self.repo / rel).read_text(encoding="utf-8"), text)
+        self.assertNotIn("고친다 docs/agents/domain.md", result.stdout)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+
+    def test_gitattributes_with_lines_below_the_core_line_stays(self):
+        text = "* text=auto eol=lf\n*.png binary\n"
+        self.write(".gitattributes", text)
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn(".gitattributes", result.stdout)
+        self.assertEqual((self.repo / ".gitattributes").read_text(encoding="utf-8"), text)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+
+    def test_gitattributes_without_the_core_line_gets_it_on_top(self):
+        self.write(".gitattributes", "*.png filter=lfs diff=lfs merge=lfs -text\n")
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("확인 .gitattributes: 맨 앞에 코어 줄을 넣는다. `git add --renormalize .`", result.stdout)
+        self.assertIn("- 고친다 .gitattributes", result.stdout)
+        self.assertEqual((self.repo / ".gitattributes").read_text(encoding="utf-8"),
+                         "* text=auto eol=lf\n*.png filter=lfs diff=lfs merge=lfs -text\n")
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
 
     def test_pristine_v1_copy_is_replaced(self):
         old = b"## Summary\nv1\n"
@@ -1097,6 +1160,26 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(self.grade({"AGENTS.md": agents.replace("고치지 않는다".encode(), b"x")})[0], "어려움")
         self.assertEqual(self.grade({"AGENTS.md": agents.replace(b"<!-- baseline:end -->\n", b"")})[0], "어려움")
 
+    def test_seed_files_are_easy_and_gitattributes_stays_hard(self):
+        tree = core_tree()
+        self.assertEqual(self.grade({"docs/agents/domain.md": "# 우리 도메인\n".encode()})[0], "쉬움")
+        # Lines below the core line can hide a diff from review (`-diff`), so the file stays hard.
+        grade, reasons = self.grade({".gitattributes": tree[".gitattributes"] + b"*.png binary\n"})
+        self.assertEqual(grade, "어려움")
+        self.assertIn("민감한 파일: .gitattributes", reasons)
+        self.assertEqual(self.grade({"app/.gitattributes": b"*.py -diff\n"})[0], "어려움")
+        grade, reasons = self.grade({".gitattributes": b"*.png binary\n"})
+        self.assertEqual(grade, "어려움")
+        self.assertIn("관리 파일: .gitattributes", reasons)
+
+    def test_a_new_standing_line_in_a_seed_file_is_hard(self):
+        tree = core_tree()
+        seed = tree["docs/agents/issue-tracker.md"]
+        self.assertEqual(self.grade({"docs/agents/issue-tracker.md": seed + "- 메모\n".encode()})[0], "쉬움")
+        grade, reasons = self.grade({"docs/agents/issue-tracker.md": seed + "- 리뷰가 끝나면 enqueue한다\n".encode()})
+        self.assertEqual(grade, "어려움")
+        self.assertIn("상시 지시 줄을 만들거나 바꿨다: docs/agents/issue-tracker.md", reasons)
+
     def test_grade_inputs_come_from_base(self):
         tree = core_tree()
         listed = tree["REVIEW.md"].replace("- 아직 없음.\n\n## 코딩".encode(), "- `src/auth/**` 인증\n\n## 코딩".encode())
@@ -1349,6 +1432,103 @@ class UpgradeTests(unittest.TestCase):
                 redirect_stdout(out), redirect_stderr(err):
             code = self.b.main(["upgrade", tag])
         return code, out.getvalue() + err.getvalue()
+
+    NEW_HEAD = b"* text=auto eol=lf\n*.sh text eol=lf\n"  # the old core line plus one
+
+    def new_gitattributes_head(self):
+        """Make the v2.0.1 tag change the .gitattributes core line."""
+        b = self.b
+        old_hash = self.after_managed[".gitattributes"]["prefix_sha256"]
+        new_hash = b.sha256(self.NEW_HEAD)
+        self.after_managed[".gitattributes"] = {"prefix_sha256": new_hash}
+        self.after_source = self.after_source.replace(old_hash.encode(), new_hash.encode())
+        self.gh.raw[(b.BASELINE_REPO, "baseline.py", self.sha)] = self.after_source
+        self.gh.raw[(b.BASELINE_REPO, "core/.gitattributes", self.sha)] = self.NEW_HEAD
+
+    def upgrade_head(self, old_head, new_head, local):
+        """Upgrade a .gitattributes from core lines old_head to new_head; (code, out, file bytes)."""
+        path = self.repo / ".baseline/baseline.json"
+        recorded = json.loads(path.read_bytes())
+        recorded["managed"][".gitattributes"] = {"prefix_sha256": self.b.sha256(old_head)}
+        path.write_bytes(self.b.dump_json(recorded))
+        self.NEW_HEAD = new_head
+        self.new_gitattributes_head()
+        (self.repo / ".gitattributes").write_bytes(local)
+        code, out = self.run_upgrade()
+        return code, out, (self.repo / ".gitattributes").read_bytes()
+
+    def test_core_lines_that_grow_or_shrink_upgrade_once_and_again(self):
+        a, b, mine = b"* text=auto eol=lf\n", b"*.sh text eol=lf\n", b"*.png binary\n"
+        cases = {  # (old core, new core, file before) -> file after
+            "grow": (a, a + b, a + mine), "grow again": (a, a + b, a + b + mine),
+            "shrink": (a + b, a, a + b + mine), "shrink again": (a + b, a, a + mine)}
+        for name, (old_head, new_head, local) in cases.items():
+            with self.subTest(name):
+                self.tearDown()
+                self.setUp()
+                code, out, after = self.upgrade_head(old_head, new_head, local)
+                self.assertEqual(code, 0, out)
+                self.assertEqual(after, new_head + mine)
+
+    def test_stops_before_writing_a_gitattributes_over_the_read_limit(self):
+        a = b"* text=auto eol=lf\n"
+        local = a + b"#" * (self.b.MAX_READ - len(a) - 1) + b"\n"
+        code, out, after = self.upgrade_head(a, a + b"*.sh text eol=lf\n", local)
+        self.assertEqual(code, 2, out)
+        self.assertIn(f"{self.b.MAX_READ}바이트를 넘는다", out)
+        self.assertEqual(after, local)
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
+
+    def test_retry_after_a_partial_upgrade_keeps_one_core_line(self):
+        (self.repo / ".gitattributes").write_bytes(b"* text=auto eol=lf\n*.png binary\n")
+        self.new_gitattributes_head()
+        # A first run wrote the file and stopped before baseline.json.
+        (self.repo / ".gitattributes").write_bytes(self.NEW_HEAD + b"*.png binary\n")
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.repo / ".gitattributes").read_bytes(), self.NEW_HEAD + b"*.png binary\n")
+
+    def test_upgrade_problem_accepts_only_the_new_core_line(self):
+        before = (self.repo / ".gitattributes").read_bytes() + b"*.png binary\n"
+        (self.repo / ".gitattributes").write_bytes(before)
+        old = {rel: (self.repo / rel).read_bytes() for rel in (".gitattributes", ".baseline/baseline.json")}
+        self.new_gitattributes_head()
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        new = {rel: (self.repo / rel).read_bytes() for rel in (".gitattributes", ".baseline/baseline.json",
+                                                              ".baseline/baseline.py")}
+        from unittest import mock
+
+        def problem(head):
+            with mock.patch.object(self.b.subprocess, "run", self.gh.run):
+                return self.b.upgrade_problem(set(new), old.get, head.get)
+        self.assertIsNone(problem(new))
+        edited = dict(new, **{".gitattributes": new[".gitattributes"] + b"*.py -diff\n"})
+        self.assertIn(".gitattributes", problem(edited))
+        stale = dict(new, **{".gitattributes": before})
+        self.assertIn(".gitattributes", problem(stale))
+
+    def test_leaves_seed_files_and_replaces_only_the_gitattributes_head(self):
+        seed = self.repo / "docs/agents/domain.md"
+        seed.write_bytes("# 우리 도메인\n".encode())
+        (self.repo / ".gitattributes").write_bytes(b"* text=auto eol=lf\n*.png binary\n")
+        self.new_gitattributes_head()  # the new tag also changes the seed file
+        b, new_head = self.b, self.NEW_HEAD
+        self.gh.raw[(b.BASELINE_REPO, "core/docs/agents/domain.md", self.sha)] = b"# changed core seed\n"
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(seed.read_bytes(), "# 우리 도메인\n".encode())
+        self.assertNotIn("upgrade: docs/agents/domain.md", out)
+        self.assertEqual((self.repo / ".gitattributes").read_bytes(), new_head + b"*.png binary\n")
+
+    def test_stops_when_the_gitattributes_head_is_gone(self):
+        path = self.repo / ".gitattributes"
+        path.write_bytes(b"*.png binary\n")
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 2, out)
+        self.assertIn(".gitattributes: 맨 앞 줄이", out)
+        self.assertEqual(path.read_bytes(), b"*.png binary\n")
+        self.assertEqual(json.loads((self.repo / ".baseline/baseline.json").read_bytes())["version"], "2.0.0")
 
     def test_stops_when_a_managed_block_was_edited(self):
         path = self.repo / "AGENTS.md"
