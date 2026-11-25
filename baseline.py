@@ -114,9 +114,12 @@ DEFAULT_COMMANDS = {
 }
 # Shell syntax only through `sh -c`, so every command runs the same on macOS, Linux and WSL2.
 OTHER_SHELLS = {"bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh"}
-BUDGET_LINES, BUDGET_BYTES = 60, 4000
+# Claude Code: "target under 200 lines per CLAUDE.md file". Codex stops adding AGENTS.md files
+# once their combined size reaches project_doc_max_bytes, 32 KiB by default. Sources: issue #175.
+BUDGET_LINES, BUDGET_BYTES = 200, 32 << 10
 # What an easy-PR reviewer reads before the diff. prompts/review.md lives in repo-baseline only.
-REVIEW_READ, REVIEW_BYTES = ("AGENTS.md", "REVIEW.md", "prompts/review.md"), 13000
+# Printed, not enforced: no source gives a limit for it.
+REVIEW_READ = ("AGENTS.md", "REVIEW.md", "prompts/review.md")
 MAX_READ = 1 << 20
 
 # review-preflight
@@ -438,8 +441,8 @@ def cmd_budget(args):
     lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
     reviewer = sum(map(len, read.values()))
     print(f"budget: AGENTS.md {lines}줄(상한 {BUDGET_LINES}), {len(data)}바이트(상한 {BUDGET_BYTES})")
-    print(f"budget: 리뷰어 읽기 {reviewer}바이트(상한 {REVIEW_BYTES}): {', '.join(read)}")
-    if lines > BUDGET_LINES or len(data) > BUDGET_BYTES or reviewer > REVIEW_BYTES:
+    print(f"budget: 리뷰어 읽기 {reviewer}바이트: {', '.join(read)}")
+    if lines > BUDGET_LINES or len(data) > BUDGET_BYTES:
         print("budget: 상한을 넘었다", file=sys.stderr)
         return 1
     return 0
