@@ -1,0 +1,1 @@
+- README, `docs/start.md`, `prompts/setup.md`가 v2 절차(`init`·`migrate`·`upgrade`, `commands.json`, 세 등급)로 바뀌었다. v1 저장소가 옛 절차를 따르려면 `docs/start.md` 첫 문단의 v1 판 링크를 쓴다. 소비 레포가 옮길 일은 없다.

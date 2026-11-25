@@ -2,7 +2,7 @@
 
 repo-baseline v2를 쓰는 모든 저장소의 규칙이다. 도구·모델·스택을 고르지 않는다. 각 저장소의 `AGENTS.md`·`REVIEW.md`가 이 규칙을 그 저장소에 맞게 채운다.
 
-옮기는 동안: `.baseline/`이 없는 저장소(v1, 이 저장소 포함)는 [v1 판 규칙](https://github.com/minjunkim-labs/repo-baseline/blob/4b556dd2a893efddae2805d3533ee80d5d2862e7/POLICY.md)을 따른다. v1 문서가 가리키는 `POLICY.md`의 절도 그 판의 절이다.
+옮기는 동안: `.baseline/`이 없는 저장소(v1)는 [v1 판 규칙](https://github.com/minjunkim-labs/repo-baseline/blob/4b556dd2a893efddae2805d3533ee80d5d2862e7/POLICY.md)을 따른다. v1 문서가 가리키는 `POLICY.md`의 절도 그 판의 절이다.
 
 ## 1. 트렁크
 
