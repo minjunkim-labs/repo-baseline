@@ -1,1 +1,0 @@
-- `budget`은 공식 문서가 주는 파일별 상한만 검사한다: `AGENTS.md` 200줄, `REVIEW.md` 150,000바이트, `prompts/review.md` 500줄. 바이트 합계(리뷰어 읽기)는 출력만 한다. 근거는 #175 댓글에 있다. 소비 레포의 `AGENTS.md`·`REVIEW.md`는 고칠 것이 없다.

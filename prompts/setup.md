@@ -4,110 +4,88 @@
 
 ---
 
-이 저장소에 repo-baseline 코어를 적용해 줘. 아래 순서대로 하고, 끝나면 「완료 보고」 형식으로 보고해.
+이 저장소에 repo-baseline v2 코어를 적용해 줘. 아래 순서대로 하고, 끝나면 「완료 보고」 형식으로 보고해.
 
 ## 지킬 것
 
-- 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 `main`이다. 저장소 밖 임시 폴더에 clone해서 읽는다.
-- 읽을 것은 `templates/core/`, `POLICY.md`, (GitHub이면) `templates/github/`, (배포하는 앱이면) `profiles/ops/README.md`, (에이전트로 개발하면) `profiles/matt-skills/README.md`·`profiles/pstack/README.md`뿐이다. 판 올리기면 `CHANGELOG.md`와 `changelog.d/`, `docs/start.md` 「판 올리기」, 옮길 항목이 가리키는 파일(예: `profiles/` 아래 파일)도 읽는다. 옛 문서는 읽지 않는다.
-- 있는 파일을 덮어쓰지 않는다. 이미 있으면 템플릿 내용을 합치고, 합친 내용을 보고한다. 예외: 판 올리기에서 `docs/start.md` 「판 올리기」가 다시 쓰라는 파일(`apply_baseline.py`가 쓰는 파일, 손으로 복사한 코어 파일)은 덮어쓴다. `apply_baseline.py`가 멈추면 0절 3번을 따른다. `AGENTS.md`·`REVIEW.md`는 판 올리기에서도 바뀐 줄만 합치고, `.gitignore`는 1단계처럼 없는 줄만 붙인다.
+- 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 태그 `v2.0.0`(또는 소유자가 정한 더 새 태그)이다. 저장소 밖 임시 폴더에 받는다: `git clone --depth 1 --branch v2.0.0 https://github.com/minjunkim-labs/repo-baseline /tmp/repo-baseline`. 아래 `B`는 이 클론이다.
+- 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 지금 판과 새 판 사이의 `docs/releases/v*.md`도 읽는다. `templates/`·`profiles/`·`tools/`는 v1 도구라 읽지 않는다.
+- 관리 블록(`<!-- baseline:start -->`~`<!-- baseline:end -->`)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다.
+- `migrate`가 막힘으로 보고한 파일을 덮어쓰거나 지우지 않는다. 손으로 옮길 곳이 분명하지 않으면 소유자에게 묻는다. 관리 파일 자리(`docs/agents/*`, `.gitattributes` 등)의 프로젝트 내용을 어디로 옮길지는 아직 정하지 않았다(repo-baseline #175). 정하지 말고 보고한다.
 - 비밀값 파일(`.env*`, 키)을 읽거나 만들거나 커밋하지 않는다.
 - `main`에 직접 push하지 않는다. PR을 병합하지 않는다.
-- 브랜치 보호·저장소 설정 같은 서버 쓰기는 하지 않는다. 그것은 소유자가 자기 기기에서 한다.
+- 서버 쓰기(`github apply`, 브랜치 보호·저장소 설정)는 하지 않는다. 소유자가 자기 기기에서 한다.
+- 개인 설정을 바꾸지 않는다. `doctor`가 출력한 고치는 명령 가운데 개인 설정을 바꾸는 것은 보고만 한다.
 - 모르는 명령을 지어내지 않는다. 확인할 수 없으면 `N/A: <이유>` 또는 "확인하지 않음"으로 적는다.
 
-## 0. 처음 적용인지 판 올리기인지
+## 0. 어느 경우인가
 
-다음이 모두 맞으면 이미 코어를 적용한 저장소다. 이때는 1·2단계 대신 판 올리기를 한다. 하나라도 아니면 1단계부터 처음 적용을 한다(있는 파일은 1단계에서 합친다).
+작업 브랜치를 만든 뒤 고른다.
 
-- 루트 `AGENTS.md`에 「명령」 4칸(setup/check/test/build)이 있고, `<명령>` 같은 템플릿 빈칸이 남지 않았다.
-- 루트 `REVIEW.md`와 `.github/pull_request_template.md`가 있다.
+- `.baseline/baseline.json`이 있으면 이미 v2다. 판 올리기(4절)를 한다.
+- 코어 파일(`AGENTS.md`, `REVIEW.md`, `CLAUDE.md`, `.gitattributes`, `.mise.toml`, `.github/pull_request_template.md`, `.claude/`, `docs/agents/`)이 하나도 없으면 새 저장소(1절)다.
+- 그 밖에는 이미 있는 저장소(2절)다. v1 소비 레포도 여기다.
 
-1. 작업 브랜치를 만든다.
-2. 지난번에 맞춘 때를 정한다. hash-copy를 쓰면 `apply_baseline.py`를 돌리기 전의 `.github/repo-baseline.json` `source_commit`이다. 이 도구가 그 값을 새 판으로 바꾸므로 먼저 적어 둔다. 원본 clone에서 `git log -p --format='%h %cs %s' <source_commit>..origin/main -- CHANGELOG.md changelog.d/`의 `+` 줄로 그 뒤에 더해진 항목을 찾는다. 그 밖에는 저장소에서 확인할 수 없으면 어림한 시점과 근거를 보고에 적는다.
-3. hash-copy를 쓰면 `apply_baseline.py`로 적용한다. 소비 레포에서 고친 파일이 있으면 도구가 아무것도 쓰지 않고 멈춘다. 그때는 멈춘 파일과 고친 내용을 보고하고, 그 수정을 원본에 반영할지 소유자에게 묻는다. 그 뒤는 `docs/start.md` 「판 올리기」대로 한다. `--force`는 소유자가 답한 뒤에만 쓴다.
-4. 원본의 `docs/start.md` 「판 올리기」를 따른다. `CHANGELOG.md`와 `changelog.d/`에서 2번 시점 뒤의 항목을 읽고, 소비 레포가 옮길 일을 한다. 이 저장소에 없는 프로필의 항목은 건너뛴다. ops 프로필은 예외다. 저장소가 배포하는 앱이고 `AGENTS.md`에 `### ops` 절이 없으면 3단계를 한다. matt-skills·pstack도 예외다. 에이전트로 개발하는 저장소면 두 프로필을 따로 본다. matt-skills는 `REVIEW.md`에 「스킬 위임」 절이 없고 `AGENTS.md`에 빼는 이유도 없으면 3a단계 1번을 한다. pstack은 `AGENTS.md`에 `### pstack` 절이 없고 빼는 이유도 없으면 3a단계 2번을 한다. 이미 있는 절은 다시 붙이지 않는다. 2번 시점은 hash-copy 파일을 맞춘 판이거나 어림이라, 손으로 옮길 일은 끝냈다는 보장이 없다. 그래서 `CHANGELOG.md`와 `changelog.d/`의 손으로 옮길 일은 절·파일과 관계없이 모든 항목을, 2번 시점 앞의 것도 저장소에 반영됐는지 확인하고, 빠졌으면 옮긴다. 재설계 전 기록(`CHANGELOG-2026.md`)은 다른 파일이라 이 범위에 들어가지 않는다.
-5. 4단계 검증과 5단계 PR은 그대로 한다. 다만 검사기가 바뀌는 판이면 PR 본문은 `docs/start.md` 「판 올리기」대로 옛 형식으로 쓴다. Summary에는 반영한 변경 기록 항목과 건너뛴 항목을 적는다. `POLICY.md` §4의 민감한 파일을 건드렸으면 이 PR은 되돌리기 어려움이다.
+## 1. 새 저장소
 
-## 1. 코어 적용
+1. `python3 -I "$B/baseline.py" init .`
+2. 원본 `docs/start.md` 1절대로 블록 밖의 칸을 채운다.
+   - `AGENTS.md`: 제목과 한 줄 설명(README와 코드에서 읽는다), 길잡이 표. 코드에서 알 수 없는 것만 쓴다.
+   - 명령 4칸(setup/check/test/build): 빌드 파일(`package.json`, `Makefile`, `go.mod`, `Cargo.toml`, `pyproject.toml`, Gradle·Xcode 설정 등)에서 찾아 `.baseline/commands.json`에 argv 배열로 쓰고, `AGENTS.md` 「명령」 줄을 `check`가 출력하는 한 줄로 맞춘다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 돌린다. 없거나 돌릴 수 없으면 `"N/A: <이유>"`. 포매터·린터를 새로 고르지 않는다. 새 도구는 제안으로 보고한다.
+   - `.mise.toml`: 빌드 파일이나 CI가 정한 툴체인 판만 옮긴다. 정한 판이 없으면 비워 둔다.
+   - `REVIEW.md` 「민감한 파일」: 인증·결제·권한·migration 경로를 코드에서 찾아 적는다. 못 찾으면 "없음(확인한 범위: …)".
 
-1. 작업 브랜치를 만든다.
-2. `templates/core/`에서 복사한다.
-   - `AGENTS.md`, `REVIEW.md` → 저장소 루트
-   - `CLAUDE.md`는 만들지 않는다. 이미 있으면 내용을 `AGENTS.md`에 합치고 `CLAUDE.md`를 지운다. 지울 수 없는 이유가 있으면 `@AGENTS.md` 한 줄로 바꾼다. Claude Code는 둘 다 있으면 기본 설정에서 `CLAUDE.md`만 읽는다. `.claude/CLAUDE.md`도 같다.
-   - `pull_request_template.md` → `.github/pull_request_template.md`
-   - `gitignore` → 저장소의 `.gitignore` 뒤에 붙인다(없는 줄만)
-3. `AGENTS.md`를 채운다.
-   - 프로젝트 이름과 한두 문장 설명: README와 코드에서 읽는다.
-   - 명령 4칸(setup/check/test/build): 프로젝트의 빌드 파일(`package.json`, `Makefile`, `go.mod`, `Cargo.toml`, `pyproject.toml`, Gradle·Xcode 설정 등)에서 찾는다. 각 명령을 실제로 돌린다. 없거나 돌릴 수 없으면 `N/A: <이유>`.
-   - check 칸이 비면 포매터·린터를 새로 고르지 말고, 있는 도구만 적는다. 새 도구 도입은 제안으로 보고한다.
-   - 길잡이 표: 주요 디렉터리와 역할.
-   - 코드에서 알 수 없는 것만 쓴다. `budget`은 200줄 이상이면 실패한다.
-4. `REVIEW.md`를 채운다.
-   - 실패로 보는 것: 이 프로젝트의 영역(예: API, UI, 데이터, 문서)별 행.
-   - P2 상한: 기본 5.
-   - 건너뛸 것: 생성 파일·vendor 경로.
-   - 민감한 파일: 인증·결제·권한·migration 경로를 코드에서 찾아 적는다. 못 찾으면 "없음(확인한 범위: …)".
+## 2. 이미 있는 저장소
 
-## 2. GitHub 프로필 (원격이 GitHub일 때만)
+1. `python3 -I "$B/baseline.py" migrate .`을 돌리고 출력(충돌, 계획, `commands.json` 초안)을 보고에 붙인다.
+2. 막힘을 하나씩 푼다. 같은 이름 스킬은 이름을 바꾸거나, 프로젝트 것이 아니면 지운다. `CLAUDE.md`의 명령 칸은 `AGENTS.md` 명령 칸으로 옮긴다. 관리 파일 자리의 프로젝트 내용은 「지킬 것」대로 소유자에게 묻는다. 묻는 동안 남은 막힘이 있으면 `--apply`하지 않고 보고한다.
+3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`.
+4. `commands.json` 초안을 1절 2번의 명령 4칸 기준으로 확인하고, 돌려 본 결과로 고친다.
+5. 확인 줄을 처리한다. CI workflow는 3절에서 고친다. 옛 hash-copy manifest(`.github/repo-baseline.json`)는 그 check를 부르는 CI 단계와 함께 지운다. 도구별 지침 파일은 내용을 `AGENTS.md`로 옮기고 지운다. 관리 블록과 겹치는 절은 비교한 뒤 지운다.
 
-`git remote -v`가 GitHub를 가리키지 않으면 이 단계를 건너뛰고 보고에 적는다.
+## 3. 프로필
 
-1. `templates/github/README.md`를 읽고 그대로 따른다. 새 저장소는 「(a) 새 저장소 셋업」, 이미 쓰던 저장소는 「(b) 기존 저장소 옮기기」의 에이전트 단계다. 값은 「계약 값」 표의 것을 쓰고 새로 고르지 않는다.
-2. 파일로 두는 것만 한다: CI 골격(`.github/workflows/`), Dependabot 설정, 에이전트 권한 설정 예시, 저장소마다 다른 값만 둔 `.github/repository-settings.json`, `SECURITY.md`, CodeRabbit 설정(`.coderabbit.yaml`). 새 저장소는 `SECURITY.md`를 이 PR에 넣지 않고, 소유자가 설정을 적용한 뒤 따로 PR로 연다(「(a) 새 저장소 셋업」의 9).
-3. CI 골격은 `AGENTS.md`의 check·test 명령을 부르게 채운다.
-4. 서버에 설정을 적용하는 명령(`--apply` 등)은 실행하지 않는다. 소유자가 실행할 명령을 보고에 적는다.
+- GitHub(`git remote -v`가 GitHub을 가리킬 때): 원본 `github/README.md`대로 `github/ci.yml`을 `.github/workflows/ci.yml`로 복사하고(기존 CI가 있으면 `check`를 돌리는 단계를 합친다), `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다. Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 그 README의 표를 따른다. `github plan`·`github apply`는 소유자가 할 일로 보고에 적는다.
+- ops(배포해서 사람이 쓰는 앱일 때): 원본 `ops/README.md` 「켜기」를 따른다. SDK는 설치하지 않는다. 판단이 애매하면 소유자에게 묻는다.
+- team(쓰기 권한자가 둘 이상일 때): 원본 `team/README.md`를 따른다.
 
-`.github/workflows/**`, 저장소 설정 파일, 에이전트 설정 폴더(`.claude/`·`.agents/`·`.codex/`·`.cursor/` 등)와 `.mcp.json`은 민감한 파일이다(`POLICY.md` §4). 이 단계를 했으면 이 PR은 되돌리기 어려움이다.
+## 4. 판 올리기
 
-## 3. ops 프로필 (배포하는 앱일 때만)
+1. `.baseline/baseline.json`의 `version`을 적어 둔다.
+2. `python3 -I .baseline/baseline.py upgrade v<X.Y.Z>`. 관리 블록을 고쳐 두었으면 도구가 diff를 출력하고 멈춘다. 그때는 diff를 보고하고, 그 수정을 repo-baseline에 반영할지 소유자에게 묻는다.
+3. 1번 판과 새 판 사이 태그의 `docs/releases/v*.md`에서 소비 레포가 손으로 옮길 일을 한다.
 
-저장소가 배포해서 사람이 쓰는 앱(웹, 서버, 모바일, 게임)이 아니면 이 단계를 건너뛰고 보고에 적는다. 판단이 애매하면 소유자에게 묻는다.
-
-1. 원본의 `profiles/ops/README.md`를 읽는다.
-2. 그 「켜기」 블록을 표시 줄까지 `AGENTS.md` 「작업 방식」 끝에 붙인다. 이미 `.github/repo-baseline.json`이 있으면 손으로 붙이지 말고 그 manifest에 `blocks.ops`(대상과 `exclude`)를 더한 뒤 `apply_baseline.py`로 쓴다. 멈춘 이유가 `AGENTS.md block ops (no markers)` 하나뿐이면 기존 `### ops` 절을 새 블록과 비교한다. `--force`는 그 절 전체를 새 블록으로 바꾸기 때문이다. 새 블록에 없는 저장소 규칙이 없으면 `--force`로 다시 돌린다. 있으면 0절 3번을 따른다. 다른 파일 때문에 멈추면 0절 3번을 따른다. `--force`는 그 파일의 수정도 버리기 때문이다. manifest가 없으면 손으로 붙이고, 빼는 도구가 분명하면(예: 웹 도메인이 없으면 Cloudflare) 그 도구가 나오는 줄을 지우고 끝 표시 줄 앞에 `- 뺀 도구: <도구> — <이유>` 줄을 더한다(여러 개면 ops 도구 표의 순서로). 소유자에게 `tools/consumers.json`에 이 저장소를 더하자고 보고에 적는다. 그러면 다음 판 올리기부터 `tools/sync_consumers.py`가 맞춘다. 이미 `.github/repo-baseline.json`이 있는 저장소는 `consumers.json`의 manifest를 쓰지 않으므로, 그 manifest에도 `blocks.ops`(대상과 뺀 도구)를 더한다.
-3. SDK는 설치하지 않는다. 아직 배포하지 않았으면 처음 배포하는 PR에서 한다. 이미 배포한 앱이면 이 PR이 병합된 뒤 SDK와 감시 등록만 하는 PR을 따로 연다. 그 PR은 되돌리기 어려움이다. 보고에 이 다음 일을 적는다.
-
-## 3a. matt-skills·pstack 프로필 (에이전트로 개발할 때)
-
-기본 프로필이다. 사람만 개발하는 저장소면 건너뛰고 보고에 적는다. 에이전트로 개발하는데 빼려면 `AGENTS.md`에 이유를 한 줄 적고 보고에 적는다.
-
-1. 원본의 `profiles/matt-skills/README.md` 「켜기」 2번 절을 `REVIEW.md` 끝에 붙인다. 스킬 설치(1번)와 설치 확인(3번)은 기기마다 하는 일이라 이 PR에서 하지 않고, 소유자가 할 일로 보고에 적는다.
-2. 원본의 `profiles/pstack/README.md` 「켜기」의 절을 `AGENTS.md` 「작업 방식」 끝에 붙인다.
-
-## 4. 검증
+## 5. 검증
 
 모두 실제로 돌리고 출력을 보고에 붙인다.
 
-- `grep -nE '<[^>]+>' AGENTS.md REVIEW.md`: 템플릿 빈칸(`<프로젝트 이름>`, `<명령>`, `<영역>` 등)이 남지 않았다. `N/A: <이유>` 안내와 「배운 규칙」의 형식 예시는 남아도 된다.
-- 명령 4칸: 각각 실행 결과(성공·실패) 또는 `N/A: <이유>`.
-- `git check-ignore -q .env && git check-ignore -q .env.local && echo ignored`: `ignored`가 나온다. 예외 줄(`!.env`)이 있거나 이미 커밋된 파일이면 나오지 않는다.
+- `python3 -I .baseline/baseline.py check`: `check: 통과`.
+- `python3 -I .baseline/baseline.py run <setup|check|test|build>`: 각각 결과 또는 `N/A: <이유>`.
+- `python3 -I .baseline/baseline.py budget`: 상한을 넘지 않는다.
+- `python3 -I .baseline/baseline.py doctor`: 출력 전체. 이 기기의 문제는 고치는 명령과 함께 보고한다.
+- `git check-ignore -q .env && git check-ignore -q .env.local && echo ignored`: `ignored`가 나온다.
 - `git status`: 비밀값 파일이 스테이징되지 않았다.
-- `CLAUDE.md`·`CLAUDE.local.md`가 없거나 `@AGENTS.md` 한 줄이고, `.claude/CLAUDE.md`가 없거나 `@../AGENTS.md` 한 줄이다. 상위 폴더에 `CLAUDE.md`가 있으면 보고에 적는다.
-- ops 프로필을 했으면: `python3 <repo-baseline 클론>/tools/check_ops.py`가 `ops: 통과`를 출력한다. `--sdk`는 붙이지 않는다. 이 단계는 `.env*` 파일을 만들지 않기 때문이다.
-- GitHub 프로필을 했으면: workflow 파일의 YAML이 파싱된다(쓸 수 있는 도구로). 확인하지 못했으면 그렇게 적는다. 이 PR에 `SECURITY.md`를 넣었으면 `.github/`, 루트, `docs/` 중 한 곳에만 있고, 그 파일에 `grep -n 'OWNER/REPO'`가 아무것도 출력하지 않는다.
+- GitHub 프로필을 했으면: workflow 파일의 YAML이 파싱된다(쓸 수 있는 도구로). 확인하지 못했으면 그렇게 적는다.
 
-## 5. PR 열기
+## 6. PR 열기
 
 커밋하고 PR을 연다. 본문은 `.github/pull_request_template.md` 양식이다.
 
-- Author: 너의 도구 / 모델.
-- Summary: 코어 적용(했으면 GitHub 프로필·ops 프로필·matt-skills·pstack 프로필도). 완료 기준: 템플릿 빈칸이 없다, `.env`가 무시된다, 비밀값이 스테이징되지 않았다, `CLAUDE.md`가 없거나 `@AGENTS.md` 한 줄이다, (GitHub 프로필을 했으면) workflow YAML이 파싱된다, (ops 프로필을 했으면) `check_ops.py`가 통과한다. 전에 통과하던 프로젝트 명령은 그대로 통과한다.
-- Evidence: 4단계 출력. 확인하지 않은 범위.
-- Merge Danger: 코어만이면 되돌리기 쉬움, GitHub 프로필을 했으면 되돌리기 어려움과 걸린 경로.
-- Review: 비워 둔다. 리뷰는 다른 컨텍스트가 원본 저장소의 `prompts/review.md`로 한다.
+- Summary: 한 일(새 저장소·옮기기·판 올리기, 켠 프로필). 완료 기준: `check`·`budget`이 통과한다, 명령 4칸이 돈다, `.env`가 무시된다, 비밀값이 스테이징되지 않았다. 전에 통과하던 프로젝트 명령은 그대로 통과한다.
+- Evidence: 5절 출력. 확인하지 않은 범위.
+- 등급: 1·2절은 `.baseline/`과 `.claude/`를 더하므로 어려움이다. 4절에서 관리 바이트만 바꿨으면 `review-preflight`가 쉬움으로 볼 수 있다.
+- Review: 비워 둔다. 리뷰는 다른 컨텍스트가 원본의 `prompts/review.md`로 한다.
 
 ## 완료 보고
 
-아래 형식으로 짧게 보고한다.
-
 ```
-적용: 코어 [완료|부분|판 올리기(반영한 변경 기록 범위)] / GitHub 프로필 [완료|건너뜀(이유)] / ops 프로필 [완료|건너뜀(이유)] / matt-skills·pstack [완료|건너뜀(이유)]
+적용: [새 저장소|옮기기|판 올리기(이전 판 → 새 판)] / GitHub [완료|건너뜀(이유)] / ops [완료|건너뜀(이유)] / team [완료|건너뜀(이유)]
 PR: <링크>
 명령 4칸: setup=<결과> check=<결과> test=<결과> build=<결과>
-합친 기존 파일: <없음|목록>
-되돌리기: <쉬움|어려움(경로)>
-소유자가 할 일: <서버 설정 적용 명령, 리뷰 요청, 병합>
+migrate 막힘: <없음|푼 것과 남은 것>
+doctor: <통과|문제와 고치는 명령>
+등급: <문서|쉬움|어려움(이유)>
+소유자가 할 일: <github plan·apply, 남은 막힘의 결정, 리뷰 요청, 병합>
 제안(반영 안 함): <새 린터 등>
 확인하지 않은 것: <목록>
 ```

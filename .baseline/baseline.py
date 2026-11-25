@@ -21,7 +21,7 @@ import sys
 import time
 from urllib.parse import quote
 
-VERSION = "2.0.0-dev"
+VERSION = "2.0.0"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 # The hashes of this version. check trusts these, not only baseline.json, so editing a managed
 # file together with baseline.json still fails. test_baseline.py keeps them equal to core/.

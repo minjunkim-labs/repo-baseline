@@ -1,47 +1,62 @@
 # repo-baseline
 
 1인·소규모 팀이 언어·스택·에이전트 도구(어떤 코딩 에이전트든)와 관계없이 바로 안전하게 개발을 시작하게 하는 최소 기준이다.
-코어는 복사만 하는 작은 파일 4개와 한 쪽짜리 규칙([POLICY.md](POLICY.md))이다. 코어는 GitHub도 에이전트도 없이 사람 혼자 써도 맞는 규칙만 둔다. 프로필은 두 층이다. 기본 프로필은 켜는 조건이 대개 참이라 조건에 맞으면 켠다. 빼려면 `AGENTS.md`에 이유를 적는다. 선택 프로필은 이유가 있을 때만 켠다.
+규칙은 한 쪽짜리 [POLICY.md](POLICY.md)다. 도구는 표준 라이브러리만 쓰는 `baseline.py` 하나다(Python 3.9 이상). 코어(`core/`)를 저장소에 복사하고, 복사한 파일이 그 판과 같은지 `check`가 본다.
 
-## 코어 적용 3단계
+## 시작
 
-1. 이 저장소를 받는다(공개, 인증 불필요): `git clone https://github.com/minjunkim-labs/repo-baseline`
-2. [templates/core/](templates/core/)를 프로젝트에 복사한다. `AGENTS.md`, `REVIEW.md`, `.github/pull_request_template.md`, `.gitignore` 추가분. Claude Code·Codex·Cursor 모두 `AGENTS.md`를 읽으므로 `CLAUDE.md`는 두지 않는다.
-3. `AGENTS.md`의 명령 4칸(setup/check/test/build)과 `REVIEW.md`의 빈칸을 채우고, 첫 PR을 슬림 양식으로 연다.
+- 새 저장소: `python3 -I <repo-baseline 클론>/baseline.py init .`
+- 이미 있는 저장소(v1 소비 레포 포함): `python3 -I <repo-baseline 클론>/baseline.py migrate .`로 충돌과 계획을 보고, 막힘을 푼 뒤 `--apply`.
+- 판 올리기: `python3 -I .baseline/baseline.py upgrade v<X.Y.Z>`
 
-명령은 [docs/start.md](docs/start.md)에 있다. 에이전트에게 맡기려면 [prompts/setup.md](prompts/setup.md) 하나를 첨부한다.
+순서와 확인 명령은 [docs/start.md](docs/start.md)에 있다. 에이전트에게 맡기려면 [prompts/setup.md](prompts/setup.md) 하나를 첨부한다.
 
-## 프로필
+## 명령
+
+소비 레포에서는 고정한 사본 `.baseline/baseline.py`로 부른다: `python3 -I .baseline/baseline.py <명령>`. `init`·`migrate`는 아직 사본이 없으므로 repo-baseline 클론의 `baseline.py`로 부른다.
+
+| 명령 | 하는 일 |
+| --- | --- |
+| `init <경로>` | 빈 저장소에 코어를 복사한다. 코어 파일이 하나라도 있으면 아무것도 쓰지 않고 `migrate`를 가리킨다 |
+| `migrate <경로> [--apply]` | 기존 저장소의 충돌(막힘·확인), 쓸 계획, `commands.json` 초안을 출력한다. 막힘이 없을 때만 `--apply`가 쓴다 |
+| `upgrade <태그>` | 관리 블록·관리 파일·스킬 사본을 그 태그 판으로 바꾼다. 관리 블록을 고쳐 두었으면 diff를 출력하고 멈춘다. `gh`로 태그를 읽는다 |
+| `check` | 관리 파일·블록이 이 판과 같고 `AGENTS.md` 명령 칸이 `.baseline/commands.json`과 같은지 본다 |
+| `run <setup\|check\|test\|build>` | `commands.json`의 명령을 돌린다. `.mise.toml`에 판이 있으면 `mise exec`로 돈다 |
+| `doctor` | 이 기기가 기준과 다른 곳(도구 판, WSL, 같은 이름 개인 스킬, `autoMode.environment`, `.mise.toml` 신뢰 등)과 고치는 명령을 출력한다 |
+| `review-preflight <PR>` | GitHub REST로 PR의 리뷰 등급(문서·쉬움·어려움)과 이유, diff 명령을 출력한다 |
+| `review-report <PR> --file <파일>` | 리뷰어가 스레드 판정에 답하고 PR 본문의 Review 칸을 쓴다 |
+| `enqueue <PR> <리뷰한 head>` | 문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다. 어려움 PR은 넣지 않는다. 로컬 전용 |
+| `budget` | `AGENTS.md`·`REVIEW.md`·`prompts/review.md` 크기를 공식 문서의 상한과 비교한다 |
+| `skills-bump [--check]` | 스킬 출처마다 7일 지난 새 판으로 사본을 바꾼다. repo-baseline 전용 |
+| `github <plan\|apply>` | 저장소 설정과 상태 라벨을 기준과 비교한다. `apply`는 소유자만 한다 |
+
+## 코어와 프로필
+
+코어는 `AGENTS.md`·`REVIEW.md`(관리 블록), `CLAUDE.md`(`@AGENTS.md` 한 줄), PR 템플릿, `.gitattributes`, `.mise.toml`, Stop 훅과 `enqueue` 허용 훅, Matt 스킬 설정 `docs/agents/`, 판을 고정한 스킬 사본 `.claude/skills/`, `.baseline/`이다. 단계별로 쓰는 스킬은 [WORKFLOW.md](WORKFLOW.md)에 있다.
 
 | 층 | 프로필 | 언제 켜는가 |
 | --- | --- | --- |
-| 기본 | [github](templates/github/) | GitHub에 올리면 켠다(POLICY §5가 브랜치 보호·필수 CI·머지 큐를 요구한다). 작업의 원본은 GitHub Issue다. 브랜치 보호, 필수 CI, push protection, Dependabot, CI 골격, SECURITY.md, CodeRabbit 한국어 리뷰 설정, 에이전트 권한 예시 |
-| 기본 | [matt-skills](profiles/matt-skills/) | 에이전트로 개발하면 켠다. Issue 절차(명세·티켓·분류와 상태 라벨), 구현(TDD·진단), 리뷰의 두 축 판단, 회고, PR 본문을 Matt Pocock 스킬에 맡긴다. 켜면 스킬 설치가 규칙이다(설치 확인 스크립트) |
-| 기본 | [pstack](profiles/pstack/) | 에이전트로 개발하면 켠다. pstack 기본 동작 중 이 기준과 어긋나는 것(병합, 바로 반영, 규칙 위치)을 `AGENTS.md`에 적는다. pstack을 부르지 않으면 아무 일도 하지 않는다 |
-| 기본 | [ops](profiles/ops/) | 배포해서 사람이 쓰는 앱이면 켠다. 보안·에러 추적·제품 분석·감시 도구를 모두 쓰고, 빼는 도구만 이유와 함께 적는다. 조직에서 한 번 켤 것과 소비 레포마다 할 것, 비밀값 이름 |
-| 선택 | [team](profiles/team/) | 2명 이상. CODEOWNERS와 사람 승인 |
-| 선택 | [pr-conventions](profiles/pr-conventions/) | PR 제목·브랜치·본문 형식을 CI로 검사한다. 형식이 두 번 어긋났을 때, 제목에서 릴리스 노트를 뽑을 때, 피처 플래그 규칙을 기계로 확인할 때 켠다 |
-| 선택 | [linear](profiles/linear/) | 일정표 문서와 Issue 목록만으로 계획하기 불편할 때. 예: 2주 동안 할 Issue를 묶고 돌아보기, 큰 목표 아래 Issue를 모아 진행률 보기, 여러 저장소의 할 일을 한 목록에서 보기. GitHub Issue를 원본으로 두고 Linear는 동기화로 붙인다 |
+| 기본 | [github](github/) | GitHub에 올리면 켠다. POLICY §5가 조직 소유 공개 저장소, 브랜치 보호, 필수 CI, 머지 큐를 요구한다 |
+| 기본 | [ops](ops/) | 배포해서 사람이 쓰는 앱이면 켠다. 빼는 도구만 이유와 함께 적는다 |
+| 선택 | [team](team/) | 쓰기 권한이 있는 사람이 둘 이상이면 켠다. CODEOWNERS와 사람 승인 |
 
-위 프로필은 규칙을 더한다. [hash-copy](profiles/hash-copy/)는 규칙이 아니라 이 저장소의 파일을 소비 레포에 복사하는 도구다. 공통 검사기를 해시로 고정해 여러 저장소에 똑같이 두고 싶을 때 쓴다(Python 필요).
+PR을 열면 [prompts/review.md](prompts/review.md)로 리뷰한다. 등급은 `review-preflight`가 정한다. 문서는 필수 CI만, 쉬움은 하위 에이전트 리뷰 한 번, 어려움은 새 세션 리뷰와 보안 관점 리뷰 뒤 소유자가 병합한다(POLICY §3). 같은 지적이 반복되면 [prompts/retro.md](prompts/retro.md)를 실행한다.
 
-PR을 열면 [prompts/review.md](prompts/review.md)로 리뷰한다. 되돌리기 쉬움이고 민감한 파일을 건드리지 않으면 구현 세션의 하위 에이전트가 리뷰해도 되고, 어려움이거나 민감한 파일을 건드리면 새 세션이 리뷰한다. 리뷰하는 기기에는 이 저장소의 클론과 Python 3.9 이상이 있어야 한다(리뷰 전 확인 스크립트).
-회고는 정기 실행하지 않는다. 같은 지적이 반복될 때 [prompts/retro.md](prompts/retro.md)를 실행한다.
+`templates/`, `profiles/`, `tools/`는 v1 도구다. v1 소비 레포가 다 옮기면 지운다. 그때까지 `tools/sync_consumers.py`는 돌리지 않는다.
 
 ## 적용 중인 프로젝트
 
-동기화 PR을 받는 저장소 목록은 [tools/consumers.json](tools/consumers.json)이다. 이 표는 적용 현황이고, 동기화 대상 목록이 아니다. 2026-11-18 기준으로 아래 여섯 곳 모두 코어(`AGENTS.md`·`REVIEW.md`·PR 템플릿)와 github 프로필(`.github/repository-settings.json`)이 있다. 이 저장소도 같은 구성을 쓴다. 서버 설정이 파일과 맞는지는 소유자가 `tools/apply_github_settings.py` 계획 모드로 확인한다. repo-office 연결은 `docs/agents/office.md`가 있는 곳이다.
+2026-11-25 기준으로 아래 다섯 곳은 v1이다. 저장소마다 PR 하나로 `migrate`를 써서 v2로 옮긴다. 이 저장소는 v2 코어를 쓴다.
 
-| 프로젝트 | 저장소 | repo-office |
+| 프로젝트 | 저장소 | 옮기는 Issue |
 | --- | --- | --- |
-| Smallnext | `minjunkim-labs/smallnext` | 연결 |
-| BGLike | `minjunkim-labs/BGLike` | 연결 |
-| Runstir | `minjunkim-labs/mobile-runtime` | 연결 |
-| answer-desk | `minjunkim-labs/answer-desk` | 없음 |
-| portfolio | `minjunkim-labs/portfolio` | 없음 |
-| repo-office | `minjunkim-labs/repo-office` | 해당 없음 |
+| answer-desk | `minjunkim-labs/answer-desk` | #186 |
+| portfolio | `minjunkim-labs/portfolio` | #193 |
+| Runstir | `minjunkim-labs/mobile-runtime` | #194 |
+| Smallnext | `minjunkim-labs/smallnext` | #195 |
+| BGLike | `minjunkim-labs/BGLike` | #196 |
 
 ## 그 밖에
 
 - 비밀값은 이 저장소에 두지 않는다. 보안 문제 보고는 [SECURITY.md](SECURITY.md).
-- 변경 기록: [changelog.d/](changelog.d/)(2026-11-17부터, PR마다 파일 하나)와 [CHANGELOG.md](CHANGELOG.md)(그 전). 재설계 전 기록은 [CHANGELOG-2026.md](https://github.com/minjunkim-labs/repo-baseline/blob/c3f6d569871f51b83c1405dee34db6850a0b30e3/docs/archive/CHANGELOG-2026.md)(지운 보관 문서의 마지막 판).
+- 변경 기록: 태그마다 [docs/releases/](docs/releases/), 지난 태그 뒤 PR마다 `changelog.d/`(태그를 내면 비운다), 2026-11-17 전은 [CHANGELOG.md](CHANGELOG.md). 재설계 전 기록은 [CHANGELOG-2026.md](https://github.com/minjunkim-labs/repo-baseline/blob/c3f6d569871f51b83c1405dee34db6850a0b30e3/docs/archive/CHANGELOG-2026.md)(지운 보관 문서의 마지막 판).

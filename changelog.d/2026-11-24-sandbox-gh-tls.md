@@ -1,1 +1,0 @@
-- macOS에서 샌드박스를 켠 저장소는 settings의 `sandbox`에 `"enableWeakerNetworkIsolation": true`를 더한다. 그러면 `gh`와 `baseline.py`의 GitHub 명령이 샌드박스 안에서 돈다(WORKFLOW.md 「샌드박스 예시」).
