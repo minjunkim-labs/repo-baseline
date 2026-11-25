@@ -1,1 +1,0 @@
-- 리뷰어는 PR 본문의 Review 칸을 `python3 -I .baseline/baseline.py review-report <PR> --file <파일> [--thread <댓글 id>=<판정>]`로 쓴다. 형식이 틀리면 쓰지 않고, 판정한 스레드에 답하고 해결한 뒤 Review 절만 바꾼다. `enqueue`는 해결하지 않은 리뷰 스레드 수를 알리고, 해결된 스레드의 봇 답글은 늦은 리뷰로 세지 않는다.

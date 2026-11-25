@@ -22,7 +22,7 @@ import tempfile
 import time
 from urllib.parse import quote
 
-VERSION = "2.0.0-dev"
+VERSION = "2.0.0"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
 ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")

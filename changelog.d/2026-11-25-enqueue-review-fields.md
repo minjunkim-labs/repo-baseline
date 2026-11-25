@@ -1,1 +1,0 @@
-- `upgrade` 뒤 `check`가 `.gitignore`를 본다. `.env`·`.env.*`·`*.pem`·`*.key`·`*.p12`를 ignore하지 않으면 실패하니, 그 줄(`!.env.example` 포함)을 `.gitignore`에 더한다. 상태 라벨에 `wayfinder:*` 5개가 더해졌으니 소유자가 `github apply`를 한 번 다시 돌린다.

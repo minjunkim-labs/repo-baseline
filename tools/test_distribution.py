@@ -59,8 +59,9 @@ class DistributionTests(unittest.TestCase):
         self.assertIn("\ninheritance: true\n", template)
 
     def test_changelog_fragments_are_one_short_entry(self):
+        folder = ROOT / "changelog.d"  # empty right after a tag gathers it into docs/releases/, so git drops it
         problems = [f"{path.name}: {fragment_problem(path)}"
-                    for path in sorted((ROOT / "changelog.d").iterdir()) if fragment_problem(path)]
+                    for path in sorted(folder.iterdir() if folder.is_dir() else []) if fragment_problem(path)]
         self.assertEqual(problems, [])
 
     def test_fragment_check_rejects_bad_files(self):

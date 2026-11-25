@@ -1,1 +1,0 @@
-- 샌드박스를 쓰는 로컬 세션은 엄격 모드(`allowUnsandboxedCommands: false`)를 끈다. macOS 샌드박스 안에서 `gh`가 TLS 검증에 실패해 `review-preflight`·`enqueue`·`budget`이 막힌다(WORKFLOW.md 「샌드박스 예시」).

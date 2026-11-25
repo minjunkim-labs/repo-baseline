@@ -1,1 +1,0 @@
-- 이 저장소 `REVIEW.md`가 v1 경로(`templates/`·`profiles/`·`tools/`)를 v2 리뷰 기준으로 읽지 않게 했다. 소비 레포가 옮길 일은 없다.

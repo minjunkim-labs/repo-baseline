@@ -1,1 +1,0 @@
-- `baseline.py review-preflight <PR>`: GitHub REST만 써서 등급(문서·쉬움·어려움)과 이유, `.env*` 이름, fork 여부, diff 명령을 출력한다. upgrade 예외(태그 `v<판>`의 바이트와 같음)와 Dependabot 예외(PR 작성자 login과 브랜치의 모든 push가 `dependabot[bot]`, 버전·해시 줄만, minor·patch만)를 판정한다. `prompts/review.md`를 v2용으로 줄였다(v1 저장소는 고정 링크의 v1 판). `budget`이 리뷰어 읽기 13,000바이트를 잰다. `check`가 부모 폴더의 symlink도 거부한다. 소비 레포가 옮길 일은 없다.

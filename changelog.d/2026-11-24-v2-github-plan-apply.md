@@ -1,1 +1,0 @@
-- v2 저장소는 `python3 -I .baseline/baseline.py github plan`·`github apply`로 저장소 설정과 상태 라벨 5개를 맞춘다(소유자만). CI는 `github/ci.yml`을 복사하고 `patterns_allowed`에 `jdx/mise-action@*`를 더한다. ops를 켜면 `ops/ops.md`를 `docs/agents/ops.md`로 복사하고 `baseline.json`의 `profiles`에 `"ops"`를 더한다.

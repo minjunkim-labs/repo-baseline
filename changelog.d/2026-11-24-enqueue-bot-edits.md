@@ -1,1 +1,0 @@
-- `enqueue`가 봇이 자기 댓글을 고친 시각을 외부 리뷰로 세지 않는다. CodeRabbit이 본문 수정마다 요약 댓글을 고쳐 쉬움 PR이 큐에 들어가지 못했다. 소비 레포는 upgrade로 `.baseline/baseline.py`와 `.claude/settings.json`의 고정 해시를 함께 받는다.
