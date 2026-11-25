@@ -200,6 +200,216 @@ class InitCheckTests(unittest.TestCase):
         self.assertCheck(1, "셸은")
 
 
+class MigrateTests(unittest.TestCase):
+    """migrate reads an existing repo, prints conflicts and a plan, and writes only with --apply."""
+    AGENTS = ("# answer\n\n프로젝트 설명.\n\n## 명령\n\n"
+              "- setup: `make setup`  (README 참고)\n"
+              "- check: `make lint && make spec`\n"
+              "- test: `swift test --parallel`\n"
+              "- build: N/A: 출시 빌드 없음\n")
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.repo = Path(self.tmp.name)
+        (self.repo / "AGENTS.md").write_text(self.AGENTS, encoding="utf-8")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, rel, text):
+        (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (self.repo / rel).write_text(text, encoding="utf-8")
+
+    def files(self):
+        return {p.relative_to(self.repo).as_posix(): p.read_bytes() for p in self.repo.rglob("*") if p.is_file()}
+
+    def migrate(self, *flags):
+        return cli("migrate", self.repo, *flags)
+
+    def check(self):
+        return cli("check", script=self.repo / ".baseline/baseline.py")
+
+    def test_plan_reports_conflicts_and_writes_nothing(self):
+        self.write("CLAUDE.md", "@AGENTS.md\n\nClaude만 읽는 규칙.\n")
+        self.write(".claude/settings.json", "{}\n")
+        self.write(".github/workflows/ci.yml", "on: push\n")
+        self.write(".github/repo-baseline.json", "{}\n")
+        self.write("GEMINI.md", "gemini\n")
+        before = self.files()
+        result = self.migrate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for text in ("확인 CLAUDE.md: 내용을 AGENTS.md로", "확인 .claude/settings.json: 이미 있어 둔다",
+                     "확인 CI: .github/workflows/ci.yml", "확인 .github/repo-baseline.json: 옛 hash-copy",
+                     "확인 GEMINI.md: 도구별 지침", "명령 칸 setup에 산문이 섞였다: '(README 참고)'"):
+            self.assertIn(text, result.stdout)
+        self.assertIn('- check: `sh -c \'make lint && make spec\'`', result.stdout)
+        self.assertIn("- test: `swift test --parallel`", result.stdout)
+        self.assertIn("--apply", result.stdout)
+        self.assertEqual(self.files(), before)
+
+    def test_apply_keeps_project_text_and_check_passes(self):
+        self.write("CLAUDE.md", "@AGENTS.md\n\nClaude만 읽는 규칙.\n")
+        self.write("REVIEW.md", "# 리뷰\n\n프로젝트 기준.\n")
+        self.write(".claude/settings.json", '{"mine": true}\n')
+        self.write(".claude/skills/mine/SKILL.md", "mine\n")
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        agents = (self.repo / "AGENTS.md").read_text(encoding="utf-8")
+        for text in ("프로젝트 설명.", "  - (README 참고)", "Claude만 읽는 규칙.", "- build: `N/A: 출시 빌드 없음`"):
+            self.assertIn(text, agents)
+        self.assertLess(agents.index("Claude만 읽는 규칙."), agents.index("<!-- baseline:start -->"))
+        self.assertEqual((self.repo / "CLAUDE.md").read_bytes(), b"@AGENTS.md\n")
+        self.assertIn("프로젝트 기준.", (self.repo / "REVIEW.md").read_text(encoding="utf-8"))
+        self.assertEqual((self.repo / ".claude/settings.json").read_text(encoding="utf-8"), '{"mine": true}\n')
+        self.assertEqual((self.repo / ".claude/skills/mine/SKILL.md").read_text(encoding="utf-8"), "mine\n")
+        self.assertEqual(json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))["check"],
+                         ["sh", "-c", "make lint && make spec"])
+
+    def test_apply_without_agents_md_writes_the_core(self):
+        (self.repo / "AGENTS.md").unlink()
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+
+    def test_blocking_conflicts_stop_apply_and_write_nothing(self):
+        self.write(".gitattributes", "*.png filter=lfs\n")
+        self.write(".claude/skills/tdd/SKILL.md", "my tdd\n")
+        before = self.files()
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("막힘 .gitattributes", result.stdout)
+        self.assertIn("막힘 .claude/skills/tdd/: 같은 이름 스킬", result.stdout)
+        self.assertEqual(self.files(), before)
+
+    def test_pristine_v1_copy_is_replaced(self):
+        old = b"## Summary\nv1\n"
+        self.write(".github/pull_request_template.md", old.decode())
+        self.write(".github/repo-baseline.json", json.dumps({"files": {".github/pull_request_template.md": {
+            "source": "templates/core/pull_request_template.md", "sha256": hashlib.sha256(old).hexdigest()}}}))
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("옛 hash-copy 사본", result.stdout)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+
+    def test_odd_command_cells_become_valid_drafts(self):
+        self.write("AGENTS.md", "- setup: ``\n- check: N/A:\n- test: `make test  # 느림`\n"
+                                "- build: `npm ci` 후 `npm run build`\n")
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("명령 칸 build의 산문에 명령이 더 있다", result.stdout)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        commands = json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))
+        self.assertEqual(commands["test"], ["sh", "-c", "make test  # 느림"])
+
+    def assertBlocked(self, contains):
+        before = self.files()
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(contains, result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.files(), before)
+
+    def test_a_cell_without_backticks_blocks(self):
+        self.write("AGENTS.md", "- test: npm test (CI도)\n")
+        self.assertBlocked("명령 칸 test: 명령을 backtick으로 감싸거나")
+
+    def test_markers_in_claude_md_block_instead_of_losing_text(self):
+        self.write("AGENTS.md", "# I\n")
+        self.write("CLAUDE.md", "x\n<!-- baseline:start -->\ny\n<!-- baseline:end -->\n")
+        self.assertBlocked("CLAUDE.md: 관리 블록 표시가 있다")
+
+    def test_command_cells_that_would_not_survive_block(self):
+        self.write("AGENTS.md", "# I\n<!-- baseline:start -->\n- test: `make test`\n<!-- baseline:end -->\n")
+        self.assertBlocked("명령 칸 test이 관리 블록 안에 있다")
+
+    def test_command_cells_in_claude_md_block(self):
+        self.write("AGENTS.md", "# I\n")
+        self.write("CLAUDE.md", "- test: `make test`\n")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
+
+    def test_a_command_cell_in_both_files_blocks(self):
+        self.write("CLAUDE.md", "- test: `make other`\n")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
+
+    def test_two_cells_in_claude_md_without_agents_md_lose_nothing(self):
+        (self.repo / "AGENTS.md").unlink()
+        self.write("CLAUDE.md", "규칙\n- test: `a`  (빠름)\n예시:\n- test: `b`\n")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
+        self.assertNotIn("AGENTS.md: 명령 칸", self.migrate().stdout)
+
+    def test_control_characters_in_a_cell_block(self):
+        self.write("AGENTS.md", "- check: `touch x|true \x1b[2K\x1b[1G- check: npm test`\n")
+        self.assertBlocked("명령 칸 check에 출력할 수 없는 문자가 있다")
+
+    def test_crlf_cells_still_draft(self):
+        (self.repo / "AGENTS.md").write_bytes(b"- test: `make test`\r\n")
+        self.assertEqual(self.migrate().returncode, 0, self.migrate().stdout)
+
+    def test_check_refuses_control_characters_in_commands_json(self):
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        path = self.repo / ".baseline/commands.json"
+        commands = json.loads(path.read_text(encoding="utf-8"))
+        commands["test"] = ["make", "test\x1b[2K"]
+        path.write_text(json.dumps(commands), encoding="utf-8")
+        self.assertIn("출력할 수 없는 문자", self.check().stderr)
+
+    def test_apply_replaces_files_instead_of_writing_through_links(self):
+        outside = Path(self.tmp.name + "-outside.md")
+        self.addCleanup(lambda: outside.unlink() if outside.exists() else None)
+        outside.write_text("# outside\n", encoding="utf-8")
+        (self.repo / "AGENTS.md").unlink()
+        os.link(outside, self.repo / "AGENTS.md")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(outside.read_text(encoding="utf-8"), "# outside\n")
+        self.assertIn("<!-- baseline:start -->", (self.repo / "AGENTS.md").read_text(encoding="utf-8"))
+        self.assertEqual([p.name for p in self.repo.glob(".*.migrate-*")], [])
+
+    def test_an_indented_first_cell_in_claude_md_blocks(self):
+        self.write("AGENTS.md", "# I\n")
+        self.write("CLAUDE.md", "  - test: `x`\n")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
+
+    def test_a_linked_folder_in_a_same_name_skill_blocks(self):
+        shutil.copytree(ROOT / "skills/tdd", self.repo / ".claude/skills/tdd")
+        self.assertEqual(self.migrate().returncode, 0, "a pristine copy alone does not block")
+        (self.repo / ".claude/skills/tdd/extra").symlink_to(self.repo, target_is_directory=True)
+        self.assertBlocked("막힘 .claude/skills/tdd/: 같은 이름 스킬")
+
+    def test_a_file_in_the_way_of_a_folder_blocks(self):
+        self.write(".claude", "not a folder\n")
+        self.assertBlocked(".claude: 폴더여야 하는데 파일이다")
+
+    def test_symlinked_claude_md_says_how_to_fix_it(self):
+        (self.repo / "CLAUDE.md").symlink_to("AGENTS.md")
+        self.assertBlocked("CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다")
+        result = cli("migrate", ".", cwd=self.repo)
+        self.assertIn("CLAUDE.md는 지우면", result.stdout)
+
+    def test_a_merged_agents_md_too_big_for_check_blocks(self):
+        self.write("AGENTS.md", self.AGENTS + "a" * 600_000 + "\n")
+        self.write("CLAUDE.md", "b" * 600_000 + "\n")
+        self.assertBlocked("AGENTS.md: 쓸 내용이 1048576바이트를 넘는다")
+
+    def test_claude_md_text_moves_when_there_is_no_agents_md(self):
+        (self.repo / "AGENTS.md").unlink()
+        self.write("CLAUDE.md", "Claude 규칙\n")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        self.assertIn("Claude 규칙", (self.repo / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_na_without_a_colon_is_still_na(self):
+        self.write("AGENTS.md", "- setup: `N/A`\n- check: N/A 아직 없다\n- test: `make test`\n- build: `N/A: 없다`\n")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        commands = json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))
+        self.assertEqual((commands["setup"], commands["check"]), ("N/A: 이유를 쓴다", "N/A: 아직 없다"))
+
+    def test_already_migrated_repo_points_to_upgrade(self):
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        result = self.migrate()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("upgrade", result.stdout)
+
+
 class RunBudgetTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

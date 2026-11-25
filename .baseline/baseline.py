@@ -243,6 +243,10 @@ def repo_root():
 
 
 def command_problem(name, value):
+    # Control characters can make a printed command look like another one (hooks, CI and the cloud run it).
+    parts = [value] if isinstance(value, str) else value if isinstance(value, list) else []
+    if not all(not isinstance(a, str) or a.isprintable() for a in parts):
+        return f"{name}: 출력할 수 없는 문자가 있다"
     if isinstance(value, str):
         return None if value.startswith("N/A: ") and len(value) > 5 else f"{name}: 문자열이면 'N/A: <이유>'여야 한다"
     if not isinstance(value, list) or not value or not all(isinstance(a, str) and a for a in value):
@@ -272,27 +276,41 @@ def load_commands(root):
     return commands, problems
 
 
-def cmd_init(args):
-    target = Path(args.path)
+def core_files(commands):
+    """Every file init writes, keyed by repo path. core/ must sit next to this script."""
     core = Path(__file__).resolve().parent / "core"
-    if not target.is_dir():
-        sys.exit(f"init: 폴더가 아니다: {target}")
-    if not core.is_dir():
-        sys.exit("init: core/가 없다. repo-baseline 클론의 baseline.py로 돌린다")
     files = {p.relative_to(core).as_posix(): p.read_bytes() for p in sorted(core.rglob("*")) if p.is_file()}
     files.update({rel: source(rel).read_bytes() for rel in MANAGED if rel.startswith(SKILLS)})
     files[".baseline/baseline.py"] = Path(__file__).read_bytes()
-    files[".baseline/commands.json"] = dump_json(DEFAULT_COMMANDS)
+    files[".baseline/commands.json"] = dump_json(commands)
     files[".baseline/baseline.json"] = dump_json({"version": VERSION, "profiles": [], "managed": MANAGED})
-    # Writing through a symlink (even a broken one) lands outside the repo, so stop before any write.
+    return files
+
+
+def symlinks(target, rels):
+    """Symlinks on the way to any of rels. Writing through one (even a broken one) lands outside the repo."""
     links = set()
-    for rel in files:
+    for rel in rels:
         path = target
         for part in (".", *Path(rel).parts):
             path = path / part
             if path.is_symlink():
                 links.add(path.as_posix())
-    links = sorted(links)
+    return sorted(links)
+
+
+def need_core(command, target):
+    if not target.is_dir():
+        sys.exit(f"{command}: 폴더가 아니다: {target}")
+    if not (Path(__file__).resolve().parent / "core").is_dir():
+        sys.exit(f"{command}: core/가 없다. repo-baseline 클론의 baseline.py로 돌린다")
+
+
+def cmd_init(args):
+    target = Path(args.path)
+    need_core("init", target)
+    files = core_files(DEFAULT_COMMANDS)
+    links = symlinks(target, files)
     if links:
         sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
     existing = sorted(rel for rel in files if (target / rel).exists())
@@ -302,6 +320,282 @@ def cmd_init(args):
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
+    return 0
+
+
+# migrate
+OLD_MANIFEST = ".github/repo-baseline.json"  # v1 hash-copy
+OTHER_INSTRUCTIONS = ("GEMINI.md", ".cursorrules", ".cursor/rules", ".windsurfrules", ".github/copilot-instructions.md")
+SHELL_SYNTAX = re.compile(r"[|&;<>()$*?~{}\[\]\\'\"#]")
+COMMAND_CELL = re.compile(r"- (setup|check|test|build): (.*)")
+MOVED_CLAUDE = "## CLAUDE.md에서 옮긴 것\n\n".encode("utf-8")
+
+
+def draft_command(cell):
+    """(commands.json value, prose left out) for an old command cell such as "`make test`  (CI도)".
+    The value is None when the cell has no backticks and no N/A: it may be a command or prose."""
+    cell = cell.strip()
+    code = re.fullmatch(r"`([^`]*)`(.*)", cell)
+    cmd, prose = (code.group(1).strip(), code.group(2).strip()) if code else (cell, "")
+    if cmd.startswith("N/A") or not cmd:
+        return "N/A: " + (cmd[3:].lstrip(":").strip() or "이유를 쓴다"), prose
+    if code is None:
+        return None, cell
+    argv = cmd.split()
+    if SHELL_SYNTAX.search(cmd) or "=" in argv[0] or Path(argv[0]).name in OTHER_SHELLS:
+        return ["sh", "-c", cmd], prose
+    return argv, prose
+
+
+def insert_before_block(data, extra):
+    lines = data.splitlines(keepends=True)
+    at = lines.index(START) if START in lines else len(lines)
+    head = b"".join(lines[:at]).rstrip(b"\n")
+    return (head + b"\n\n" if head else b"") + extra.rstrip(b"\n") + b"\n\n" + b"".join(lines[at:])
+
+
+def with_block(data, core_data):
+    """data with this version's managed block (replaced, or appended when there is none), or None."""
+    lines = data.splitlines(keepends=True)
+    if START not in lines and END not in lines:
+        head = data.rstrip(b"\n")
+        return (head + b"\n\n" if head else b"") + START + block(core_data) + END
+    return None if block(data) is None else replace_block(data, block(core_data))
+
+
+def overlapping_headings(data, core_data):
+    """Headings of the core block that the project already has outside its block (v1 copied them by hand)."""
+    lines = data.splitlines(keepends=True)
+    if block(data) is not None:
+        lines = lines[:lines.index(START)] + lines[lines.index(END) + 1:]
+    ours = {line for line in block(core_data).splitlines(keepends=True) if line.startswith(b"#")}
+    return sorted(line.decode("utf-8", "replace").strip() for line in set(lines) & ours)
+
+
+def migrate_agents(data, core_data, extra, blocks, notes):
+    """(new AGENTS.md or None, drafted commands or None). Each None comes with a reason in blocks.
+    extra is the text moved from CLAUDE.md; migrate_plan has made sure it holds no command cell."""
+    try:
+        lines = (insert_before_block(data, extra) if extra else data).decode("utf-8").splitlines(keepends=True)
+    except UnicodeDecodeError:
+        blocks.append("AGENTS.md: UTF-8이 아니다")
+        return None, None
+    drafts, last = {}, None
+    marks = START.decode(), END.decode()
+    inside = range(lines.index(marks[0]), lines.index(marks[1])) if all(m in lines for m in marks) else range(0)
+    for i, line in enumerate(lines):
+        match = COMMAND_CELL.fullmatch(line.rstrip("\n"))
+        if not match:
+            continue
+        name, cell = match.groups()
+        if not cell.strip().isprintable():
+            blocks.append(f"AGENTS.md 명령 칸 {name}에 출력할 수 없는 문자가 있다. 지운 뒤 다시 migrate한다")
+            return None, None
+        if name in drafts:
+            blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다. 한 줄만 남긴다")
+            return None, None
+        drafts[name], prose = draft_command(cell)
+        if drafts[name] is None:
+            blocks.append(f"AGENTS.md 명령 칸 {name}: 명령을 backtick으로 감싸거나 `N/A: <이유>`로 쓴다: {cell!r}")
+            return None, None
+        # The prose stays, one line below, where check does not read it.
+        lines[i] = command_line(name, drafts[name]) + "\n" + (f"  - {prose}\n" if prose else "")
+        last = last if i in inside else i  # a cell inside the old block goes with it; the check below says so
+        if "`" in prose:
+            notes.append(f"AGENTS.md 명령 칸 {name}의 산문에 명령이 더 있다: {prose!r}. 초안에 넣을지 정한다")
+        elif prose:
+            notes.append(f"AGENTS.md 명령 칸 {name}에 산문이 섞였다: {prose!r}. 명령에서 빼 아래 줄로 옮긴다")
+        if drafts[name][:2] == ["sh", "-c"]:
+            notes.append(f"AGENTS.md 명령 칸 {name}에 셸 문법이 있어 sh -c로 감쌌다")
+    missing = [name for name in COMMANDS if name not in drafts]
+    drafts.update({name: DEFAULT_COMMANDS[name] for name in missing})
+    added = "".join(command_line(name, drafts[name]) + "\n" for name in missing)
+    if missing:
+        notes.append("AGENTS.md에 명령 칸이 없다: " + ", ".join(missing) + ". 기본값을 쓴다")
+    if last is not None:
+        lines[last] += added
+    new = "".join(lines).encode("utf-8")
+    if last is None and missing:
+        new = insert_before_block(new, ("## 명령\n\n`python3 -I .baseline/baseline.py run test`처럼 부른다. "
+                                        "이 칸은 `.baseline/commands.json`과 같아야 한다.\n\n" + added).encode("utf-8"))
+    new = with_block(new, core_data)
+    if new is None:
+        blocks.append("AGENTS.md: 관리 블록 표시가 하나씩 있어야 한다")
+        return None, drafts
+    # check's own rule, so --apply never writes what check then refuses.
+    got = new.decode("utf-8").splitlines()
+    for name in COMMANDS:
+        if [line for line in got if line.startswith(f"- {name}: ")] != [command_line(name, drafts[name])]:
+            blocks.append(f"AGENTS.md: 명령 칸 {name}이 관리 블록 안에 있다. 블록 밖으로 옮긴 뒤 다시 migrate한다")
+            return None, drafts
+    return new, drafts
+
+
+def recorded_hashes(target):
+    """{path: sha256} that the v1 hash-copy manifest recorded. A file still at its hash is a pristine v1 copy."""
+    try:
+        files = json.loads(read_file(target, OLD_MANIFEST)).get("files", {})
+        return {rel: entry["sha256"] for rel, entry in files.items() if isinstance(entry.get("sha256"), str)}
+    except (OSError, ValueError, AttributeError, TypeError):
+        return {}
+
+
+def migrate_plan(target):
+    """(blocks, notes, writes, drafts). Any block stops --apply; writes maps repo path -> new bytes."""
+    blocks, notes, writes = [], [], {}
+    if (target / ".baseline").exists() or (target / ".baseline").is_symlink():
+        return [".baseline/: 이미 v2다. upgrade로 판을 올린다"], notes, writes, None
+    files = core_files(DEFAULT_COMMANDS)
+    links = symlinks(target, files)
+    if links:
+        hint = ". CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다" if any(
+            Path(link).name == "CLAUDE.md" for link in links) else ""
+        return ["symlink는 따라가지 않는다: " + ", ".join(links) + hint], notes, writes, None
+    in_the_way = sorted({parent.as_posix() for rel in files for parent in Path(rel).parents
+                         if parent != Path(".") and (target / parent).exists() and not (target / parent).is_dir()})
+    if in_the_way:
+        return [f"{rel}: 폴더여야 하는데 파일이다" for rel in in_the_way], notes, writes, None
+
+    read = {}
+
+    def have(rel):
+        try:
+            read[rel] = read_file(target, rel)
+            return read[rel]
+        except OSError as error:
+            blocks.append(f"{rel}: {error}")
+            return None
+
+    clashing = set()
+    for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
+        if not (target / SKILLS / name).exists():
+            continue
+        found = {p.relative_to(target).as_posix() for p in (target / SKILLS / name).rglob("*")
+                 if p.is_symlink() or not p.is_dir()}
+        want = {rel for rel in MANAGED if rel.startswith(f"{SKILLS}{name}/")}
+        if found != want or any(have(rel) != files[rel] for rel in want):
+            clashing.add(name)
+            blocks.append(f"{SKILLS}{name}/: 같은 이름 스킬이 있다. 이름을 바꾸거나 지운 뒤 다시 migrate한다")
+
+    extra, moved_cells = b"", []
+    claude =have("CLAUDE.md") if (target / "CLAUDE.md").exists() else files["CLAUDE.md"]
+    if not (target / "CLAUDE.md").exists():
+        writes["CLAUDE.md"] = claude
+    elif claude is not None and claude != files["CLAUDE.md"]:
+        body = b"".join(line for line in claude.splitlines(keepends=True) if line.strip() != b"@AGENTS.md")
+        try:
+            body.decode("utf-8")
+        except UnicodeDecodeError:
+            blocks.append("CLAUDE.md: UTF-8이 아니다")
+        if {START, END} & set(body.splitlines(keepends=True)):
+            # Moved into AGENTS.md, the markers would make with_block replace that text with the core block.
+            blocks.append("CLAUDE.md: 관리 블록 표시가 있다. 표시를 지우거나 내용을 옮긴 뒤 다시 migrate한다")
+        extra = MOVED_CLAUDE + body.strip() + b"\n" if body.strip() else b""
+        # Checked on the moved text itself (strip() can turn an indented line into a cell).
+        # A moved cell would clash with or replace an AGENTS.md cell; a human picks the one to keep.
+        moved_cells = [f"CLAUDE.md: 명령 칸 {match.group(1)}이 있다. AGENTS.md의 명령 칸으로 옮긴 뒤 다시 migrate한다"
+                       for match in map(COMMAND_CELL.fullmatch, extra.decode("utf-8", "replace").splitlines()) if match]
+        blocks += moved_cells
+        notes.append("CLAUDE.md: 내용을 AGENTS.md로 옮기고 `@AGENTS.md` 한 줄로 바꾼다")
+        writes["CLAUDE.md"] = files["CLAUDE.md"]
+
+    agents = have("AGENTS.md") if (target / "AGENTS.md").exists() else files["AGENTS.md"]
+    drafts = None
+    if agents is not None and not moved_cells:  # else every moved cell would also report as an AGENTS.md clash
+        new, drafts = migrate_agents(agents, files["AGENTS.md"], extra, blocks, notes)
+        if new is not None and (new != agents or not (target / "AGENTS.md").exists()):
+            writes["AGENTS.md"] = new
+    files[".baseline/commands.json"] = dump_json(drafts or DEFAULT_COMMANDS)
+
+    recorded = recorded_hashes(target)
+    for rel, data in files.items():
+        if rel in ("AGENTS.md", "CLAUDE.md") or rel.startswith(SKILLS):
+            if rel.startswith(SKILLS) and not (target / rel).exists() and rel.split("/")[2] not in clashing:
+                writes[rel] = data
+            continue
+        if not (target / rel).exists():
+            writes[rel] = data
+            continue
+        old = have(rel)
+        if old is None or old == data:
+            continue
+        if "block_sha256" in MANAGED.get(rel, {}):
+            new = with_block(old, data)
+            if new is None:
+                blocks.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
+            else:
+                writes[rel] = new
+        elif rel in MANAGED and recorded.get(rel) == sha256(old):
+            writes[rel] = data
+            notes.append(f"{rel}: 옛 hash-copy 사본 그대로라 이 판으로 바꾼다")
+        elif rel in MANAGED:
+            blocks.append(f"{rel}: 프로젝트 내용이 있다. 덮어쓰면 잃으니 손으로 옮기거나 지운 뒤 다시 migrate한다")
+        else:
+            notes.append(f"{rel}: 이미 있어 둔다. core/{rel}과 손으로 합친다"
+                         + ("(훅의 --sha256은 .baseline/baseline.py의 해시와 같아야 한다)" if rel == ".claude/settings.json" else ""))
+    blocks += [f"{rel}: 쓸 내용이 {MAX_READ}바이트를 넘는다. check가 읽지 못하니 줄인 뒤 다시 migrate한다"
+               for rel, data in writes.items() if len(data) > MAX_READ]
+    for rel in ("AGENTS.md", "REVIEW.md"):
+        if rel in writes and rel in read:
+            notes += [f"{rel}: 관리 블록과 겹치는 절 {heading!r}이 블록 밖에 있다. 확인 뒤 지운다"
+                      for heading in overlapping_headings(read[rel], files[rel])]
+
+    workflows = sorted(p.relative_to(target).as_posix() for p in (target / ".github/workflows").glob("*.y*ml"))
+    notes.append("CI: " + (", ".join(workflows) + "에서 `python3 -I .baseline/baseline.py check`를 돌리게 고친다"
+                           if workflows else "workflow가 없다. check를 돌리는 workflow를 더한다")
+                 + "(migrate는 workflow를 바꾸지 않는다)")
+    if (target / OLD_MANIFEST).exists():
+        notes.append(f"{OLD_MANIFEST}: 옛 hash-copy manifest다. v2 check가 대신하니 그 check를 부르는 CI 단계와 함께 지운다")
+    notes += [f"{rel}: 도구별 지침 파일이다. 내용을 AGENTS.md로 옮기고 지운다"
+              for rel in OTHER_INSTRUCTIONS if (target / rel).exists()]
+    return blocks, notes, writes, drafts
+
+
+def replace_file(path, data):
+    """Write through a new file in the same folder, then rename it over path. A link at path (hard or
+    symbolic, even one made after the plan) is replaced, not written through, and a failed write leaves no half file."""
+    tmp = path.with_name(f".{path.name}.migrate-{os.getpid()}")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+        if path.is_file() and not path.is_symlink():
+            os.chmod(tmp, path.stat().st_mode & 0o7777)
+        os.replace(tmp, path)
+    except BaseException:
+        if tmp.exists():
+            tmp.unlink()
+        raise
+
+
+def cmd_migrate(args):
+    target = Path(args.path)
+    need_core("migrate", target)
+    blocks, notes, writes, drafts = migrate_plan(target)
+    print("충돌:")
+    for line in [f"- 막힘 {b}" for b in blocks] + [f"- 확인 {n}" for n in notes]:
+        print(line)
+    print("계획:")
+    for rel in sorted(rel for rel in writes if not rel.startswith(SKILLS)):
+        print(f"- {'고친다' if (target / rel).exists() else '새로 쓴다'} {rel}")
+    skills = sorted({rel.split("/")[2] for rel in writes if rel.startswith(SKILLS)})
+    if skills:
+        print(f"- 새로 쓴다 {SKILLS}: " + ", ".join(skills))
+    if drafts is not None:
+        print("commands.json 초안(사람이 확인한다. check는 Stop 훅에서, setup·check·test는 CI와 클라우드에서 돈다):")
+        for name in COMMANDS:
+            print(command_line(name, drafts[name]))
+    if blocks:
+        print("migrate: 막힘을 풀기 전에는 --apply도 아무것도 쓰지 않는다", file=sys.stderr)
+        return 1
+    if not args.apply:
+        print("migrate: 계획을 받아들이려면 --apply를 붙여 다시 돌린다")
+        return 0
+    # CLAUDE.md last: its text is in the new AGENTS.md only once that write has landed.
+    for rel in sorted(writes, key=lambda rel: rel == "CLAUDE.md"):
+        (target / rel).parent.mkdir(parents=True, exist_ok=True)
+        replace_file(target / rel, writes[rel])
+    print(f"migrate: 파일 {len(writes)}개를 썼다. commands.json 초안을 확인하고 check를 돌린다")
     return 0
 
 
@@ -2735,6 +3029,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(prog="baseline.py", description=__doc__.splitlines()[0])
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("init", help="빈 저장소에 코어를 복사한다").add_argument("path")
+    migrate_parser = sub.add_parser("migrate", help="기존 저장소의 충돌과 옮길 계획을 출력한다(--apply면 쓴다)")
+    migrate_parser.add_argument("path")
+    migrate_parser.add_argument("--apply", action="store_true", help="막힘이 없으면 계획대로 쓴다")
     sub.add_parser("check", help="관리 파일·블록과 명령 칸이 이 판과 같은지 본다")
     sub.add_parser("run", help="commands.json의 명령을 돌린다").add_argument("name", choices=COMMANDS)
     sub.add_parser("budget", help="AGENTS.md와 리뷰어가 읽는 글의 크기를 잰다")
@@ -2759,7 +3056,7 @@ def main(argv=None):
     sub.add_parser("github", help="저장소 설정과 상태 라벨을 기준과 비교한다(plan) 또는 적용한다(apply, 소유자만)"
                    ).add_argument("action", choices=("plan", "apply"))
     args = parser.parse_args(argv)
-    return {"init": cmd_init, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
+    return {"init": cmd_init, "migrate": cmd_migrate, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
             "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue, "review-report": cmd_review_report,
             "skills-bump": cmd_skills_bump, "doctor": cmd_doctor, "github": cmd_github}[args.command](args)
 
