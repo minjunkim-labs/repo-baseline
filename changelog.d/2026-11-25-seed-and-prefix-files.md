@@ -1,0 +1,1 @@
+- v2: `docs/agents/`의 `issue-tracker.md`·`domain.md`·`triage-labels.md`는 시작 파일이 됐다. 고쳐 써도 `check`가 실패하지 않고 `upgrade`가 덮어쓰지 않는다. `.gitattributes`는 맨 앞의 `* text=auto eol=lf` 줄만 관리하니, 그 아래에 저장소의 규칙(binary, LFS)을 더한다. `migrate`가 그 줄을 넣었으면 `git add --renormalize .`을 커밋한다.
