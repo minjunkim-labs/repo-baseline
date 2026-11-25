@@ -9,7 +9,7 @@
 ## 지킬 것
 
 - 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 `main`이다. 저장소 밖 임시 폴더에 clone해서 읽는다. 아래 `<클론>`은 그 폴더다.
-- 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, `WORKFLOW.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 `changelog.d/`도 읽는다. `templates/`·`profiles/`의 v1 문서는 읽지 않는다.
+- 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, `WORKFLOW.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 그 사이 태그의 릴리스 노트(GitHub Releases)도 읽는다. `templates/`·`profiles/`의 v1 문서는 `github/README.md`가 가리키는 파일 말고는 읽지 않는다.
 - 파일은 `baseline.py`의 `init`·`migrate`·`upgrade`가 쓴다. 관리 파일과 관리 블록(`<!-- baseline:start -->`~`<!-- baseline:end -->`)은 손으로 고치지 않는다. 그 밖에 이미 있는 파일은 덮어쓰지 않고 합친 뒤, 합친 내용을 보고한다.
 - 비밀값 파일(`.env*`, 키)을 읽거나 만들거나 커밋하지 않는다.
 - `main`에 직접 push하지 않는다. PR을 병합하지 않는다.
@@ -18,7 +18,7 @@
 
 ## 0. 무엇을 하는지 정한다
 
-- `.baseline/`이 있으면 이미 v2다. 판 올리기를 한다: 작업 브랜치에서 `docs/start.md` 「판 올리기」대로 `python3 -I .baseline/baseline.py upgrade <판>`을 돌리고, 지난 판 뒤 `changelog.d/` 항목의 손으로 옮길 일은 다음 PR로 나눈다. 그 뒤 4·5단계를 한다.
+- `.baseline/`이 있으면 이미 v2다. 판 올리기를 한다: 작업 브랜치에서 `docs/start.md` 「판 올리기」대로 `python3 -I .baseline/baseline.py upgrade <판>`을 돌리고, 지난 판부터 올리는 판까지 각 태그의 릴리스 노트에 적힌 손으로 옮길 일은 다음 PR로 나눈다. 그 뒤 5·6단계를 한다.
 - `.baseline/`이 없고 `AGENTS.md`·`CLAUDE.md`·`REVIEW.md`·`.claude/`·`.github/pull_request_template.md` 같은 코어 파일이 하나도 없으면 1a단계(`init`)다.
 - 그 밖에는 1b단계(`migrate`)다. 옛 repo-baseline v1(`.github/repo-baseline.json`이 있거나 `templates/core`를 복사한 저장소)도 여기다.
 
@@ -41,7 +41,7 @@
 
 1. `AGENTS.md`
    - 프로젝트 이름과 한 줄 설명: README와 코드에서 읽는다.
-   - 명령 4칸(setup/check/test/build): 프로젝트의 빌드 파일(`package.json`, `Makefile`, `go.mod`, `Cargo.toml`, `pyproject.toml`, Gradle·Xcode 설정 등)에서 찾는다. 같은 값을 `.baseline/commands.json`에 쓴다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 실제로 돌린다. 없거나 돌릴 수 없으면 `N/A: <이유>`. `migrate`가 만든 초안이 있으면 그것을 확인한다.
+   - 명령 4칸(setup/check/test/build): 프로젝트의 빌드 파일(`package.json`, `Makefile`, `go.mod`, `Cargo.toml`, `pyproject.toml`, Gradle·Xcode 설정 등)에서 찾는다. `.baseline/commands.json`에 쓴다. 값은 argv 배열(`["npm", "test"]`)이다. 셸 문법(`&&`, 파이프, 환경 변수)이 있으면 `["sh", "-c", "<명령>"]`, 없는 칸은 문자열 `"N/A: <이유>"`다. `AGENTS.md`의 칸은 `check`가 알려 주는 줄로 맞춘다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 실제로 돌린다. 없거나 돌릴 수 없으면 `N/A: <이유>`. `migrate`가 만든 초안이 있으면 그것을 확인한다.
    - check 칸이 비면 포매터·린터를 새로 고르지 말고, 있는 도구만 적는다. 새 도구 도입은 제안으로 보고한다.
    - 길잡이 표: 주요 디렉터리와 역할.
    - 코드에서 알 수 없는 것만 쓴다. `budget`은 200줄 이상이면 실패한다.
@@ -52,8 +52,9 @@
 `git remote -v`가 GitHub를 가리키지 않으면 이 단계를 건너뛰고 보고에 적는다.
 
 1. 원본의 `github/README.md`를 읽고 따른다. 값은 거기 적힌 공통값을 쓰고 새로 고르지 않는다.
-2. 파일로 두는 것만 한다: `github/ci.yml`을 `.github/workflows/ci.yml`로 복사하고(이미 workflow가 있으면 `check`를 돌리게 합친다), 저장소마다 다른 값만 둔 `.github/repository-settings.json`을 쓴다.
-3. `github plan`·`github apply`는 돌리지 않는다. 소유자가 실행할 명령을 보고에 적는다.
+2. 이 PR에서는 파일로 두는 것만 한다: `github/ci.yml`을 `.github/workflows/ci.yml`로 복사한다(이미 workflow가 있으면 `check`를 돌리게 합친다). Dependabot·`SECURITY.md`·`.coderabbit.yaml`은 `github/README.md`의 표가 가리키는 대로 복사한다.
+3. `.github/repository-settings.json`은 이 PR에 넣지 않는다. `github/README.md`의 「새 저장소 순서」대로 `ci`가 실제 PR에서 한 번 성공한 뒤 따로 PR로 더한다. 보고에 이 다음 일을 적는다.
+4. `github plan`·`github apply`는 돌리지 않는다. 소유자가 실행할 명령을 보고에 적는다.
 
 ## 4. ops 프로필 (배포하는 앱일 때만)
 

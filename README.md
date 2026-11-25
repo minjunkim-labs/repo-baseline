@@ -7,7 +7,7 @@
 
 1. 이 저장소를 받는다(공개, 인증 불필요): `git clone https://github.com/minjunkim-labs/repo-baseline`
 2. 새 저장소면 `python3 -I <클론>/baseline.py init <프로젝트>`, 이미 파일이 있는 저장소면 `python3 -I <클론>/baseline.py migrate <프로젝트>`로 계획을 보고 `--apply`를 붙여 다시 돌린다. Python 3.9 이상이 필요하다.
-3. `AGENTS.md`의 명령 4칸(setup/check/test/build)을 `.baseline/commands.json`과 같게 채우고 `REVIEW.md` 「민감한 파일」을 채운다. `python3 -I .baseline/baseline.py check`가 통과하면 첫 PR을 연다.
+3. 명령 4칸(setup/check/test/build)을 `.baseline/commands.json`에 argv 배열로 쓰고 `AGENTS.md`의 명령 칸을 같게 맞춘다(`check`가 맞출 줄을 알려 준다). `REVIEW.md` 「민감한 파일」을 채운다. `python3 -I .baseline/baseline.py check`가 통과하면 첫 PR을 연다.
 
 명령과 첫 PR은 [docs/start.md](docs/start.md)에 있다. 에이전트에게 맡기려면 [prompts/setup.md](prompts/setup.md) 하나를 첨부한다. 단계마다 쓰는 스킬과 실행 위치는 [WORKFLOW.md](WORKFLOW.md)다.
 
@@ -15,7 +15,7 @@
 
 | 층 | 프로필 | 언제 켜는가 |
 | --- | --- | --- |
-| 기본 | [github](github/) | GitHub에 올리면 켠다(POLICY §5가 브랜치 보호·필수 CI·머지 큐를 요구한다). 작업의 원본은 GitHub Issue다. CI 파일 하나와 `github plan`·`apply`(저장소 설정, 상태 라벨) |
+| 기본 | [github](github/) | GitHub에 올리면 켠다(POLICY §5가 브랜치 보호·필수 CI·머지 큐를 요구한다). 작업의 원본은 GitHub Issue다. CI 파일 하나, `github plan`·`apply`(저장소 설정, 상태 라벨), Dependabot·`SECURITY.md`·CodeRabbit 설정 |
 | 기본 | [ops](ops/) | 배포해서 사람이 쓰는 앱이면 켠다. 보안·에러 추적·제품 분석·감시 도구를 모두 쓰고, 빼는 도구만 이유와 함께 적는다. 조직에서 한 번 켤 것과 소비 레포마다 할 것, 비밀값 이름 |
 | 선택 | [team](team/) | 쓰기 권한자가 2명 이상. CODEOWNERS와 사람 승인 |
 

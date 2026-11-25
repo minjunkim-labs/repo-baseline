@@ -14,7 +14,7 @@ python3 -I /tmp/repo-baseline/baseline.py init .
 
 - `init`은 코어 파일이 하나라도 이미 있으면 아무것도 쓰지 않고 그 파일 이름을 대고 멈춘다. 그때는 `migrate`를 쓴다.
 - `.gitignore`는 덮어쓰지 않는다. 비밀값 줄(`.env`, `.env.*`, `!.env.example`, `*.pem`, `*.key`, `*.p12`) 중 빠진 것만 더한다.
-- `CLAUDE.md`는 `@AGENTS.md` 한 줄인 관리 파일이다. Claude Code는 `CLAUDE.md`가 있으면 그것을 읽으므로 이 한 줄로 `AGENTS.md`를 읽게 한다. 지우거나 고치면 `check`가 실패한다.
+- `CLAUDE.md`는 `@AGENTS.md` 한 줄인 관리 파일이다. Claude Code는 `CLAUDE.md`가 있으면 `AGENTS.md`를 직접 읽지 않고, `@` 줄이 가리키는 파일은 불러온다. `AGENTS.md`를 직접 읽지 못하는 판과 세션도 있어 이 한 줄로 읽게 한다([Memory](https://code.claude.com/docs/en/memory) 「AGENTS.md」, 확인일 2026-11-25). 지우거나 고치면 `check`가 실패한다.
 
 ### 이미 파일이 있는 저장소
 
@@ -28,7 +28,7 @@ python3 -I /tmp/repo-baseline/baseline.py migrate .
 ## 2. AGENTS.md 채우기
 
 - 첫 줄 제목과 한 줄 설명.
-- 명령 4칸: setup, check(포맷·린트·타입 등 결정적 검사), test, build. 없는 칸은 `N/A: <이유>`다. 같은 값을 `.baseline/commands.json`에도 쓴다. 두 곳이 다르면 `check`가 고칠 줄을 알려 준다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 한 번씩 돌려 본다.
+- 명령 4칸: setup, check(포맷·린트·타입 등 결정적 검사), test, build. 원본은 `.baseline/commands.json`이다. 값은 argv 배열(`["npm", "test"]`)이다. 셸 문법(`&&`, 파이프, 환경 변수)이 있으면 `["sh", "-c", "<명령>"]`, 없는 칸은 문자열 `"N/A: <이유>"`다. `AGENTS.md`의 칸은 그 값을 한 줄로 보인다. 두 곳이 다르면 `check`가 `AGENTS.md`에 쓸 줄을 알려 준다. 각 명령을 `python3 -I .baseline/baseline.py run <이름>`으로 한 번씩 돌려 본다.
 - 길잡이 표: 주요 경로와 설명.
 - `<!-- baseline:start -->`와 `<!-- baseline:end -->` 사이 관리 블록은 고치지 않는다.
 
@@ -69,7 +69,7 @@ python3 -I .baseline/baseline.py upgrade <판>   # 예: 2.0.0
 ```
 
 - 관리 블록·관리 파일·스킬 사본을 그 태그 판으로 바꾸고 `baseline.json`을 갱신한다. 소비 레포에서 고친 관리 블록이 있으면 멈추고 diff를 보인다.
-- 손으로 옮길 일은 [changelog.d/](../changelog.d/)와 그 태그의 릴리스 노트에 있다. 지난 판 뒤의 항목을 읽고 옮긴다.
+- 손으로 옮길 일은 태그마다 릴리스 노트(GitHub Releases)에 있다. 지난 판부터 올리는 판까지 사이의 태그를 모두 읽고 옮긴다. `changelog.d/`에는 아직 태그에 들어가지 않은 항목만 있다.
 - 결과 PR은 바뀐 관리 파일·블록·스킬 사본이 모두 그 태그의 기록과 같으면 upgrade 예외로 쉬움이다. 손으로 옮긴 일처럼 프로젝트 칸이 함께 바뀌면 일반 규칙을 따르니, 그 일은 다음 PR로 나눈다(POLICY §3).
 
 ## 다음
