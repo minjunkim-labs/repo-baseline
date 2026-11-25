@@ -322,15 +322,19 @@ class MigrateTests(unittest.TestCase):
         self.write("AGENTS.md", "# I\n<!-- baseline:start -->\n- test: `make test`\n<!-- baseline:end -->\n")
         self.assertBlocked("명령 칸 test이 관리 블록 안에 있다")
 
-    def test_command_cells_in_claude_md_are_moved_once(self):
+    def test_command_cells_in_claude_md_block(self):
         self.write("AGENTS.md", "# I\n")
         self.write("CLAUDE.md", "- test: `make test`\n")
-        self.assertEqual(self.migrate("--apply").returncode, 0)
-        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
 
     def test_a_command_cell_in_both_files_blocks(self):
         self.write("CLAUDE.md", "- test: `make other`\n")
-        self.assertBlocked("명령 칸 test이 여러 줄이다")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
+
+    def test_two_cells_in_claude_md_without_agents_md_lose_nothing(self):
+        (self.repo / "AGENTS.md").unlink()
+        self.write("CLAUDE.md", "규칙\n- test: `a`  (빠름)\n예시:\n- test: `b`\n")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
 
     def test_a_linked_folder_in_a_same_name_skill_blocks(self):
         shutil.copytree(ROOT / "skills/tdd", self.repo / ".claude/skills/tdd")
@@ -353,13 +357,12 @@ class MigrateTests(unittest.TestCase):
         self.write("CLAUDE.md", "b" * 600_000 + "\n")
         self.assertBlocked("AGENTS.md: 쓸 내용이 1048576바이트를 넘는다")
 
-    def test_claude_md_cells_win_when_there_is_no_agents_md(self):
+    def test_claude_md_text_moves_when_there_is_no_agents_md(self):
         (self.repo / "AGENTS.md").unlink()
-        self.write("CLAUDE.md", "- test: `make test`\n")
+        self.write("CLAUDE.md", "Claude 규칙\n")
         self.assertEqual(self.migrate("--apply").returncode, 0)
         self.assertEqual(self.check().returncode, 0, self.check().stderr)
-        commands = json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))
-        self.assertEqual(commands["test"], ["make", "test"])
+        self.assertIn("Claude 규칙", (self.repo / "AGENTS.md").read_text(encoding="utf-8"))
 
     def test_na_without_a_colon_is_still_na(self):
         self.write("AGENTS.md", "- setup: `N/A`\n- check: N/A 아직 없다\n- test: `make test`\n- build: `N/A: 없다`\n")

@@ -368,16 +368,15 @@ def overlapping_headings(data, core_data):
     return sorted(line.decode("utf-8", "replace").strip() for line in set(lines) & ours)
 
 
-def migrate_agents(data, core_data, extra, blocks, notes, fresh=False):
+def migrate_agents(data, core_data, extra, blocks, notes):
     """(new AGENTS.md or None, drafted commands or None). Each None comes with a reason in blocks.
-    extra (the text moved from CLAUDE.md) goes in first, so its command cells count like the others.
-    fresh: data is the core AGENTS.md, so a moved cell replaces its default cell instead of clashing."""
+    extra is the text moved from CLAUDE.md; migrate_plan has made sure it holds no command cell."""
     try:
         lines = (insert_before_block(data, extra) if extra else data).decode("utf-8").splitlines(keepends=True)
     except UnicodeDecodeError:
         blocks.append("AGENTS.md: UTF-8이 아니다")
         return None, None
-    drafts, last, seen = {}, None, {}
+    drafts, last = {}, None
     marks = START.decode(), END.decode()
     inside = range(lines.index(marks[0]), lines.index(marks[1])) if all(m in lines for m in marks) else range(0)
     for i, line in enumerate(lines):
@@ -385,10 +384,8 @@ def migrate_agents(data, core_data, extra, blocks, notes, fresh=False):
         if not match:
             continue
         name, cell = match.groups()
-        if name in drafts and fresh:
-            lines[seen[name]] = ""
-        elif name in drafts:
-            blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다(CLAUDE.md에서 옮긴 것 포함). 한 줄만 남긴다")
+        if name in drafts:
+            blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다. 한 줄만 남긴다")
             return None, None
         drafts[name], prose = draft_command(cell)
         if drafts[name] is None:
@@ -397,7 +394,6 @@ def migrate_agents(data, core_data, extra, blocks, notes, fresh=False):
         # The prose stays, one line below, where check does not read it.
         lines[i] = command_line(name, drafts[name]) + "\n" + (f"  - {prose}\n" if prose else "")
         last = last if i in inside else i  # a cell inside the old block goes with it; the check below says so
-        seen[name] = i
         if "`" in prose:
             notes.append(f"AGENTS.md 명령 칸 {name}의 산문에 명령이 더 있다: {prose!r}. 초안에 넣을지 정한다")
         elif prose:
@@ -487,6 +483,9 @@ def migrate_plan(target):
         if {START, END} & set(body.splitlines(keepends=True)):
             # Moved into AGENTS.md, the markers would make with_block replace that text with the core block.
             blocks.append("CLAUDE.md: 관리 블록 표시가 있다. 표시를 지우거나 내용을 옮긴 뒤 다시 migrate한다")
+        # A moved cell would clash with or replace an AGENTS.md cell; a human picks the one to keep.
+        blocks += [f"CLAUDE.md: 명령 칸 {match.group(1)}이 있다. AGENTS.md의 명령 칸으로 옮긴 뒤 다시 migrate한다"
+                   for match in map(COMMAND_CELL.fullmatch, body.decode("utf-8", "replace").splitlines()) if match]
         extra = MOVED_CLAUDE + body.strip() + b"\n" if body.strip() else b""
         notes.append("CLAUDE.md: 내용을 AGENTS.md로 옮기고 `@AGENTS.md` 한 줄로 바꾼다")
         writes["CLAUDE.md"] = files["CLAUDE.md"]
@@ -494,8 +493,7 @@ def migrate_plan(target):
     agents = have("AGENTS.md") if (target / "AGENTS.md").exists() else files["AGENTS.md"]
     drafts = None
     if agents is not None:
-        new, drafts = migrate_agents(agents, files["AGENTS.md"], extra, blocks, notes,
-                                     fresh=not (target / "AGENTS.md").exists())
+        new, drafts = migrate_agents(agents, files["AGENTS.md"], extra, blocks, notes)
         if new is not None and (new != agents or not (target / "AGENTS.md").exists()):
             writes["AGENTS.md"] = new
     files[".baseline/commands.json"] = dump_json(drafts or DEFAULT_COMMANDS)
