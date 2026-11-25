@@ -39,7 +39,7 @@
 
 1. `python3 -I "$B/baseline.py" migrate .`을 돌리고 출력(충돌, 계획, `commands.json` 초안)을 보고에 붙인다.
 2. 막힘을 원본 `docs/start.md` 2절의 표대로 하나씩 푼다.
-3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`. 막힘이 남았거나 `--apply`가 실패(종료 코드가 0이 아님)하면 4·5번도 하지 않고 여기서 멈춘 뒤, 남은 막힘이나 오류와 고친 것을 보고한다.
+3. 막힘이 없으면 `python3 -I "$B/baseline.py" migrate . --apply`. 막힘이 남았거나 `--apply`가 실패(종료 코드가 0이 아님)하면 4·5번도 하지 않고 여기서 멈춘 뒤, 남은 막힘이나 오류와 고친 것을 보고한다. `--apply`가 실패했을 때의 복구 방법은 원본 `docs/start.md` 2절에 있다. 적용 전 작업 트리가 깨끗했던 경우만 그대로 따르고, 아니면 소유자에게 묻는다.
 4. `commands.json` 초안을 1절 2번의 명령 4칸 기준으로 확인하고, 돌려 본 결과로 고친다.
 5. 확인 줄을 처리한다. CI workflow는 3절에서 고친다. 옛 hash-copy manifest(`.github/repo-baseline.json`)는 그 check를 부르는 CI 단계와 함께 지운다. 도구별 지침 파일은 내용을 `AGENTS.md`로 옮기고 지운다. 관리 블록과 겹치는 절은 비교한 뒤 지운다. `.gitattributes`에 코어 줄을 넣었다고 알리면 `git add --renormalize .`을 커밋한다. v1 ops 블록(`<!-- repo-baseline:ops -->`)이 있으면 지우고, 배포하는 앱이면 3절의 ops 프로필을 켠다.
 
