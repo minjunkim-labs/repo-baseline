@@ -450,7 +450,11 @@ def cmd_budget(args):
     for rel, data in read.items():
         limit, unit = BUDGET[rel]
         if rel == "REVIEW.md":
-            for name in re.findall(rb"^@([^/\s]+|\.claude/skills/[^/\s]+/SKILL\.md)[ \t]*$", data, re.M):
+            # Each name once, and stop at the limit: repeated lines must not make CI read without end.
+            for name in dict.fromkeys(re.findall(rb"^@([^/\s]+|\.claude/skills/[^/\s]+/SKILL\.md)[ \t\r]*$",
+                                                 data, re.M)):
+                if len(data) >= limit:
+                    break
                 if (root / name.decode()).is_file():
                     try:
                         data += read_file(root, name.decode())

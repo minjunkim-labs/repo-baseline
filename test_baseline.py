@@ -401,6 +401,16 @@ class RunBudgetTests(unittest.TestCase):
         (self.repo / ".claude/skills/api/SKILL.md").write_bytes(b"x" * 150000)
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
 
+    def test_budget_counts_a_crlf_include_once(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "ab") as f:
+            f.write(b"@rules.md\r\n" * 3)
+        half = (150000 - size - 33) // 2 + 1
+        (self.repo / "rules.md").write_bytes(b"x" * half)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)  # twice would reach the limit
+        (self.repo / "rules.md").write_bytes(b"x" * (150000 - size - 33))
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)  # a CRLF line still counts
+
     def test_budget_fails_at_500_review_prompt_lines(self):
         (self.repo / "prompts").mkdir()
         (self.repo / "prompts/review.md").write_bytes(b"x\n" * 499)
