@@ -333,8 +333,8 @@ def draft_command(cell):
     cell = cell.strip()
     code = re.fullmatch(r"`([^`]*)`(.*)", cell)
     cmd, prose = (code.group(1).strip(), code.group(2).strip()) if code else (cell, "")
-    if cmd.startswith("N/A:") or not cmd:
-        return "N/A: " + (cmd[4:].strip() or "이유를 쓴다"), prose
+    if cmd.startswith("N/A") or not cmd:
+        return "N/A: " + (cmd[3:].lstrip(":").strip() or "이유를 쓴다"), prose
     if code is None:
         return None, cell
     argv = cmd.split()
@@ -368,15 +368,16 @@ def overlapping_headings(data, core_data):
     return sorted(line.decode("utf-8", "replace").strip() for line in set(lines) & ours)
 
 
-def migrate_agents(data, core_data, extra, blocks, notes):
+def migrate_agents(data, core_data, extra, blocks, notes, fresh=False):
     """(new AGENTS.md or None, drafted commands or None). Each None comes with a reason in blocks.
-    extra (the text moved from CLAUDE.md) goes in first, so its command cells count like the others."""
+    extra (the text moved from CLAUDE.md) goes in first, so its command cells count like the others.
+    fresh: data is the core AGENTS.md, so a moved cell replaces its default cell instead of clashing."""
     try:
         lines = (insert_before_block(data, extra) if extra else data).decode("utf-8").splitlines(keepends=True)
     except UnicodeDecodeError:
         blocks.append("AGENTS.md: UTF-8이 아니다")
         return None, None
-    drafts, last = {}, None
+    drafts, last, seen = {}, None, {}
     marks = START.decode(), END.decode()
     inside = range(lines.index(marks[0]), lines.index(marks[1])) if all(m in lines for m in marks) else range(0)
     for i, line in enumerate(lines):
@@ -384,7 +385,9 @@ def migrate_agents(data, core_data, extra, blocks, notes):
         if not match:
             continue
         name, cell = match.groups()
-        if name in drafts:
+        if name in drafts and fresh:
+            lines[seen[name]] = ""
+        elif name in drafts:
             blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다(CLAUDE.md에서 옮긴 것 포함). 한 줄만 남긴다")
             return None, None
         drafts[name], prose = draft_command(cell)
@@ -394,6 +397,7 @@ def migrate_agents(data, core_data, extra, blocks, notes):
         # The prose stays, one line below, where check does not read it.
         lines[i] = command_line(name, drafts[name]) + "\n" + (f"  - {prose}\n" if prose else "")
         last = last if i in inside else i  # a cell inside the old block goes with it; the check below says so
+        seen[name] = i
         if "`" in prose:
             notes.append(f"AGENTS.md 명령 칸 {name}의 산문에 명령이 더 있다: {prose!r}. 초안에 넣을지 정한다")
         elif prose:
@@ -442,7 +446,7 @@ def migrate_plan(target):
     links = symlinks(target, files)
     if links:
         hint = ". CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다" if any(
-            link.endswith("/CLAUDE.md") for link in links) else ""
+            Path(link).name == "CLAUDE.md" for link in links) else ""
         return ["symlink는 따라가지 않는다: " + ", ".join(links) + hint], notes, writes, None
     in_the_way = sorted({parent.as_posix() for rel in files for parent in Path(rel).parents
                          if parent != Path(".") and (target / parent).exists() and not (target / parent).is_dir()})
@@ -490,7 +494,8 @@ def migrate_plan(target):
     agents = have("AGENTS.md") if (target / "AGENTS.md").exists() else files["AGENTS.md"]
     drafts = None
     if agents is not None:
-        new, drafts = migrate_agents(agents, files["AGENTS.md"], extra, blocks, notes)
+        new, drafts = migrate_agents(agents, files["AGENTS.md"], extra, blocks, notes,
+                                     fresh=not (target / "AGENTS.md").exists())
         if new is not None and (new != agents or not (target / "AGENTS.md").exists()):
             writes["AGENTS.md"] = new
     files[".baseline/commands.json"] = dump_json(drafts or DEFAULT_COMMANDS)
@@ -521,6 +526,8 @@ def migrate_plan(target):
         else:
             notes.append(f"{rel}: 이미 있어 둔다. core/{rel}과 손으로 합친다"
                          + ("(훅의 --sha256은 .baseline/baseline.py의 해시와 같아야 한다)" if rel == ".claude/settings.json" else ""))
+    blocks += [f"{rel}: 쓸 내용이 {MAX_READ}바이트를 넘는다. check가 읽지 못하니 줄인 뒤 다시 migrate한다"
+               for rel, data in writes.items() if len(data) > MAX_READ]
     for rel in ("AGENTS.md", "REVIEW.md"):
         if rel in writes and rel in read:
             notes += [f"{rel}: 관리 블록과 겹치는 절 {heading!r}이 블록 밖에 있다. 확인 뒤 지운다"

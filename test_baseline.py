@@ -345,6 +345,27 @@ class MigrateTests(unittest.TestCase):
     def test_symlinked_claude_md_says_how_to_fix_it(self):
         (self.repo / "CLAUDE.md").symlink_to("AGENTS.md")
         self.assertBlocked("CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다")
+        result = cli("migrate", ".", cwd=self.repo)
+        self.assertIn("CLAUDE.md는 지우면", result.stdout)
+
+    def test_a_merged_agents_md_too_big_for_check_blocks(self):
+        self.write("AGENTS.md", self.AGENTS + "a" * 600_000 + "\n")
+        self.write("CLAUDE.md", "b" * 600_000 + "\n")
+        self.assertBlocked("AGENTS.md: 쓸 내용이 1048576바이트를 넘는다")
+
+    def test_claude_md_cells_win_when_there_is_no_agents_md(self):
+        (self.repo / "AGENTS.md").unlink()
+        self.write("CLAUDE.md", "- test: `make test`\n")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        commands = json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))
+        self.assertEqual(commands["test"], ["make", "test"])
+
+    def test_na_without_a_colon_is_still_na(self):
+        self.write("AGENTS.md", "- setup: `N/A`\n- check: N/A 아직 없다\n- test: `make test`\n- build: `N/A: 없다`\n")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        commands = json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))
+        self.assertEqual((commands["setup"], commands["check"]), ("N/A: 이유를 쓴다", "N/A: 아직 없다"))
 
     def test_already_migrated_repo_points_to_upgrade(self):
         self.assertEqual(self.migrate("--apply").returncode, 0)
