@@ -238,8 +238,9 @@ class MigrateTests(unittest.TestCase):
         before = self.files()
         result = self.migrate()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        for text in ("CLAUDE.md", ".claude/settings.json", ".github/workflows/ci.yml",
-                     ".github/repo-baseline.json", "GEMINI.md", "산문", "setup"):
+        for text in ("확인 CLAUDE.md: 내용을 AGENTS.md로", "확인 .claude/settings.json: 이미 있어 둔다",
+                     "확인 CI: .github/workflows/ci.yml", "확인 .github/repo-baseline.json: 옛 hash-copy",
+                     "확인 GEMINI.md: 도구별 지침", "명령 칸 setup에 산문이 섞였다: '(README 참고)'"):
             self.assertIn(text, result.stdout)
         self.assertIn('- check: `sh -c \'make lint && make spec\'`', result.stdout)
         self.assertIn("- test: `swift test --parallel`", result.stdout)
@@ -291,13 +292,59 @@ class MigrateTests(unittest.TestCase):
         self.assertEqual(self.check().returncode, 0, self.check().stderr)
 
     def test_odd_command_cells_become_valid_drafts(self):
-        self.write("AGENTS.md", "- setup: ``\n- check: N/A:\n- test: make test\n- build: `FOO=1 make`\n")
+        self.write("AGENTS.md", "- setup: ``\n- check: N/A:\n- test: `make test  # 느림`\n"
+                                "- build: `npm ci` 후 `npm run build`\n")
         result = self.migrate("--apply")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("명령 칸 test에서 명령을 찾지 못해", result.stdout)
+        self.assertIn("명령 칸 build의 산문에 명령이 더 있다", result.stdout)
         self.assertEqual(self.check().returncode, 0, self.check().stderr)
         commands = json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))
-        self.assertEqual((commands["test"], commands["build"]), ("N/A: make test", ["sh", "-c", "FOO=1 make"]))
+        self.assertEqual(commands["test"], ["sh", "-c", "make test  # 느림"])
+
+    def assertBlocked(self, contains):
+        before = self.files()
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn(contains, result.stdout)
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertEqual(self.files(), before)
+
+    def test_a_cell_without_backticks_blocks(self):
+        self.write("AGENTS.md", "- test: npm test (CI도)\n")
+        self.assertBlocked("명령 칸 test: 명령을 backtick으로 감싸거나")
+
+    def test_markers_in_claude_md_block_instead_of_losing_text(self):
+        self.write("AGENTS.md", "# I\n")
+        self.write("CLAUDE.md", "x\n<!-- baseline:start -->\ny\n<!-- baseline:end -->\n")
+        self.assertBlocked("CLAUDE.md: 관리 블록 표시가 있다")
+
+    def test_command_cells_that_would_not_survive_block(self):
+        self.write("AGENTS.md", "# I\n<!-- baseline:start -->\n- test: `make test`\n<!-- baseline:end -->\n")
+        self.assertBlocked("명령 칸 test이 관리 블록 안에 있다")
+
+    def test_command_cells_in_claude_md_are_moved_once(self):
+        self.write("AGENTS.md", "# I\n")
+        self.write("CLAUDE.md", "- test: `make test`\n")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+
+    def test_a_command_cell_in_both_files_blocks(self):
+        self.write("CLAUDE.md", "- test: `make other`\n")
+        self.assertBlocked("명령 칸 test이 여러 줄이다")
+
+    def test_a_linked_folder_in_a_same_name_skill_blocks(self):
+        shutil.copytree(ROOT / "skills/tdd", self.repo / ".claude/skills/tdd")
+        self.assertEqual(self.migrate().returncode, 0, "a pristine copy alone does not block")
+        (self.repo / ".claude/skills/tdd/extra").symlink_to(self.repo, target_is_directory=True)
+        self.assertBlocked("막힘 .claude/skills/tdd/: 같은 이름 스킬")
+
+    def test_a_file_in_the_way_of_a_folder_blocks(self):
+        self.write(".claude", "not a folder\n")
+        self.assertBlocked(".claude: 폴더여야 하는데 파일이다")
+
+    def test_symlinked_claude_md_says_how_to_fix_it(self):
+        (self.repo / "CLAUDE.md").symlink_to("AGENTS.md")
+        self.assertBlocked("CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다")
 
     def test_already_migrated_repo_points_to_upgrade(self):
         self.assertEqual(self.migrate("--apply").returncode, 0)

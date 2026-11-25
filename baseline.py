@@ -322,20 +322,21 @@ def cmd_init(args):
 # migrate
 OLD_MANIFEST = ".github/repo-baseline.json"  # v1 hash-copy
 OTHER_INSTRUCTIONS = ("GEMINI.md", ".cursorrules", ".cursor/rules", ".windsurfrules", ".github/copilot-instructions.md")
-SHELL_SYNTAX = re.compile(r"[|&;<>()$*?~{}\[\]\\'\"]")
+SHELL_SYNTAX = re.compile(r"[|&;<>()$*?~{}\[\]\\'\"#]")
 COMMAND_CELL = re.compile(r"- (setup|check|test|build): (.*)")
 MOVED_CLAUDE = "## CLAUDE.md에서 옮긴 것\n\n".encode("utf-8")
 
 
 def draft_command(cell):
-    """(commands.json value, prose left out) for an old command cell such as "`make test`  (CI도)"."""
+    """(commands.json value, prose left out) for an old command cell such as "`make test`  (CI도)".
+    The value is None when the cell has no backticks and no N/A: it may be a command or prose."""
     cell = cell.strip()
     code = re.fullmatch(r"`([^`]*)`(.*)", cell)
     cmd, prose = (code.group(1).strip(), code.group(2).strip()) if code else (cell, "")
     if cmd.startswith("N/A:") or not cmd:
         return "N/A: " + (cmd[4:].strip() or "이유를 쓴다"), prose
-    if code is None:  # no backticks: maybe a command, maybe prose; a human decides
-        return "N/A: " + cmd, cmd
+    if code is None:
+        return None, cell
     argv = cmd.split()
     if SHELL_SYNTAX.search(cmd) or "=" in argv[0] or Path(argv[0]).name in OTHER_SHELLS:
         return ["sh", "-c", cmd], prose
@@ -368,27 +369,33 @@ def overlapping_headings(data, core_data):
 
 
 def migrate_agents(data, core_data, extra, blocks, notes):
-    """(new AGENTS.md or None, drafted commands or None). Each None comes with a reason in blocks."""
+    """(new AGENTS.md or None, drafted commands or None). Each None comes with a reason in blocks.
+    extra (the text moved from CLAUDE.md) goes in first, so its command cells count like the others."""
     try:
-        lines = data.decode("utf-8").splitlines(keepends=True)
+        lines = (insert_before_block(data, extra) if extra else data).decode("utf-8").splitlines(keepends=True)
     except UnicodeDecodeError:
         blocks.append("AGENTS.md: UTF-8이 아니다")
         return None, None
     drafts, last = {}, None
+    marks = START.decode(), END.decode()
+    inside = range(lines.index(marks[0]), lines.index(marks[1])) if all(m in lines for m in marks) else range(0)
     for i, line in enumerate(lines):
         match = COMMAND_CELL.fullmatch(line.rstrip("\n"))
         if not match:
             continue
         name, cell = match.groups()
         if name in drafts:
-            blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다. 한 줄만 남긴다")
+            blocks.append(f"AGENTS.md: 명령 칸 {name}이 여러 줄이다(CLAUDE.md에서 옮긴 것 포함). 한 줄만 남긴다")
             return None, None
         drafts[name], prose = draft_command(cell)
+        if drafts[name] is None:
+            blocks.append(f"AGENTS.md 명령 칸 {name}: 명령을 backtick으로 감싸거나 `N/A: <이유>`로 쓴다: {cell!r}")
+            return None, None
         # The prose stays, one line below, where check does not read it.
         lines[i] = command_line(name, drafts[name]) + "\n" + (f"  - {prose}\n" if prose else "")
-        last = i
-        if prose == cell.strip():
-            notes.append(f"AGENTS.md 명령 칸 {name}에서 명령을 찾지 못해 N/A로 두었다: {prose!r}. 명령이면 초안을 고친다")
+        last = last if i in inside else i  # a cell inside the old block goes with it; the check below says so
+        if "`" in prose:
+            notes.append(f"AGENTS.md 명령 칸 {name}의 산문에 명령이 더 있다: {prose!r}. 초안에 넣을지 정한다")
         elif prose:
             notes.append(f"AGENTS.md 명령 칸 {name}에 산문이 섞였다: {prose!r}. 명령에서 빼 아래 줄로 옮긴다")
         if drafts[name][:2] == ["sh", "-c"]:
@@ -400,13 +407,20 @@ def migrate_agents(data, core_data, extra, blocks, notes):
         notes.append("AGENTS.md에 명령 칸이 없다: " + ", ".join(missing) + ". 기본값을 쓴다")
     if last is not None:
         lines[last] += added
-    elif missing:
-        extra = ("## 명령\n\n`python3 -I .baseline/baseline.py run test`처럼 부른다. "
-                 "이 칸은 `.baseline/commands.json`과 같아야 한다.\n\n" + added).encode("utf-8") + b"\n" + extra
     new = "".join(lines).encode("utf-8")
-    new = with_block(insert_before_block(new, extra) if extra else new, core_data)
+    if last is None and missing:
+        new = insert_before_block(new, ("## 명령\n\n`python3 -I .baseline/baseline.py run test`처럼 부른다. "
+                                        "이 칸은 `.baseline/commands.json`과 같아야 한다.\n\n" + added).encode("utf-8"))
+    new = with_block(new, core_data)
     if new is None:
         blocks.append("AGENTS.md: 관리 블록 표시가 하나씩 있어야 한다")
+        return None, drafts
+    # check's own rule, so --apply never writes what check then refuses.
+    got = new.decode("utf-8").splitlines()
+    for name in COMMANDS:
+        if [line for line in got if line.startswith(f"- {name}: ")] != [command_line(name, drafts[name])]:
+            blocks.append(f"AGENTS.md: 명령 칸 {name}이 관리 블록 안에 있다. 블록 밖으로 옮긴 뒤 다시 migrate한다")
+            return None, drafts
     return new, drafts
 
 
@@ -427,11 +441,20 @@ def migrate_plan(target):
     files = core_files(DEFAULT_COMMANDS)
     links = symlinks(target, files)
     if links:
-        return ["symlink는 따라가지 않는다: " + ", ".join(links)], notes, writes, None
+        hint = ". CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다" if any(
+            link.endswith("/CLAUDE.md") for link in links) else ""
+        return ["symlink는 따라가지 않는다: " + ", ".join(links) + hint], notes, writes, None
+    in_the_way = sorted({parent.as_posix() for rel in files for parent in Path(rel).parents
+                         if parent != Path(".") and (target / parent).exists() and not (target / parent).is_dir()})
+    if in_the_way:
+        return [f"{rel}: 폴더여야 하는데 파일이다" for rel in in_the_way], notes, writes, None
+
+    read = {}
 
     def have(rel):
         try:
-            return read_file(target, rel)
+            read[rel] = read_file(target, rel)
+            return read[rel]
         except OSError as error:
             blocks.append(f"{rel}: {error}")
             return None
@@ -440,7 +463,8 @@ def migrate_plan(target):
     for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
         if not (target / SKILLS / name).exists():
             continue
-        found = {p.relative_to(target).as_posix() for p in (target / SKILLS / name).rglob("*") if not p.is_dir()}
+        found = {p.relative_to(target).as_posix() for p in (target / SKILLS / name).rglob("*")
+                 if p.is_symlink() or not p.is_dir()}
         want = {rel for rel in MANAGED if rel.startswith(f"{SKILLS}{name}/")}
         if found != want or any(have(rel) != files[rel] for rel in want):
             clashing.add(name)
@@ -456,6 +480,9 @@ def migrate_plan(target):
             body.decode("utf-8")
         except UnicodeDecodeError:
             blocks.append("CLAUDE.md: UTF-8이 아니다")
+        if {START, END} & set(body.splitlines(keepends=True)):
+            # Moved into AGENTS.md, the markers would make with_block replace that text with the core block.
+            blocks.append("CLAUDE.md: 관리 블록 표시가 있다. 표시를 지우거나 내용을 옮긴 뒤 다시 migrate한다")
         extra = MOVED_CLAUDE + body.strip() + b"\n" if body.strip() else b""
         notes.append("CLAUDE.md: 내용을 AGENTS.md로 옮기고 `@AGENTS.md` 한 줄로 바꾼다")
         writes["CLAUDE.md"] = files["CLAUDE.md"]
@@ -495,9 +522,9 @@ def migrate_plan(target):
             notes.append(f"{rel}: 이미 있어 둔다. core/{rel}과 손으로 합친다"
                          + ("(훅의 --sha256은 .baseline/baseline.py의 해시와 같아야 한다)" if rel == ".claude/settings.json" else ""))
     for rel in ("AGENTS.md", "REVIEW.md"):
-        if rel in writes and (target / rel).exists():
+        if rel in writes and rel in read:
             notes += [f"{rel}: 관리 블록과 겹치는 절 {heading!r}이 블록 밖에 있다. 확인 뒤 지운다"
-                      for heading in overlapping_headings((target / rel).read_bytes(), files[rel])]
+                      for heading in overlapping_headings(read[rel], files[rel])]
 
     workflows = sorted(p.relative_to(target).as_posix() for p in (target / ".github/workflows").glob("*.y*ml"))
     notes.append("CI: " + (", ".join(workflows) + "에서 `python3 -I .baseline/baseline.py check`를 돌리게 고친다"
