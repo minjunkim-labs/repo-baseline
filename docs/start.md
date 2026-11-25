@@ -7,10 +7,11 @@
 적용할 태그를 저장소 밖에 받는다. 공개 저장소라 인증이 필요 없다.
 
 ```bash
-git clone --depth 1 --branch v2.0.0 https://github.com/minjunkim-labs/repo-baseline /tmp/repo-baseline
+B="$(mktemp -d)/repo-baseline"
+git clone --depth 1 --branch v2.0.0 https://github.com/minjunkim-labs/repo-baseline "$B"
 ```
 
-아래 `B`는 이 클론이다: `B=/tmp/repo-baseline`.
+아래 `B`는 이 클론이다. 고정 경로(`/tmp/repo-baseline` 등)에 이미 있는 폴더는 다른 판이거나 남이 만든 것일 수 있으니 쓰지 않는다.
 
 ## 1. 새 저장소
 
@@ -45,7 +46,7 @@ python3 -I "$B/baseline.py" migrate .
 - 계획: 새로 쓰거나 고칠 파일. `CLAUDE.md`의 내용은 `AGENTS.md` 블록 밖으로 옮기고 `CLAUDE.md`는 `@AGENTS.md` 한 줄이 된다.
 - `commands.json` 초안: 기존 `AGENTS.md` 명령 칸에서 만든다. 사람이 확인한다.
 
-막힘을 하나씩 푼 뒤 다시 돌린다. 관리 파일 자리에 프로젝트 내용이 있으면(예: 고쳐 쓴 PR 템플릿) `migrate`는 덮어쓰지 않고 막힘으로 보고한다. 그 내용을 지우거나 블록 밖으로 옮긴다. 시작 파일(`docs/agents/`의 설정)은 있으면 그대로 두고 코어 판과 다르다고 확인으로만 알린다. `.gitattributes`에 코어 줄이 없으면 맨 앞에 넣고, `git add --renormalize .`을 커밋하라고 알린다.
+막힘을 하나씩 푼 뒤 다시 돌린다. 관리 파일 자리에 프로젝트 내용이 있으면(예: 고쳐 쓴 PR 템플릿) `migrate`는 덮어쓰지 않고 막힘으로 보고한다. 그 내용은 지우지 않는다. 옮길 곳(관리 블록이 있는 파일이면 블록 밖, 아니면 프로젝트의 다른 파일)이 분명하면 옮기고, 분명하지 않으면 소유자에게 묻는다. 옮긴 뒤 그 파일을 지우고 다시 `migrate`한다. 시작 파일(`docs/agents/`의 설정)은 있으면 그대로 두고 코어 판과 다르다고 확인으로만 알린다. `.gitattributes`에 코어 줄이 없으면 맨 앞에 넣고, `git add --renormalize .`을 커밋하라고 알린다.
 
 v1 `AGENTS.md`의 ops 블록(`<!-- repo-baseline:ops -->`)은 `migrate`가 따로 다루지 않는다. 블록이 든 절은 "관리 블록과 겹친다" 확인으로만 나온다. 그 절을 지울 때 v1 ops 블록도 지우고, [ops 프로필](../ops/README.md) 「켜기」로 다시 켠다.
 
@@ -75,7 +76,7 @@ python3 -I .baseline/baseline.py doctor
 
 원격이 GitHub이면 [github 프로필](../github/README.md)을 켠다.
 
-- [github/ci.yml](../github/ci.yml)을 `.github/workflows/ci.yml`로 복사한다. ubuntu·macOS에서 `run setup`, `check`, `budget`, `run check`, `run test`를 돈다. 고칠 칸이 없다.
+- [github/ci.yml](../github/ci.yml)을 `.github/workflows/ci.yml`로 복사한다. ubuntu·macOS에서 `run setup`, `check`, `budget`, `run check`, `run test`를 돈다. 고칠 칸이 없다. 기존 CI workflow가 있으면 덮어쓰지 않고, 그 workflow에 `check`를 돌리는 단계를 합친다.
 - `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다.
 - 소유자가 최신 기본 브랜치에서 `python3 -I .baseline/baseline.py github plan`을 읽고 `github apply`로 적용한다. 에이전트는 `apply`를 돌리지 않는다.
 - Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 github 프로필 README의 표대로 `templates/github/`에서 복사한다.
