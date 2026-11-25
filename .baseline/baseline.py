@@ -470,8 +470,8 @@ def migrate_plan(target):
             clashing.add(name)
             blocks.append(f"{SKILLS}{name}/: 같은 이름 스킬이 있다. 이름을 바꾸거나 지운 뒤 다시 migrate한다")
 
-    extra = b""
-    claude = have("CLAUDE.md") if (target / "CLAUDE.md").exists() else files["CLAUDE.md"]
+    extra, moved_cells = b"", []
+    claude =have("CLAUDE.md") if (target / "CLAUDE.md").exists() else files["CLAUDE.md"]
     if not (target / "CLAUDE.md").exists():
         writes["CLAUDE.md"] = claude
     elif claude is not None and claude != files["CLAUDE.md"]:
@@ -483,16 +483,18 @@ def migrate_plan(target):
         if {START, END} & set(body.splitlines(keepends=True)):
             # Moved into AGENTS.md, the markers would make with_block replace that text with the core block.
             blocks.append("CLAUDE.md: 관리 블록 표시가 있다. 표시를 지우거나 내용을 옮긴 뒤 다시 migrate한다")
-        # A moved cell would clash with or replace an AGENTS.md cell; a human picks the one to keep.
-        blocks += [f"CLAUDE.md: 명령 칸 {match.group(1)}이 있다. AGENTS.md의 명령 칸으로 옮긴 뒤 다시 migrate한다"
-                   for match in map(COMMAND_CELL.fullmatch, body.decode("utf-8", "replace").splitlines()) if match]
         extra = MOVED_CLAUDE + body.strip() + b"\n" if body.strip() else b""
+        # Checked on the moved text itself (strip() can turn an indented line into a cell).
+        # A moved cell would clash with or replace an AGENTS.md cell; a human picks the one to keep.
+        moved_cells = [f"CLAUDE.md: 명령 칸 {match.group(1)}이 있다. AGENTS.md의 명령 칸으로 옮긴 뒤 다시 migrate한다"
+                       for match in map(COMMAND_CELL.fullmatch, extra.decode("utf-8", "replace").splitlines()) if match]
+        blocks += moved_cells
         notes.append("CLAUDE.md: 내용을 AGENTS.md로 옮기고 `@AGENTS.md` 한 줄로 바꾼다")
         writes["CLAUDE.md"] = files["CLAUDE.md"]
 
     agents = have("AGENTS.md") if (target / "AGENTS.md").exists() else files["AGENTS.md"]
     drafts = None
-    if agents is not None:
+    if agents is not None and not moved_cells:  # else every moved cell would also report as an AGENTS.md clash
         new, drafts = migrate_agents(agents, files["AGENTS.md"], extra, blocks, notes)
         if new is not None and (new != agents or not (target / "AGENTS.md").exists()):
             writes["AGENTS.md"] = new

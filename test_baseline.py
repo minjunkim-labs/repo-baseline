@@ -335,6 +335,12 @@ class MigrateTests(unittest.TestCase):
         (self.repo / "AGENTS.md").unlink()
         self.write("CLAUDE.md", "규칙\n- test: `a`  (빠름)\n예시:\n- test: `b`\n")
         self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
+        self.assertNotIn("AGENTS.md: 명령 칸", self.migrate().stdout)
+
+    def test_an_indented_first_cell_in_claude_md_blocks(self):
+        self.write("AGENTS.md", "# I\n")
+        self.write("CLAUDE.md", "  - test: `x`\n")
+        self.assertBlocked("CLAUDE.md: 명령 칸 test이 있다")
 
     def test_a_linked_folder_in_a_same_name_skill_blocks(self):
         shutil.copytree(ROOT / "skills/tdd", self.repo / ".claude/skills/tdd")
