@@ -468,20 +468,60 @@ class RunBudgetTests(unittest.TestCase):
         self.assertIn(f"{lines}줄", result.stdout)
         self.assertIn(f"{len(data)}바이트", result.stdout)
 
-    def test_budget_fails_over_60_lines(self):
+    def test_budget_fails_over_200_lines(self):
         with open(self.repo / "AGENTS.md", "a", encoding="utf-8") as f:
-            f.write("-\n" * 60)
+            f.write("-\n" * 200)
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
 
     def test_budget_counts_a_last_line_without_newline(self):
-        (self.repo / "AGENTS.md").write_bytes(b"x\n" * 60 + b"x")
+        (self.repo / "AGENTS.md").write_bytes(b"x\n" * 200 + b"x")
         result = cli("budget", script=self.copy)
         self.assertEqual(result.returncode, 1)
-        self.assertIn("61줄", result.stdout)
+        self.assertIn("201줄", result.stdout)
 
-    def test_budget_fails_over_4000_bytes(self):
+    def test_budget_does_not_limit_agents_bytes(self):
         with open(self.repo / "AGENTS.md", "a", encoding="utf-8") as f:
-            f.write("가" * 1400 + "\n")
+            f.write("가" * 20000 + "\n")
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)
+
+    def test_budget_fails_at_150000_review_bytes(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "ab") as f:
+            f.write(b"x" * (150000 - size))
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
+    def test_budget_counts_review_includes(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "a", encoding="utf-8") as f:
+            f.write("@rules.md\n")
+        (self.repo / "rules.md").write_bytes(b"x" * (150000 - size - 10))
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+        (self.repo / "rules.md").write_bytes(b"x" * 10)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)
+
+    def test_budget_counts_review_skill_include(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "a", encoding="utf-8") as f:
+            f.write("@.claude/skills/api/SKILL.md\n")
+        (self.repo / ".claude/skills/api").mkdir(parents=True)
+        (self.repo / ".claude/skills/api/SKILL.md").write_bytes(b"x" * 150000)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
+    def test_budget_counts_a_crlf_include_once(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "ab") as f:
+            f.write(b"@rules.md\r\n" * 3)
+        half = (150000 - size - 33) // 2 + 1
+        (self.repo / "rules.md").write_bytes(b"x" * half)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)  # twice would reach the limit
+        (self.repo / "rules.md").write_bytes(b"x" * (150000 - size - 33))
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)  # a CRLF line still counts
+
+    def test_budget_fails_at_500_review_prompt_lines(self):
+        (self.repo / "prompts").mkdir()
+        (self.repo / "prompts/review.md").write_bytes(b"x\n" * 499)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)
+        (self.repo / "prompts/review.md").write_bytes(b"x\n" * 500)
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
 
 
@@ -493,10 +533,10 @@ class RunBudgetTests(unittest.TestCase):
         (self.repo / "prompts/review.md").write_bytes(b"x" * 100)
         self.assertIn(f"리뷰어 읽기 {size + 100}바이트", cli("budget", script=self.copy).stdout)
 
-    def test_budget_fails_over_13000_reviewer_bytes(self):
+    def test_budget_does_not_fail_on_reviewer_bytes(self):
         with open(self.repo / "REVIEW.md", "a", encoding="utf-8") as f:
-            f.write("x" * 13000 + "\n")
-        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+            f.write("x" * 100000 + "\n")
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)
 
 
 HOOK = ROOT / "core/.claude/hooks/check.py"
@@ -721,11 +761,6 @@ class SourceTests(unittest.TestCase):
         for field in ("리뷰한 head:", "등급:", "남은 지적:"):
             self.assertEqual([line for line in review if line.startswith(field)], [field], field)
 
-
-    def test_core_reviewer_reading_fits_the_budget(self):
-        import baseline as b
-        size = sum(len((ROOT / rel).read_bytes()) for rel in ("core/AGENTS.md", "core/REVIEW.md", "prompts/review.md"))
-        self.assertLessEqual(size, b.REVIEW_BYTES)
 
 
 BOT = "dependabot[bot]"

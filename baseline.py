@@ -114,9 +114,21 @@ DEFAULT_COMMANDS = {
 }
 # Shell syntax only through `sh -c`, so every command runs the same on macOS, Linux and WSL2.
 OTHER_SHELLS = {"bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh"}
-BUDGET_LINES, BUDGET_BYTES = 60, 4000
 # What an easy-PR reviewer reads before the diff. prompts/review.md lives in repo-baseline only.
-REVIEW_READ, REVIEW_BYTES = ("AGENTS.md", "REVIEW.md", "prompts/review.md"), 13000
+REVIEW_READ = ("AGENTS.md", "REVIEW.md", "prompts/review.md")
+# Each file must stay under the limit an official doc gives for that kind of file (checked
+# 2026-11-25, issue #175). No doc gives a limit for the reviewer's total, so it is printed only,
+# and none gives a byte limit for AGENTS.md alone (Codex's 32 KiB counts all AGENTS.md together).
+BUDGET = {
+    # https://code.claude.com/docs/en/memory "target under 200 lines per CLAUDE.md file"
+    "AGENTS.md": (200, "줄"),
+    # https://code.claude.com/docs/en/code-review-customize "keep REVIEW.md and the files it
+    # includes under 150,000 bytes combined". An include is an `@<file>` line naming a root file
+    # or `.claude/skills/<folder>/SKILL.md` ("counts toward the limits of eight files and 150,000 bytes").
+    "REVIEW.md": (150000, "바이트"),
+    # https://code.claude.com/docs/en/skills "Keep SKILL.md under 500 lines"
+    "prompts/review.md": (500, "줄"),
+}
 MAX_READ = 1 << 20
 
 # review-preflight
@@ -670,12 +682,25 @@ def cmd_budget(args):
             read[rel] = read_file(root, rel)
         except OSError as error:
             sys.exit(f"budget: {rel}: {error}")
-    data = read["AGENTS.md"]
-    lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
-    reviewer = sum(map(len, read.values()))
-    print(f"budget: AGENTS.md {lines}줄(상한 {BUDGET_LINES}), {len(data)}바이트(상한 {BUDGET_BYTES})")
-    print(f"budget: 리뷰어 읽기 {reviewer}바이트(상한 {REVIEW_BYTES}): {', '.join(read)}")
-    if lines > BUDGET_LINES or len(data) > BUDGET_BYTES or reviewer > REVIEW_BYTES:
+    over = False
+    for rel, data in read.items():
+        limit, unit = BUDGET[rel]
+        if rel == "REVIEW.md":
+            # Each name once, and stop at the limit: repeated lines must not make CI read without end.
+            for name in dict.fromkeys(re.findall(rb"^@([^/\s]+|\.claude/skills/[^/\s]+/SKILL\.md)[ \t\r]*$",
+                                                 data, re.M)):
+                if len(data) >= limit:
+                    break
+                if (root / name.decode()).is_file():
+                    try:
+                        data += read_file(root, name.decode())
+                    except OSError as error:
+                        sys.exit(f"budget: {name.decode()}: {error}")
+        size = len(data) if unit == "바이트" else data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        print(f"budget: {rel} {size}{unit}(상한 {limit}{unit} 미만)" + (f", {len(data)}바이트" if unit == "줄" else ""))
+        over |= size >= limit
+    print(f"budget: 리뷰어 읽기 {sum(map(len, read.values()))}바이트(출력만): {', '.join(read)}")
+    if over:
         print("budget: 상한을 넘었다", file=sys.stderr)
         return 1
     return 0

@@ -25,7 +25,7 @@ mkdir -p .github && cp -n "$B/pull_request_template.md" .github/
 - 명령 4칸: setup, check(포맷·린트·타입 등 결정적 검사), test, build. 없는 칸은 `N/A: <이유>`다. 각 명령을 한 번씩 실제로 돌려 본다.
 - 길잡이 표: 주요 경로와 설명.
 
-60줄을 넘기지 않는다. 에이전트가 매 세션 읽는 파일이다.
+에이전트가 매 세션 읽는 파일이다. 코드에서 알 수 없는 것만 쓴다. `budget`은 200줄 이상이면 실패한다.
 
 ## 3. REVIEW.md 채우기
 
