@@ -336,7 +336,9 @@ def ignore_problems(root):
         return [f".gitignore: {error}"]
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / ".gitignore").write_bytes(data)
-        env = dict(os.environ, GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        # No GIT_* from the caller: a git hook sets GIT_DIR, and git would then use that repo and its info/exclude.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
         result = subprocess.run(["git", "init", "-q", "--template=", tmp], capture_output=True, env=env)  # no info/exclude
         if not result.returncode:
             result = subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "check-ignore", "--no-index",

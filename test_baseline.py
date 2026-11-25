@@ -101,6 +101,16 @@ class InitCheckTests(unittest.TestCase):
         with mock.patch.dict(os.environ, {"GIT_TEMPLATE_DIR": str(template)}):
             self.assertCheck(1, ".gitignore: 비밀값 파일을 ignore하지 않는다")
 
+    def test_check_ignores_a_git_dir_set_by_the_caller(self):
+        self.init()
+        (self.repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        other = self.repo / "other"
+        subprocess.run(["git", "init", "-q", str(other)], check=True)
+        (other / ".git/info/exclude").write_text(".env\n.env.*\n!.env.example\n*.pem\n*.key\n*.p12\n", encoding="utf-8")
+        from unittest import mock
+        with mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
+            self.assertCheck(1, ".gitignore: 비밀값 파일을 ignore하지 않는다")
+
     def test_init_keeps_crlf_line_endings_in_gitignore(self):
         (self.repo / ".gitignore").write_bytes(b"node_modules/\r\n")
         self.init()
