@@ -726,6 +726,11 @@ def cmd_check(args):
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
         if kind == "seed_sha256":
+            if (root / rel).exists() or (root / rel).is_symlink():
+                try:  # the content is the repo's; a link would make the skills read a file outside it
+                    read_file(root, rel)
+                except OSError as error:
+                    problems.append(f"{rel}: {error}")
             continue
         try:
             data = read_file(root, rel)
@@ -935,7 +940,8 @@ def is_mise_config(path):
 
 def is_sensitive(path, patterns):
     parts = path.split("/")
-    return (parts[-1] in {".mcp.json", "CODEOWNERS"} or is_manifest(parts[-1]) or is_mise_config(path)
+    # .gitattributes can hide a file's diff from review (`-diff`, `binary`), wherever its lines are.
+    return (parts[-1] in {".mcp.json", "CODEOWNERS", ".gitattributes"} or is_manifest(parts[-1]) or is_mise_config(path)
             or any(part in AGENT_DIRS or part in {".github", ".baseline"} for part in parts)
             or any(fnmatch.fnmatchcase(path, p) or path.startswith(p.rstrip("*").rstrip("/") + "/")
                    for p in patterns))
@@ -1109,8 +1115,9 @@ def upgrade(root, tag_name):
         if kind == "prefix_sha256":
             old_spec = recorded["managed"].get(rel)
             old_want = next(iter(old_spec.values()), None) if isinstance(old_spec, dict) else None
-            rest = after_prefix(local, old_want)
-            rest = rest if rest is not None else after_prefix(local, managed[rel]["prefix_sha256"])  # partial upgrade
+            # The new line first: after a partial upgrade the old line can also match its first lines.
+            rest = after_prefix(local, managed[rel]["prefix_sha256"])
+            rest = rest if rest is not None else after_prefix(local, old_want)
             if rest is None:
                 raise OSError(f"{rel}: 맨 앞 줄이 판 {recorded.get('version')}의 코어 줄과 다르다. check를 통과하게 고친 뒤 다시 upgrade한다")
             writes[rel] = data + rest

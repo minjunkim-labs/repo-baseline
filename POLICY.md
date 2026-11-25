@@ -57,6 +57,7 @@ repo-baseline v2를 쓰는 모든 저장소의 규칙이다. 도구·모델·스
 | 에이전트 설정 폴더와 `.mcp.json` | `.claude/`·`.agents/`·`.codex/`·`.cursor/` 같은 폴더(하위 폴더 포함)와 `.mcp.json` |
 | `.baseline/` 전체 | 등급, 큐 넣기, 검사를 정한다 |
 | `.mise.toml` | 툴체인 판 |
+| `.gitattributes`(하위 폴더 포함) | 줄 끝과 diff 표시 방식을 정한다 |
 | 저장소가 정한 경로 | 인증, 결제, 권한, migration 등. `REVIEW.md`의 「민감한 파일」 절에 적는다 |
 
 PR 본문 Merge Danger에 등급, 영향 범위, 되돌리는 법, 걸린 민감한 파일을 적는다.

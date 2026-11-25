@@ -86,6 +86,14 @@ class InitCheckTests(unittest.TestCase):
         (self.repo / ".gitattributes").write_text("*.png binary\n* text=auto eol=lf\n", encoding="utf-8")
         self.assertCheck(1, ".gitattributes: 맨 앞 줄이 이 판과 다르다")
 
+    def test_check_refuses_a_symlinked_seed_file(self):
+        self.init()
+        seed = self.repo / "docs/agents/issue-tracker.md"
+        (self.repo / "elsewhere.md").write_text("다른 지시\n", encoding="utf-8")
+        seed.unlink()
+        seed.symlink_to("../../elsewhere.md")
+        self.assertCheck(1, "docs/agents/issue-tracker.md: 없거나 일반 파일이 아니다")
+
     def test_check_still_pins_the_docs_agents_license(self):
         self.init()
         (self.repo / "docs/agents/LICENSE").write_text("mine\n", encoding="utf-8")
@@ -1152,10 +1160,14 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(self.grade({"AGENTS.md": agents.replace("고치지 않는다".encode(), b"x")})[0], "어려움")
         self.assertEqual(self.grade({"AGENTS.md": agents.replace(b"<!-- baseline:end -->\n", b"")})[0], "어려움")
 
-    def test_seed_files_and_lines_below_the_gitattributes_head_are_easy(self):
+    def test_seed_files_are_easy_and_gitattributes_stays_hard(self):
         tree = core_tree()
         self.assertEqual(self.grade({"docs/agents/domain.md": "# 우리 도메인\n".encode()})[0], "쉬움")
-        self.assertEqual(self.grade({".gitattributes": tree[".gitattributes"] + b"*.png binary\n"})[0], "쉬움")
+        # Lines below the core line can hide a diff from review (`-diff`), so the file stays hard.
+        grade, reasons = self.grade({".gitattributes": tree[".gitattributes"] + b"*.png binary\n"})
+        self.assertEqual(grade, "어려움")
+        self.assertIn("민감한 파일: .gitattributes", reasons)
+        self.assertEqual(self.grade({"app/.gitattributes": b"*.py -diff\n"})[0], "어려움")
         grade, reasons = self.grade({".gitattributes": b"*.png binary\n"})
         self.assertEqual(grade, "어려움")
         self.assertIn("관리 파일: .gitattributes", reasons)
@@ -1413,18 +1425,53 @@ class UpgradeTests(unittest.TestCase):
             code = self.b.main(["upgrade", tag])
         return code, out.getvalue() + err.getvalue()
 
+    NEW_HEAD = b"* text=auto eol=lf\n*.sh text eol=lf\n"  # the old core line plus one
+
+    def new_gitattributes_head(self):
+        """Make the v2.0.1 tag change the .gitattributes core line."""
+        b = self.b
+        old_hash = self.after_managed[".gitattributes"]["prefix_sha256"]
+        new_hash = b.sha256(self.NEW_HEAD)
+        self.after_managed[".gitattributes"] = {"prefix_sha256": new_hash}
+        self.after_source = self.after_source.replace(old_hash.encode(), new_hash.encode())
+        self.gh.raw[(b.BASELINE_REPO, "baseline.py", self.sha)] = self.after_source
+        self.gh.raw[(b.BASELINE_REPO, "core/.gitattributes", self.sha)] = self.NEW_HEAD
+
+    def test_retry_after_a_partial_upgrade_keeps_one_core_line(self):
+        (self.repo / ".gitattributes").write_bytes(b"* text=auto eol=lf\n*.png binary\n")
+        self.new_gitattributes_head()
+        # A first run wrote the file and stopped before baseline.json.
+        (self.repo / ".gitattributes").write_bytes(self.NEW_HEAD + b"*.png binary\n")
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertEqual((self.repo / ".gitattributes").read_bytes(), self.NEW_HEAD + b"*.png binary\n")
+
+    def test_upgrade_problem_accepts_only_the_new_core_line(self):
+        before = (self.repo / ".gitattributes").read_bytes() + b"*.png binary\n"
+        (self.repo / ".gitattributes").write_bytes(before)
+        old = {rel: (self.repo / rel).read_bytes() for rel in (".gitattributes", ".baseline/baseline.json")}
+        self.new_gitattributes_head()
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        new = {rel: (self.repo / rel).read_bytes() for rel in (".gitattributes", ".baseline/baseline.json",
+                                                              ".baseline/baseline.py")}
+        from unittest import mock
+
+        def problem(head):
+            with mock.patch.object(self.b.subprocess, "run", self.gh.run):
+                return self.b.upgrade_problem(set(new), old.get, head.get)
+        self.assertIsNone(problem(new))
+        edited = dict(new, **{".gitattributes": new[".gitattributes"] + b"*.py -diff\n"})
+        self.assertIn(".gitattributes", problem(edited))
+        stale = dict(new, **{".gitattributes": before})
+        self.assertIn(".gitattributes", problem(stale))
+
     def test_leaves_seed_files_and_replaces_only_the_gitattributes_head(self):
         seed = self.repo / "docs/agents/domain.md"
         seed.write_bytes("# 우리 도메인\n".encode())
         (self.repo / ".gitattributes").write_bytes(b"* text=auto eol=lf\n*.png binary\n")
-        # The new tag changes the core line and the seed file.
-        b, new_head = self.b, b"* text=auto eol=lf\n*.sh text eol=lf\n"
-        old_hash = self.after_managed[".gitattributes"]["prefix_sha256"]
-        new_hash = b.sha256(new_head)
-        self.after_managed[".gitattributes"] = {"prefix_sha256": new_hash}
-        self.after_source = self.after_source.replace(old_hash.encode(), new_hash.encode())
-        self.gh.raw[(b.BASELINE_REPO, "baseline.py", self.sha)] = self.after_source
-        self.gh.raw[(b.BASELINE_REPO, "core/.gitattributes", self.sha)] = new_head
+        self.new_gitattributes_head()  # the new tag also changes the seed file
+        b, new_head = self.b, self.NEW_HEAD
         self.gh.raw[(b.BASELINE_REPO, "core/docs/agents/domain.md", self.sha)] = b"# changed core seed\n"
         code, out = self.run_upgrade()
         self.assertEqual(code, 0, out)
