@@ -65,7 +65,8 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual([rel for rel in written if rel not in skills], [
             ".baseline/baseline.json", ".baseline/baseline.py", ".baseline/commands.json",
             ".claude/hooks/allow_enqueue.py", ".claude/hooks/check.py", ".claude/settings.json",
-            ".gitattributes", ".github/pull_request_template.md", ".mise.toml", "AGENTS.md", "CLAUDE.md", "REVIEW.md",
+            ".gitattributes", ".github/pull_request_template.md", ".gitignore", ".mise.toml", "AGENTS.md", "CLAUDE.md",
+            "REVIEW.md",
             "docs/agents/LICENSE", "docs/agents/domain.md", "docs/agents/issue-tracker.md",
             "docs/agents/triage-labels.md"])
         self.assertEqual(sorted(set(written) & set(skills)), skills)
@@ -74,6 +75,21 @@ class InitCheckTests(unittest.TestCase):
         self.assertEqual((self.repo / ".gitattributes").read_bytes(), b"* text=auto eol=lf\n")
         self.assertEqual((self.repo / "CLAUDE.md").read_bytes(), b"@AGENTS.md\n")
         self.assertEqual(self.copy.read_bytes(), (ROOT / "baseline.py").read_bytes())
+
+    def test_init_adds_only_the_missing_secret_lines_to_gitignore(self):
+        (self.repo / ".gitignore").write_text("node_modules/\n.env\n", encoding="utf-8")
+        self.init()
+        lines = (self.repo / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[:2], ["node_modules/", ".env"])
+        self.assertEqual(lines.count(".env"), 1)
+        self.assertEqual(lines[-5:], [".env.*", "!.env.example", "*.pem", "*.key", "*.p12"])
+
+    def test_check_in_a_git_repo_needs_secrets_ignored(self):
+        self.init()
+        subprocess.run(["git", "init", "-q"], cwd=self.repo, check=True)
+        self.assertCheck(0)
+        (self.repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
+        self.assertCheck(1, ".gitignore: 비밀값 파일을 ignore하지 않는다(.env, .env.local, a.pem, a.key, a.p12)")
 
     def test_init_refuses_a_repo_that_already_has_core_files(self):
         (self.repo / "AGENTS.md").write_text("mine\n", encoding="utf-8")
@@ -1351,6 +1367,20 @@ class EnqueueTests(unittest.TestCase):
         gh.checks[0]["conclusion"] = "failure"
         self.assertRefused(gh, "ci")
 
+    def test_docs_pr_with_the_unfilled_template_is_queued(self):
+        template = (ROOT / "core/.github/pull_request_template.md").read_text(encoding="utf-8")
+        gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
+        gh.body = template
+        self.assertQueued(gh)
+        gh = self.gh(grade=None)  # an easy PR still needs every field filled
+        gh.body = template
+        self.assertRefused(gh, "「등급」이 없다")
+
+    def test_two_grade_lines_are_refused_not_read_as_blank(self):
+        gh = self.gh({"docs/a.md": b"a\n"})
+        gh.body = gh.body.replace("등급: 쉬움\n", "등급: 쉬움\n등급: 어려움\n")
+        self.assertRefused(gh, "「등급」이")
+
     def test_docs_pr_ignores_bot_comments_nobody_judges(self):
         gh = self.gh({"docs/a.md": b"a\n"}, grade=None)
         gh.edits = []
@@ -1569,6 +1599,19 @@ class ReviewReportTests(unittest.TestCase):
         gh.threads[0]["isResolved"] = True  # what it wrote is what enqueue reads
         gh.edits = [("2026-01-01T00:30:00Z", "User", "owner")]
         self.assertEqual(EnqueueTests.enqueue(EnqueueTests(), gh)[0], 0)
+
+    def test_local_run_after_a_cloud_run_resolves_without_answering_again(self):
+        gh = self.gh()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림", remote="true")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/5/replies"),
+                                                     ("PATCH", "repos/o/r/pulls/7")])
+        gh.extra["repos/o/r/pulls/7/comments"].append({"id": 11, "in_reply_to_id": 5, "body": "판정: 버림",
+                                                       "user": {"login": "owner", "type": "User"}})
+        gh.writes = []
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes], [("RESOLVE", "T1"), ("PATCH", "repos/o/r/pulls/7")])
 
     def test_a_report_enqueue_would_refuse_is_not_written(self):
         for text in (self.SECTION.format(head=HEAD, left="").replace("남은 지적: \n", "남은 지적:\n- 없음\n"),
