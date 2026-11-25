@@ -6,7 +6,7 @@
 
 1. [ops.md](ops.md)를 소비 레포의 `docs/agents/ops.md`로 복사한다. 이 파일은 손으로 고치지 않는다.
 2. `.baseline/baseline.json`의 `profiles`에 `"ops"`를 더한다. 그러면 `python3 -I .baseline/baseline.py check`가 위 파일을 본다.
-3. `AGENTS.md` 길잡이 표에 한 줄을 더한다: `` | `docs/agents/ops.md` | ops 규칙. 배포·SDK·비밀값을 다룰 때 읽는다 | ``. 규칙을 `AGENTS.md`에 옮겨 적지 않는다(60줄·4,000바이트 예산).
+3. `AGENTS.md` 길잡이 표에 한 줄을 더한다: `` | `docs/agents/ops.md` | ops 규칙. 배포·SDK·비밀값을 다룰 때 읽는다 | ``. 규칙을 `AGENTS.md`에 옮겨 적지 않는다(매 세션 읽는 파일이다).
 
 빼는 도구가 있으면 `docs/agents/ops.md`에서 그 도구 이름(또는 그 도구의 비밀값 이름)이 나오는 줄을 지우고, 파일 끝에 `- 뺀 도구: <도구> — <이유>` 한 줄을 더한다. 예: `- 뺀 도구: Cloudflare — 웹 도메인이 없는 데스크톱 게임`. 여러 도구를 빼면 아래 표의 순서로 둔다. `check`는 파일이 [ops.md](ops.md)에서 뺀 도구의 줄만 지우고 `뺀 도구:` 줄을 더한 결과와 글자까지 같은지 본다. `ops.md`가 새 판에서 바뀌면 판 올리기 때 이 파일도 새 문구로 바꿔야 통과한다.
 
