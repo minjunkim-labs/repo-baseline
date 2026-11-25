@@ -105,7 +105,8 @@ class InitCheckTests(unittest.TestCase):
         self.init()
         (self.repo / ".gitignore").write_text("node_modules/\n", encoding="utf-8")
         other = self.repo / "other"
-        subprocess.run(["git", "init", "-q", str(other)], check=True)
+        clean = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        subprocess.run(["git", "init", "-q", str(other)], check=True, env=clean)  # set up outside any caller GIT_DIR
         (other / ".git/info/exclude").write_text(".env\n.env.*\n!.env.example\n*.pem\n*.key\n*.p12\n", encoding="utf-8")
         from unittest import mock
         with mock.patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
