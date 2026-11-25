@@ -25,17 +25,20 @@ VERSION = "2.0.0-dev"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 # The hashes of this version. check trusts these, not only baseline.json, so editing a managed
 # file together with baseline.json still fails. test_baseline.py keeps them equal to core/.
+# Each value is the sha256 of the source file, keyed by what the repo may change (GLOSSARY.md):
+# sha256 nothing, block_sha256 all but the managed block, prefix_sha256 the lines below the source's
+# lines at the top, seed_sha256 everything (written only when missing, never checked or upgraded).
 MANAGED = {
-    ".gitattributes": {"sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
+    ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "5a0264145665fe22598322b9a6c3bbf0f9f96c2c2ffd0b281e948ceb112ef8f1"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
     "REVIEW.md": {"block_sha256": "39e2509ce32401929e7fc6cd8cd5639dfb96e2b0d823813128f11032d44684d7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
-    "docs/agents/issue-tracker.md": {"sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
-    "docs/agents/triage-labels.md": {"sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
-    "docs/agents/domain.md": {"sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
+    "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
+    "docs/agents/triage-labels.md": {"seed_sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
+    "docs/agents/domain.md": {"seed_sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
     "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/arena/SKILL.md": {"sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"},
@@ -205,11 +208,32 @@ def block(data):
     return b"".join(lines[start + 1:end]) if start < end else None
 
 
+KINDS = ("sha256", "block_sha256", "prefix_sha256", "seed_sha256")
+
+
 def digest(data, kind):
-    if kind == "sha256":
+    """The hash a source file is recorded with. Only a managed block hashes part of the file."""
+    if kind != "block_sha256":
         return sha256(data)
     inner = block(data)
     return None if inner is None else sha256(inner)
+
+
+def after_prefix(data, want):
+    """The bytes after the leading lines whose sha256 is want, or None when data does not start with them."""
+    h, at = hashlib.sha256(), 0
+    for line in (data or b"").splitlines(keepends=True):
+        h.update(line)
+        at += len(line)
+        if h.hexdigest() == want:
+            return data[at:]
+    return None
+
+
+def kind_of(rel, managed=None):
+    """The MANAGED kind of a path, or None when it is not managed."""
+    spec = (MANAGED if managed is None else managed).get(rel)
+    return next(iter(spec)) if isinstance(spec, dict) and len(spec) == 1 else None
 
 
 def source(rel):
@@ -313,10 +337,14 @@ def cmd_init(args):
     links = symlinks(target, files)
     if links:
         sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
-    existing = sorted(rel for rel in files if (target / rel).exists())
+    kept = {rel for rel in files if kind_of(rel) == "seed_sha256" and (target / rel).exists()}
+    existing = sorted(rel for rel in files if (target / rel).exists() and rel not in kept)
     if existing:
         sys.exit("init: 이미 있다(기존 저장소는 migrate로 옮긴다): " + ", ".join(existing))
     for rel, data in files.items():
+        if rel in kept:
+            print(f"init: {rel}: 시작 파일이 이미 있어 둔다")
+            continue
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
@@ -519,7 +547,13 @@ def migrate_plan(target):
         old = have(rel)
         if old is None or old == data:
             continue
-        if "block_sha256" in MANAGED.get(rel, {}):
+        if kind_of(rel) == "seed_sha256":
+            notes.append(f"{rel}: 코어 판과 다르다. 시작 파일이라 저장소 판을 둔다")
+        elif kind_of(rel) == "prefix_sha256":
+            if after_prefix(old, MANAGED[rel]["prefix_sha256"]) is None:
+                writes[rel] = data + old
+                notes.append(f"{rel}: 맨 앞에 코어 줄을 넣는다. `git add --renormalize .`로 줄 끝을 다시 맞춰 커밋한다")
+        elif kind_of(rel) == "block_sha256":
             new = with_block(old, data)
             if new is None:
                 blocks.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
@@ -622,12 +656,18 @@ def cmd_check(args):
             problems += ops_problems(root)
     for rel, expected in MANAGED.items():
         (kind, want), = expected.items()
+        if kind == "seed_sha256":
+            continue
         try:
-            got = digest(read_file(root, rel), kind)
+            data = read_file(root, rel)
         except OSError as error:
             problems.append(f"{rel}: {error}")
             continue
-        if got is None:
+        got = digest(data, kind)
+        if kind == "prefix_sha256":
+            if after_prefix(data, want) is None:
+                problems.append(f"{rel}: 맨 앞 줄이 이 판과 다르다")
+        elif got is None:
             problems.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         elif got != want:
             problems.append(f"{rel}: {'관리 블록이' if kind == 'block_sha256' else '파일이'} 이 판과 다르다")
@@ -880,7 +920,7 @@ def embedded_managed(source):
     """MANAGED of a baseline.py, read with ast. The tag's code is never run."""
     value = embedded_assign(source, "MANAGED")
     if isinstance(value, dict) and all(isinstance(v, dict) and len(v) == 1 and
-                                       next(iter(v)) in ("sha256", "block_sha256") for v in value.values()):
+                                       next(iter(v)) in KINDS for v in value.values()):
         return value
     return None
 
@@ -977,6 +1017,8 @@ def upgrade(root, tag_name):
         return 1
     files = {}
     for rel in managed:
+        if kind_of(rel, managed) == "seed_sha256":
+            continue  # the repo owns it after init or migrate
         data = contents(BASELINE_REPO, repo_rel(rel), sha)
         if data is None:
             raise OSError(f"{repo_rel(rel)}: 태그 {tag}에 없다")
@@ -994,6 +1036,15 @@ def upgrade(root, tag_name):
             writes[rel] = data
             continue
         local = read_file(root, rel)
+        if kind == "prefix_sha256":
+            old_spec = recorded["managed"].get(rel)
+            old_want = next(iter(old_spec.values()), None) if isinstance(old_spec, dict) else None
+            rest = after_prefix(local, old_want)
+            rest = rest if rest is not None else after_prefix(local, managed[rel]["prefix_sha256"])  # partial upgrade
+            if rest is None:
+                raise OSError(f"{rel}: 맨 앞 줄이 판 {recorded.get('version')}의 코어 줄과 다르다. check를 통과하게 고친 뒤 다시 upgrade한다")
+            writes[rel] = data + rest
+            continue
         if block(local) is None:
             raise OSError(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         writes[rel] = replace_block(local, block(data))
@@ -1084,9 +1135,14 @@ def upgrade_problem(paths, old, new):
         elif path == ".claude/settings.json" and data is not None and old(path) is not None:
             pin = sha256(source).encode()
             same = data == re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + pin + b'"', old(path))
-        elif path in managed and data is not None:
+        elif path in managed and data is not None and kind_of(path, managed) != "seed_sha256":
             (kind, hash_), = managed[path].items()
-            if digest(data, kind) != hash_:
+            if kind == "prefix_sha256":
+                old_spec = old_managed.get(path)
+                old_want = next(iter(old_spec.values()), None) if isinstance(old_spec, dict) else None
+                rest = after_prefix(data, hash_)
+                same = rest is not None and (rest == b"" if old(path) is None else rest == after_prefix(old(path), old_want))
+            elif digest(data, kind) != hash_:
                 same = False
             elif kind == "sha256":
                 same = True
@@ -1223,9 +1279,14 @@ def preflight(repo, number, remote):
         reasons += [f"symlink·submodule: {p}" for p in links]
         reasons += [f"출력할 수 없는 문자가 있는 경로: {json.dumps(p)}" for p in sorted(paths) if not p.isprintable()]
         for rel, spec in MANAGED.items():
-            (kind, _), = spec.items()
-            if rel in paths and (kind == "sha256" or old(rel) is None or new(rel) is None
-                                 or block(old(rel)) != block(new(rel))):
+            (kind, want), = spec.items()
+            if rel not in paths or kind == "seed_sha256":  # a seed file is the repo's own
+                continue
+            if kind == "prefix_sha256":
+                hard = any(after_prefix(data, want) is None for data in (old(rel), new(rel)))
+            else:
+                hard = kind == "sha256" or old(rel) is None or new(rel) is None or block(old(rel)) != block(new(rel))
+            if hard:
                 reasons.append(f"관리 {'블록' if kind == 'block_sha256' else '파일'}: {rel}")
         if "AGENTS.md" in paths:
             before = set((old("AGENTS.md") or b"").decode("utf-8", "replace").splitlines())
