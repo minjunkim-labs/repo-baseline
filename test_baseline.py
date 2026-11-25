@@ -393,6 +393,14 @@ class RunBudgetTests(unittest.TestCase):
         (self.repo / "rules.md").write_bytes(b"x" * 10)
         self.assertEqual(cli("budget", script=self.copy).returncode, 0)
 
+    def test_budget_counts_review_skill_include(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "a", encoding="utf-8") as f:
+            f.write("@.claude/skills/api/SKILL.md\n")
+        (self.repo / ".claude/skills/api").mkdir(parents=True)
+        (self.repo / ".claude/skills/api/SKILL.md").write_bytes(b"x" * 150000)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
     def test_budget_fails_at_500_review_prompt_lines(self):
         (self.repo / "prompts").mkdir()
         (self.repo / "prompts/review.md").write_bytes(b"x\n" * 499)

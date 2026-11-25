@@ -123,7 +123,8 @@ BUDGET = {
     # https://code.claude.com/docs/en/memory "target under 200 lines per CLAUDE.md file"
     "AGENTS.md": (200, "줄"),
     # https://code.claude.com/docs/en/code-review-customize "keep REVIEW.md and the files it
-    # includes under 150,000 bytes combined". An include is an `@<file>` line naming a root file.
+    # includes under 150,000 bytes combined". An include is an `@<file>` line naming a root file
+    # or `.claude/skills/<folder>/SKILL.md` ("counts toward the limits of eight files and 150,000 bytes").
     "REVIEW.md": (150000, "바이트"),
     # https://code.claude.com/docs/en/skills "Keep SKILL.md under 500 lines"
     "prompts/review.md": (500, "줄"),
@@ -449,7 +450,7 @@ def cmd_budget(args):
     for rel, data in read.items():
         limit, unit = BUDGET[rel]
         if rel == "REVIEW.md":
-            for name in re.findall(rb"^@([^/\s]+)[ \t]*$", data, re.M):
+            for name in re.findall(rb"^@([^/\s]+|\.claude/skills/[^/\s]+/SKILL\.md)[ \t]*$", data, re.M):
                 if (root / name.decode()).is_file():
                     try:
                         data += read_file(root, name.decode())
