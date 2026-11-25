@@ -24,8 +24,8 @@ from urllib.parse import quote
 
 VERSION = "2.0.0-dev"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
-SECRET_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
-SECRET_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
+ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
+ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
 # The hashes of this version. check trusts these, not only baseline.json, so editing a managed
 # file together with baseline.json still fails. test_baseline.py keeps them equal to core/.
 MANAGED = {
@@ -321,7 +321,7 @@ def cmd_init(args):
         sys.exit("init: 이미 있다(기존 저장소는 migrate로 옮긴다): " + ", ".join(existing))
     # Read it before any write.
     try:
-        ignore = with_secret_ignore(target)
+        ignore = with_env_ignore(target)
     except (OSError, ValueError) as error:
         sys.exit(f"init: .gitignore를 읽지 못했다(아무것도 쓰지 않았다): {error}")
     for rel, data in files.items():
@@ -334,12 +334,12 @@ def cmd_init(args):
     return 0
 
 
-def with_secret_ignore(target):
+def with_env_ignore(target):
     """target's .gitignore with the secret lines it lacks added, or None when it has them all.
     It is the project's file, so nothing else changes. OSError or ValueError when it cannot be read as UTF-8."""
     ignore = target / ".gitignore"
     old = ignore.read_bytes().decode("utf-8") if ignore.exists() else ""  # bytes: read_text turns CRLF into LF
-    added = [line for line in SECRET_IGNORE if line not in old.splitlines() and line != "!.env.example"]
+    added = [line for line in ENV_IGNORE if line not in old.splitlines() and line != "!.env.example"]
     # The last matching rule wins, so the exception goes after .env.*, also when only the exception is missing.
     added += ["!.env.example"] if added or "!.env.example" not in old.splitlines() else []
     if not added:
@@ -369,15 +369,15 @@ def ignore_problems(root):
         if not result.returncode:
             result = subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "check-ignore", "--no-index",
                                      "--stdin"], cwd=tmp, capture_output=True, env=env,
-                                    input="\n".join(SECRET_SAMPLES + (".env.example",)).encode())
+                                    input="\n".join(ENV_SAMPLES + (".env.example",)).encode())
     if result.returncode not in (0, 1):
         return [f".gitignore를 확인하지 못했다: {result.stderr.decode('utf-8', 'replace').strip()}"]
     ignored = result.stdout.decode("utf-8", "replace").splitlines()
     problems = []
-    missing = [name for name in SECRET_SAMPLES if name not in ignored]
+    missing = [name for name in ENV_SAMPLES if name not in ignored]
     if missing:
         problems.append(f".gitignore: 비밀값 파일을 ignore하지 않는다({', '.join(missing)}). "
-                        f"이 줄을 더한다: {' '.join(SECRET_IGNORE)}")
+                        f"이 줄을 더한다: {' '.join(ENV_IGNORE)}")
     if ".env.example" in ignored:
         problems.append(".gitignore: `.env.example`까지 ignore한다. `!.env.example`을 `.env.*` 뒤에 둔다")
     return problems
@@ -568,7 +568,7 @@ def migrate_plan(target):
     files[".baseline/commands.json"] = dump_json(drafts or DEFAULT_COMMANDS)
 
     try:
-        ignore = with_secret_ignore(target)
+        ignore = with_env_ignore(target)
     except (OSError, ValueError) as error:
         blocks.append(f".gitignore를 읽지 못했다: {error}")
     else:
