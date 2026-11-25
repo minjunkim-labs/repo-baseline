@@ -18,11 +18,14 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from urllib.parse import quote
 
 VERSION = "2.0.0-dev"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
+ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
+ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
 # The hashes of this version. check trusts these, not only baseline.json, so editing a managed
 # file together with baseline.json still fails. test_baseline.py keeps them equal to core/.
 # Each value is the sha256 of the source file, keyed by what the repo may change (GLOSSARY.md):
@@ -334,13 +337,18 @@ def cmd_init(args):
     target = Path(args.path)
     need_core("init", target)
     files = core_files(DEFAULT_COMMANDS)
-    links = symlinks(target, files)
+    links = symlinks(target, (*files, ".gitignore"))
     if links:
         sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
     kept = {rel for rel in files if kind_of(rel) == "seed_sha256" and (target / rel).exists()}
     existing = sorted(rel for rel in files if (target / rel).exists() and rel not in kept)
     if existing:
         sys.exit("init: 이미 있다(기존 저장소는 migrate로 옮긴다): " + ", ".join(existing))
+    # Read it before any write.
+    try:
+        ignore = with_env_ignore(target)
+    except (OSError, ValueError) as error:
+        sys.exit(f"init: .gitignore를 읽지 못했다(아무것도 쓰지 않았다): {error}")
     for rel, data in files.items():
         if rel in kept:
             print(f"init: {rel}: 시작 파일이 이미 있어 둔다")
@@ -348,7 +356,59 @@ def cmd_init(args):
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
+    if ignore is not None:
+        (target / ".gitignore").write_bytes(ignore)
+        print("init: .gitignore (비밀값 줄 추가)")
     return 0
+
+
+def with_env_ignore(target):
+    """target's .gitignore with the secret lines it lacks added, or None when it has them all.
+    It is the project's file, so nothing else changes. OSError or ValueError when it cannot be read as UTF-8."""
+    ignore = target / ".gitignore"
+    old = ignore.read_bytes().decode("utf-8") if ignore.exists() else ""  # bytes: read_text turns CRLF into LF
+    added = [line for line in ENV_IGNORE if line not in old.splitlines() and line != "!.env.example"]
+    # The last matching rule wins, so the exception goes after .env.*, also when only the exception is missing.
+    added += ["!.env.example"] if added or "!.env.example" not in old.splitlines() else []
+    if not added:
+        return None
+    nl = "\r\n" if "\r\n" in old else "\n"  # keep the file's own line endings
+    lead = ("" if old.endswith("\n") else nl) + nl if old else ""
+    text = lead + "# 비밀값은 커밋하지 않는다(repo-baseline POLICY §7)" + nl + "".join(line + nl for line in added)
+    return (old + text).encode("utf-8")
+
+
+def ignore_problems(root):
+    """Secret file names the repository's own .gitignore does not ignore (POLICY §7).
+
+    Checked in an empty repo holding only that file, so this machine's global ignore and
+    .git/info/exclude cannot make it pass here and fail in CI."""
+    path = root / ".gitignore"
+    try:
+        data = read_file(root, ".gitignore") if path.exists() or path.is_symlink() else b""
+    except OSError as error:
+        return [f".gitignore: {error}"]
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / ".gitignore").write_bytes(data)
+        # No GIT_* from the caller: a git hook sets GIT_DIR, and git would then use that repo and its info/exclude.
+        env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+        env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1")
+        result = subprocess.run(["git", "init", "-q", "--template=", tmp], capture_output=True, env=env)  # no info/exclude
+        if not result.returncode:
+            result = subprocess.run(["git", "-c", f"core.excludesFile={os.devnull}", "check-ignore", "--no-index",
+                                     "--stdin"], cwd=tmp, capture_output=True, env=env,
+                                    input="\n".join(ENV_SAMPLES + (".env.example",)).encode())
+    if result.returncode not in (0, 1):
+        return [f".gitignore를 확인하지 못했다: {result.stderr.decode('utf-8', 'replace').strip()}"]
+    ignored = result.stdout.decode("utf-8", "replace").splitlines()
+    problems = []
+    missing = [name for name in ENV_SAMPLES if name not in ignored]
+    if missing:
+        problems.append(f".gitignore: 비밀값 파일을 ignore하지 않는다({', '.join(missing)}). "
+                        f"이 줄을 더한다: {' '.join(ENV_IGNORE)}")
+    if ".env.example" in ignored:
+        problems.append(".gitignore: `.env.example`까지 ignore한다. `!.env.example`을 `.env.*` 뒤에 둔다")
+    return problems
 
 
 # migrate
@@ -474,7 +534,7 @@ def migrate_plan(target):
     if (target / ".baseline").exists() or (target / ".baseline").is_symlink():
         return [".baseline/: 이미 v2다. upgrade로 판을 올린다"], notes, writes, None
     files = core_files(DEFAULT_COMMANDS)
-    links = symlinks(target, files)
+    links = symlinks(target, (*files, ".gitignore"))
     if links:
         hint = ". CLAUDE.md는 지우면 migrate가 `@AGENTS.md` 파일로 만든다" if any(
             Path(link).name == "CLAUDE.md" for link in links) else ""
@@ -534,6 +594,15 @@ def migrate_plan(target):
         if new is not None and (new != agents or not (target / "AGENTS.md").exists()):
             writes["AGENTS.md"] = new
     files[".baseline/commands.json"] = dump_json(drafts or DEFAULT_COMMANDS)
+
+    try:
+        ignore = with_env_ignore(target)
+    except (OSError, ValueError) as error:
+        blocks.append(f".gitignore를 읽지 못했다: {error}")
+    else:
+        if ignore is not None:
+            writes[".gitignore"] = ignore
+            notes.append(".gitignore: 비밀값 줄이 빠져 있어 더한다")
 
     recorded = recorded_hashes(target)
     for rel, data in files.items():
@@ -671,6 +740,7 @@ def cmd_check(args):
             problems.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         elif got != want:
             problems.append(f"{rel}: {'관리 블록이' if kind == 'block_sha256' else '파일이'} 이 판과 다르다")
+    problems += ignore_problems(root)
     # A file added to a skill copy changes the skill too. Other folders in .claude/skills/ are the project's.
     for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
         if linked(root, SKILLS + name):  # os.walk opens a linked top folder; read_file above already reported it
@@ -1358,14 +1428,21 @@ def gh_graphql(query, **fields):
 
 
 def review_fields(body):
-    """The `## Review` fields enqueue reads, each from exactly one `name: value` line."""
+    """The `## Review` fields enqueue reads, each from exactly one `name: value` line.
+
+    None: no line, or one line left blank as the PR template has it. "": two lines, so neither is read."""
     lines = section(body.encode("utf-8"), "Review")
     fields = {}
     for name in ("리뷰한 head", "등급", "남은 지적"):
         at = [i for i, line in enumerate(lines) if line.startswith(f"{name}:")]
-        fields[name] = lines[at[0]][len(name) + 1:].strip().strip("`") if len(at) == 1 else None if not at else ""
-        if len(at) == 1 and at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("- ", "* ")):  # `*강조*` is not a list
-            fields[name] += " (목록이 이어진다)"  # 「남은 지적: 없음」 followed by a list is not 없음
+        if len(at) != 1:
+            fields[name] = None if not at else ""
+            continue
+        value = lines[at[0]][len(name) + 1:].strip().strip("`")
+        if at[0] + 1 < len(lines) and lines[at[0] + 1].startswith(("- ", "* ")):  # `*강조*` is not a list
+            fields[name] = value + " (목록이 이어진다)"  # 「남은 지적: 없음」 followed by a list is not 없음
+        else:
+            fields[name] = value or None
     return fields
 
 
@@ -1610,6 +1687,17 @@ def cmd_review_report(args):
             if len(set(roots)) != len(roots):
                 print("review-report: 쓰지 않는다: 같은 스레드를 --thread로 두 번 줬다")
                 return 1
+            # A cloud run answers without resolving; the local run that carries the report over resolves only.
+            # Only a writer's reply counts: in a public repo anyone can post the same words first.
+            wanted = set(judged)
+            posted = set()
+            for c in comments.values():
+                key = (c.get("in_reply_to_id"), (c.get("body") or "").strip())
+                login = (c.get("user") or {}).get("login")
+                if key in wanted and login and not is_bot(c.get("user")) and gh_api(
+                        f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission") in (
+                        "admin", "write"):
+                    posted.add(key)
         if judged and not cloud:
             owner, name = repo.split("/")
             nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
@@ -1625,8 +1713,11 @@ def cmd_review_report(args):
                 if not cloud and threads[cid]["isResolved"]:  # a rerun after a partial failure answers once
                     print(f"review-report: 댓글 {cid}의 스레드는 이미 해결됐다. 건너뛴다")
                     continue
-                github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
-                answered.append(str(cid))
+                if (cid, reply) in posted:
+                    print(f"review-report: 댓글 {cid}의 스레드에는 같은 판정이 이미 있다. 답은 다시 달지 않는다")
+                else:
+                    github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
+                    answered.append(str(cid))
                 if cloud:
                     print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
                 else:
@@ -2406,6 +2497,12 @@ LABELS = (
     {"name": "ready-for-agent", "color": "0e8a16", "description": "범위와 완료 기준이 정해져 에이전트가 시작할 수 있다"},
     {"name": "ready-for-human", "color": "fbca04", "description": "사람이 해야 한다"},
     {"name": "wontfix", "color": "ffffff", "description": "하지 않는다"},
+    # The wayfinder skill files maps and tickets with these; `gh issue create --label` fails on a missing one.
+    {"name": "wayfinder:map", "color": "5319e7", "description": "wayfinder 지도(결정과 남은 안개)"},
+    {"name": "wayfinder:research", "color": "c5def5", "description": "wayfinder 티켓: 조사"},
+    {"name": "wayfinder:prototype", "color": "c5def5", "description": "wayfinder 티켓: 버리는 시제품"},
+    {"name": "wayfinder:grilling", "color": "c5def5", "description": "wayfinder 티켓: 질문으로 결정"},
+    {"name": "wayfinder:task", "color": "c5def5", "description": "wayfinder 티켓: 작은 일"},
 )
 # Write order matters: security updates need alerts on; selected actions need allowed_actions=selected.
 SETTINGS_ORDER = ("dependabot_alerts", "repository", "protection", "rulesets", "actions", "allowed_actions",
