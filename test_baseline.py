@@ -373,9 +373,22 @@ class RunBudgetTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("201줄", result.stdout)
 
-    def test_budget_fails_over_32_kib(self):
+    def test_budget_does_not_limit_agents_bytes(self):
         with open(self.repo / "AGENTS.md", "a", encoding="utf-8") as f:
-            f.write("가" * 11000 + "\n")
+            f.write("가" * 20000 + "\n")
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)
+
+    def test_budget_fails_at_150000_review_bytes(self):
+        size = (self.repo / "REVIEW.md").stat().st_size
+        with open(self.repo / "REVIEW.md", "ab") as f:
+            f.write(b"x" * (150000 - size))
+        self.assertEqual(cli("budget", script=self.copy).returncode, 1)
+
+    def test_budget_fails_at_500_review_prompt_lines(self):
+        (self.repo / "prompts").mkdir()
+        (self.repo / "prompts/review.md").write_bytes(b"x\n" * 499)
+        self.assertEqual(cli("budget", script=self.copy).returncode, 0)
+        (self.repo / "prompts/review.md").write_bytes(b"x\n" * 500)
         self.assertEqual(cli("budget", script=self.copy).returncode, 1)
 
 

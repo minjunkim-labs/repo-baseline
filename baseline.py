@@ -114,12 +114,15 @@ DEFAULT_COMMANDS = {
 }
 # Shell syntax only through `sh -c`, so every command runs the same on macOS, Linux and WSL2.
 OTHER_SHELLS = {"bash", "zsh", "fish", "ksh", "dash", "csh", "tcsh"}
-# Claude Code: "target under 200 lines per CLAUDE.md file". Codex stops adding AGENTS.md files
-# once their combined size reaches project_doc_max_bytes, 32 KiB by default. Sources: issue #175.
-BUDGET_LINES, BUDGET_BYTES = 200, 32 << 10
 # What an easy-PR reviewer reads before the diff. prompts/review.md lives in repo-baseline only.
-# Printed, not enforced: no source gives a limit for it.
 REVIEW_READ = ("AGENTS.md", "REVIEW.md", "prompts/review.md")
+# Each file must stay under the limit an official doc gives for that kind of file (issue #175).
+# The reviewer's total is printed only: no source gives a limit for it.
+BUDGET = {
+    "AGENTS.md": (200, "줄"),  # Claude Code memory: "target under 200 lines per CLAUDE.md file"
+    "REVIEW.md": (150000, "바이트"),  # Claude Code Code Review: REVIEW.md "under 150,000 bytes"
+    "prompts/review.md": (500, "줄"),  # Claude Code skills: "Keep SKILL.md under 500 lines"
+}
 MAX_READ = 1 << 20
 
 # review-preflight
@@ -437,12 +440,14 @@ def cmd_budget(args):
             read[rel] = read_file(root, rel)
         except OSError as error:
             sys.exit(f"budget: {rel}: {error}")
-    data = read["AGENTS.md"]
-    lines = data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
-    reviewer = sum(map(len, read.values()))
-    print(f"budget: AGENTS.md {lines}줄(상한 {BUDGET_LINES}), {len(data)}바이트(상한 {BUDGET_BYTES})")
-    print(f"budget: 리뷰어 읽기 {reviewer}바이트: {', '.join(read)}")
-    if lines > BUDGET_LINES or len(data) > BUDGET_BYTES:
+    over = False
+    for rel, data in read.items():
+        limit, unit = BUDGET[rel]
+        size = len(data) if unit == "바이트" else data.count(b"\n") + (1 if data and not data.endswith(b"\n") else 0)
+        print(f"budget: {rel} {size}{unit}(상한 {limit}{unit} 미만)" + (f", {len(data)}바이트" if unit == "줄" else ""))
+        over |= size >= limit
+    print(f"budget: 리뷰어 읽기 {sum(map(len, read.values()))}바이트(출력만): {', '.join(read)}")
+    if over:
         print("budget: 상한을 넘었다", file=sys.stderr)
         return 1
     return 0
