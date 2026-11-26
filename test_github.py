@@ -1041,24 +1041,17 @@ class OpsTests(unittest.TestCase):
 
     def test_an_env_example_that_cannot_be_stat_is_reported_not_skipped(self):
         # A sandbox that denies .env.* makes Path.exists() False on Python 3.15; check must not pass silently.
-        # pathlib before 3.11 keeps its own os.stat, so the read is denied through read_file as well.
         def deny(real):
-            def call(path, *args, **kwargs):
+            def denied(path, *args, **kwargs):
                 if str(path).endswith(".env.example"):
                     raise PermissionError(1, "Operation not permitted", str(path))
                 return real(path, *args, **kwargs)
-            return call
-
-        real_read = b.read_file
-
-        def read_file(root, rel):
-            if rel == ".env.example":
-                raise PermissionError(1, "Operation not permitted", rel)
-            return real_read(root, rel)
+            return denied
 
         root = self.repo(env=ENV)
+        # Python 3.9 pathlib keeps its own references to os.stat/os.lstat, so deny the Path methods as well.
         with patch("os.lstat", deny(os.lstat)), patch("os.stat", deny(os.stat)), \
-                patch.object(b, "read_file", read_file):
+                patch.object(Path, "lstat", deny(Path.lstat)), patch.object(Path, "stat", deny(Path.stat)):
             problems = b.ops_problems(root)
         self.assertEqual(len(problems), 1)
         self.assertTrue(problems[0].startswith(".env.example: "), problems)
