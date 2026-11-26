@@ -9,12 +9,14 @@ Matt Pocock 스킬이 뼈대이고, pstack은 Matt가 비우는 칸에만 쓴다
 | 단계 | 쓸 스킬 | 쓰지 않는 것 |
 | --- | --- | --- |
 | 접수·설계 | 작은 diff는 바로 구현. 크면 Matt `grill-with-docs`(사람), 세션 하나를 넘으면 `wayfinder`(사람). 인터페이스는 `codebase-design` | pstack `architect`(겹침) |
-| 스펙·티켓 | `to-spec` → `to-tickets`(사람). spec이 원본 Issue다. 티켓은 GitHub blocked-by 관계와 상태 라벨을 쓴다 | |
-| 구현 | spec 뒤에는 티켓마다 새 세션. `tdd`, 버그면 먼저 `diagnosing-bugs` | Matt `implement`·`implement-spec`(같은 세션 리뷰가 POLICY §3과 부딪힘), pstack `tdd`(겹침), `poteto-mode`(흐름·병합 단계가 뼈대와 부딪힘) |
-| 검증 | 화면·게임처럼 돌려 봐야 하는 앱만 pstack `create-verification-skill` | |
-| 리뷰 | `prompts/review.md`가 Matt `code-review`에 두 축을 맡긴다. 어려움 PR이면 pstack `blast-radius`(영향 범위), `interrogate`(보안 관점) | |
-| PR 본문 | Matt `pr`, 칸은 PR 템플릿 | pstack `ketchup`·`show-me-your-work` |
+| 스펙·티켓 | `to-spec` → `to-tickets`(사람). spec이 원본 Issue다. spec Issue에는 상태 라벨을 붙이지 않고, 마지막 티켓 PR이 `Closes #<spec>`으로 닫는다. 티켓은 GitHub blocked-by 관계와 상태 라벨을 쓴다 | |
+| 구현 | spec 뒤에는 티켓마다 새 세션. `tdd`, 버그면 먼저 `diagnosing-bugs` | Matt `implement`·`implement-spec`(구현 세션이 리뷰를 짜고 판정하며 결과를 PR에 남기지 않아 POLICY §3 리뷰를 대신하지 못함. 함께 쓰면 리뷰가 두 번 돈다), pstack `tdd`(겹침), `poteto-mode`(흐름·병합 단계가 뼈대와 부딪힘) |
+| 검증 | 화면·게임처럼 돌려 봐야 하는 앱만 pstack `create-verification-skill`(사람) | |
+| 리뷰 | `prompts/review.md`가 Matt `code-review`에 두 축을 맡긴다. 어려움 PR이면 pstack `blast-radius`(사람, 영향 범위), `interrogate`(사람, 보안 관점) | |
+| PR 본문 | 칸은 PR 템플릿이 정한다. Matt `pr`은 글쓰기 지침으로만 쓴다 | pstack `ketchup`·`show-me-your-work` |
 | 회고 | `prompts/retro.md` | pstack `correct`는 선택 |
+
+pstack 스킬에 적힌 Cursor 경로는 다른 도구에서 바꿔 읽는다. `create-verification-skill`이 만드는 `.cursor/skills/verify-<app>/`는 `.claude/skills/verify-<app>/`에 둔다(프로젝트만의 스킬). `arena`가 읽는 `~/.cursor/rules/pstack-models.mdc`가 없으면 스킬에 적힌 기본값을 쓴다.
 
 Matt 스킬은 트래커·라벨·도메인 문서 설정을 `docs/agents/`에서 읽는다. `/setup-matt-pocock-skills`가 만드는 파일(`issue-tracker.md`는 GitHub, `triage-labels.md`는 아래 상태 라벨 5개, `domain.md`는 루트 `GLOSSARY.md`와 `docs/adr/`)을 고정한 판의 seed 그대로 둔 관리 파일이다.
 
