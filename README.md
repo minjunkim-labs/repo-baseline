@@ -23,7 +23,7 @@
 | `check` | 관리 파일·블록·`.gitattributes` 맨 앞 줄이 이 판과 같은지, `AGENTS.md` 명령 칸이 `.baseline/commands.json`과 같은지, `.gitignore`가 비밀값 파일을 무시하는지 본다. ops 프로필을 켰으면 `docs/agents/ops.md`도 본다 |
 | `run <setup\|check\|test\|build>` | `commands.json`의 명령을 돌린다. `.mise.toml`에 판이 있으면 `mise exec`로 돈다 |
 | `doctor` | 이 기기가 기준과 다른 곳(도구 판, WSL, 같은 이름 개인 스킬, `autoMode.environment`, `.mise.toml` 신뢰 등)과 고치는 명령을 출력한다 |
-| `review-preflight <PR>` | GitHub REST로 PR의 리뷰 등급(문서·쉬움·어려움)과 이유, diff 명령을 출력한다 |
+| `review-preflight <PR>` | GitHub REST로 PR의 리뷰 등급(문서·쉬움·어려움)과 이유, 리뷰 층(모델 층·effort), diff 명령을 출력한다 |
 | `review-report <PR> --file <파일>` | 리뷰어가 스레드 판정에 답하고 PR 본문의 Review 칸을 쓴다 |
 | `enqueue <PR> <리뷰한 head>` | 문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다. 어려움 PR은 넣지 않는다. 로컬 전용 |
 | `budget` | `AGENTS.md`·`REVIEW.md`·`prompts/review.md` 크기를 공식 문서의 상한과 비교한다 |

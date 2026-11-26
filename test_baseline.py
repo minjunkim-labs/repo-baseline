@@ -1145,6 +1145,24 @@ class PreflightTests(unittest.TestCase):
     def test_docs_only_is_docs(self):
         self.assertEqual(self.grade({"README.md": b"# r2\n", "docs/a.md": b"a\n"})[0], "문서")
 
+    def test_review_tier_follows_the_grade(self):
+        import baseline as b
+        from contextlib import redirect_stdout
+        from io import StringIO
+        from unittest import mock
+        cases = {"문서": ({"README.md": b"# r2\n"}, "없음", None),
+                 "쉬움": ({"src/a.py": b"x\n"}, "보통·보통", {"model": "보통", "effort": "보통"}),
+                 "어려움": ({".mcp.json": b"{}\n"}, "무거움·높음", {"model": "무거움", "effort": "높음"})}
+        for grade, (changes, line, tier) in cases.items():
+            gh = FakeGitHub(core_tree(), dict(core_tree(), **changes))
+            code, report, err = self.preflight(gh)
+            self.assertEqual((report["grade"], report["review_tier"]), (grade, tier), err)
+            out = StringIO()
+            with mock.patch.object(b.subprocess, "run", gh.run), redirect_stdout(out):
+                self.assertEqual(b.main(["review-preflight", PR_URL]), 0)
+            lines = out.getvalue().splitlines()
+            self.assertEqual(lines[lines.index(f"등급: {grade}") + 1], f"리뷰 층: {line}")
+
     def test_instructions_prompts_and_skills_are_not_docs(self):
         tree = core_tree()
         cases = {
