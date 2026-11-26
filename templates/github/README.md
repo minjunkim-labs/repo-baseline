@@ -224,7 +224,7 @@ done
 2. 소유자: diff를 읽고 병합한다(POLICY §5).
 3. 에이전트: 그다음 문서·쉬움 PR에 CodeRabbit 리뷰가 붙지 않는지 보고, 그다음 어려움 PR에서 리뷰어가 요청한 리뷰가 한국어인지 본다.
 
-   확인: 문서·쉬움 PR에 CodeRabbit 리뷰가 없고, 어려움 PR의 줄 단위 댓글 본문이 한국어다. 어긋나면 CodeRabbit 웹의 조직 global override에 `language`나 `auto_review`가 있는지 소유자가 본다. 그 값이 저장소 YAML보다 우선한다.
+   확인: 문서·쉬움 PR에 CodeRabbit 리뷰가 없고, 어려움 PR의 줄 단위 댓글 본문이 한국어다. 어긋나면 CodeRabbit 웹의 조직 global override에 `language`나 `auto_review`가 있는지 소유자가 본다. 그 값이 저장소 YAML보다 우선한다([configuration-overview](https://docs.coderabbit.ai/guides/configuration-overview), 2026-11-16 확인).
 
 공통값을 바꾸려면 저장소마다 PR을 내지 않고 이 템플릿을 바꾼 뒤 위 1~3을 다시 한다.
 
