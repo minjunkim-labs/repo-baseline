@@ -1,1 +1,0 @@
-- 이 저장소의 AGENTS.md 길잡이 표에 `GLOSSARY.md`와 `changelog.d/`를 더했다. 소비 레포가 옮길 일은 없다.

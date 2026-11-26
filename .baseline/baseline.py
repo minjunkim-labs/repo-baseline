@@ -22,7 +22,7 @@ import tempfile
 import time
 from urllib.parse import quote
 
-VERSION = "2.1.0"
+VERSION = "2.1.1"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
 ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
@@ -3191,8 +3191,12 @@ def ops_problems(root):
         problems += [f"{OPS_PATH}에 있으면 안 된다: {line}" for line in have if line not in want]
         if not problems:
             problems.append(f"{OPS_PATH}: 줄 순서나 빈 줄이 ops/ops.md와 다르다")
-    if not (root / ".env.example").exists() and not linked(root, ".env.example"):
+    try:
+        os.lstat(root / ".env.example")
+    except FileNotFoundError:
         return problems
+    except OSError:
+        pass  # Path.exists() is False when stat is denied (a sandbox on .env.*); read_file below reports it
     try:
         lines = read_file(root, ".env.example").decode("utf-8").splitlines()
     except (OSError, ValueError) as error:

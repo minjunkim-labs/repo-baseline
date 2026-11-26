@@ -1,1 +1,0 @@
-- `review-preflight --json`의 키 `secret_hits`를 `env_file_hits`로 바꿨다. 함수 `secret_names`도 `env_file_names`로 바꿨다. CodeQL `py/clear-text-logging-sensitive-data`가 `.env` 파일 경로 출력을 비밀값 출력으로 잘못 짚던 경고 4건이 사라진다. 이 키를 읽는 스크립트가 있으면 이름을 바꾼다. 이미 닫은 오탐 경고는 그대로 둔다.
