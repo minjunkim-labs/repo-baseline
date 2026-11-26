@@ -924,7 +924,7 @@ def contents(repo, rel, ref):
     return gh_api(f"repos/{repo}/contents/{quote(rel)}?ref={quote(ref)}", raw=True)
 
 
-def secret_names(paths):
+def env_file_names(paths):
     """(hits, examples): any folder or file name starting with .env is a hit, except .env.example files."""
     hits, examples = set(), set()
     for path in paths:
@@ -1339,7 +1339,7 @@ def preflight(repo, number, remote):
         if len(changed) >= 3000:
             raise OSError(f"커밋 {commit['sha']}의 파일이 REST 한도(3000개)에 닿아 다 볼 수 없다")
         names |= {p for f in changed for p in (f["filename"], f.get("previous_filename")) if p}
-    hits, examples = secret_names(names)
+    hits, examples = env_file_names(names)
     # The contents API follows symlinks, so the bytes alone cannot show a link or a submodule.
     # Both sides count: a PR that turns a link into a file changes what the link used to reach.
     linked = set()
