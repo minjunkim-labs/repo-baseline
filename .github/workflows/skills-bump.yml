@@ -1,4 +1,4 @@
-name: Skills bump
+name: skills-bump
 
 # Weekly: is there a skill version older than its lock `days`? A PR opened with GITHUB_TOKEN gets no
 # required CI (WORKFLOW.md), so this only opens or updates an Issue. A local session runs skills-bump.
@@ -16,7 +16,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  check:
+  skills-bump:
+    name: skills-bump
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -26,7 +27,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'
-      - name: new skill versions
+      - name: check for new skill versions
         id: bump
         env:
           GH_TOKEN: ${{ github.token }}

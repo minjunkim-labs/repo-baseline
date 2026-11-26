@@ -1,0 +1,1 @@
+- `github/ci.yml`: 판정 step 이름을 `require every OS to pass`로 바꾸고, `baseline check` 위에 `run check`와 다른 점을 적은 주석을 더했다. 동작은 같다. 소비 레포는 원하면 둘을 자기 `ci.yml`에 옮긴다. 이 저장소의 `check.yml`·`skills-bump.yml`은 workflow·job·step 이름을 바꿨고, `check.yml`의 판정 step은 결과를 env로 받는다(동작은 같고, 필수 검사 `ci`는 그대로).
