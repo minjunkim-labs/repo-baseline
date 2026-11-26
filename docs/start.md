@@ -44,6 +44,7 @@ python3 -I "$B/baseline.py" migrate .
 
 - 충돌: `막힘`은 풀어야 `--apply`가 쓴다. `확인`은 사람이 볼 일이다(CI에서 `check`를 돌리게 고치기, 옛 hash-copy manifest 지우기, 도구별 지침 파일 옮기기 등).
 - 계획: 새로 쓰거나 고칠 파일. `CLAUDE.md`의 내용은 `AGENTS.md` 블록 밖으로 옮기고 `CLAUDE.md`는 `@AGENTS.md` 한 줄이 된다.
+  `AGENTS.md`에 `- 상시 지시:` 줄이 없으면 코어의 「병합」 절을 블록 앞에 더한다. `enqueue`는 base의 이 줄을 읽는다. 끄려면 병합 뒤 이 줄을 지운다.
 - `commands.json` 초안: 기존 `AGENTS.md` 명령 칸에서 만든다. 사람이 확인한다.
 
 막힘을 하나씩 푼 뒤 다시 돌린다. 어느 경우에도 프로젝트 내용을 옮기기 전에는 파일을 지우지 않는다. 옮길 곳이 분명하지 않으면 소유자에게 묻는다.

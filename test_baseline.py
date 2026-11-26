@@ -364,6 +364,23 @@ class MigrateTests(unittest.TestCase):
         self.assertEqual(json.loads((self.repo / ".baseline/commands.json").read_text(encoding="utf-8"))["check"],
                          ["sh", "-c", "make lint && make spec"])
 
+    def test_apply_adds_the_core_standing_instruction_before_the_block(self):
+        result = self.migrate("--apply")
+        self.assertIn("확인 AGENTS.md: 상시 지시 줄이 없어", result.stdout)
+        agents = (self.repo / "AGENTS.md").read_text(encoding="utf-8")
+        standing = [line for line in agents.splitlines() if line.startswith("- 상시 지시:")]
+        self.assertEqual(len(standing), 1)
+        self.assertIn("`python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`", standing[0])
+        self.assertLess(agents.index("## 병합"), agents.index("<!-- baseline:start -->"))
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+
+    def test_apply_keeps_a_standing_line_the_owner_wrote(self):
+        self.write("AGENTS.md", self.AGENTS + "\n## 병합\n\n- 상시 지시: 우리 방식.\n")
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        agents = (self.repo / "AGENTS.md").read_text(encoding="utf-8")
+        self.assertEqual([line for line in agents.splitlines() if line.startswith("- 상시 지시:")],
+                         ["- 상시 지시: 우리 방식."])
+
     def test_apply_without_agents_md_writes_the_core(self):
         (self.repo / "AGENTS.md").unlink()
         self.assertEqual(self.migrate("--apply").returncode, 0)

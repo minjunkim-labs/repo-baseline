@@ -510,6 +510,11 @@ def migrate_agents(data, core_data, extra, blocks, notes):
     if new is None:
         blocks.append("AGENTS.md: 관리 블록 표시가 하나씩 있어야 한다")
         return None, drafts
+    # The line is core's default (POLICY: the owner deletes it to opt out); enqueue reads it from base.
+    if not any(line.startswith(STANDING) for line in new.decode("utf-8").splitlines()):
+        core = core_data.decode("utf-8")
+        new = insert_before_block(new, core[core.index("## 병합\n"):core.index(START.decode())].encode("utf-8"))
+        notes.append("AGENTS.md: 상시 지시 줄이 없어 코어의 「병합」 절을 블록 앞에 더한다. 끄려면 그 줄을 지운다")
     # check's own rule, so --apply never writes what check then refuses.
     got = new.decode("utf-8").splitlines()
     for name in COMMANDS:
