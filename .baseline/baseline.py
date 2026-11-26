@@ -924,7 +924,7 @@ def contents(repo, rel, ref):
     return gh_api(f"repos/{repo}/contents/{quote(rel)}?ref={quote(ref)}", raw=True)
 
 
-def secret_names(paths):
+def env_file_names(paths):
     """(hits, examples): any folder or file name starting with .env is a hit, except .env.example files."""
     hits, examples = set(), set()
     for path in paths:
@@ -1339,7 +1339,7 @@ def preflight(repo, number, remote):
         if len(changed) >= 3000:
             raise OSError(f"커밋 {commit['sha']}의 파일이 REST 한도(3000개)에 닿아 다 볼 수 없다")
         names |= {p for f in changed for p in (f["filename"], f.get("previous_filename")) if p}
-    hits, examples = secret_names(names)
+    hits, examples = env_file_names(names)
     # The contents API follows symlinks, so the bytes alone cannot show a link or a submodule.
     # Both sides count: a PR that turns a link into a file changes what the link used to reach.
     linked = set()
@@ -1352,7 +1352,7 @@ def preflight(repo, number, remote):
                     if q in linked})
     report = {"pr": int(number), "fork": fork, "head": head, "base": base, "branch": pr["head"]["ref"],
               "author": pr["user"]["login"], "base_branch": pr["base"]["ref"],
-              "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
+              "env_file_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
               "fetch_argv": None, "diff_argv": None}
     if not hits:
         # Grade inputs come from base: the PR cannot list itself out of the sensitive paths.
@@ -1419,7 +1419,7 @@ def cmd_review_preflight(args):
     if report is None:
         print("review-preflight: head나 base가 실행 중에 바뀌었다. 다시 실행한다.", file=sys.stderr)
         return 2
-    code = 1 if report["secret_hits"] else 0
+    code = 1 if report["env_file_hits"] else 0
     if args.json:
         print(json.dumps(report))  # ASCII only, so a non-UTF-8 stdout cannot fail after the checks
         return code
@@ -1429,7 +1429,7 @@ def cmd_review_preflight(args):
     show = lambda paths: ", ".join(p if p.isprintable() else json.dumps(p) for p in paths)  # noqa: E731
     print("미검토(.env.example): " + (show(report["unreviewed_examples"]) or "없음"))
     if code:
-        print("리뷰 미완(비밀값 파일): " + show(report["secret_hits"]))
+        print("리뷰 미완(비밀값 파일): " + show(report["env_file_hits"]))
         return code
     print(f"등급: {report['grade']}")
     for reason in report["reasons"]:
@@ -1572,8 +1572,8 @@ def enqueue_problems(repo, number, sha, remote):
     report = preflight(repo, number, remote)
     if report is None:
         return None, ["head나 base가 실행 중에 바뀌었다"]
-    if report["secret_hits"]:
-        return None, ["비밀값 파일 이름: " + ", ".join(json.dumps(p) for p in report["secret_hits"])]
+    if report["env_file_hits"]:
+        return None, ["비밀값 파일 이름: " + ", ".join(json.dumps(p) for p in report["env_file_hits"])]
     owner, name = repo.split("/")
     pr = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"]
     problems = [] if report["head"] == sha else [f"head가 {sha}가 아니라 {report['head']}다"]
