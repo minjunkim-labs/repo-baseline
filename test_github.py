@@ -7,6 +7,7 @@ import copy
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
@@ -1037,6 +1038,21 @@ class OpsTests(unittest.TestCase):
                          [".env.example의 SENTRY_AUTH_TOKEN에 값이 있다. 빈 칸으로 둔다"])
         text = b.ops_text({"Sentry": "정적 페이지"})
         self.assertEqual(self.problems(ops=text, env="POSTHOG_KEY=\nPOSTHOG_HOST=\n"), [])
+
+    def test_an_env_example_that_cannot_be_stat_is_reported_not_skipped(self):
+        # A sandbox that denies .env.* makes Path.exists() False on Python 3.15; check must not pass silently.
+        real = os.lstat
+
+        def denied(path, *args, **kwargs):
+            if str(path).endswith(".env.example"):
+                raise PermissionError(1, "Operation not permitted", str(path))
+            return real(path, *args, **kwargs)
+
+        root = self.repo(env=ENV)
+        with patch("os.lstat", denied), patch("os.stat", denied):
+            problems = b.ops_problems(root)
+        self.assertEqual(len(problems), 1)
+        self.assertTrue(problems[0].startswith(".env.example: "), problems)
 
     def test_check_runs_ops_only_when_the_profile_is_on(self):
         root = self.repo(ops=None)
