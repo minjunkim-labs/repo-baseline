@@ -98,7 +98,7 @@ python3 -I .baseline/baseline.py doctor
 
 본문은 `.github/pull_request_template.md` 양식이다. Summary에 완료 기준을 쓰고, Evidence에 3절 명령의 실제 출력을 붙인다.
 
-코어는 `.baseline/`과 에이전트 설정 폴더(`.claude/`)를 더하므로 이 PR은 어려움이다. 새 세션 리뷰와 보안 관점 리뷰 뒤 소유자가 병합한다(POLICY §3). 리뷰는 [prompts/review.md](../prompts/review.md)로 하고, 등급은 `review-preflight`가 정한다.
+코어는 `.baseline/`과 에이전트 설정 폴더(`.claude/`)를 더하므로 이 PR은 어려움이다. 새 세션 하나가 Spec·Standards와 보안 관점을 본 뒤 소유자가 병합한다(POLICY §3). 리뷰는 [prompts/review.md](../prompts/review.md)로 하고, 등급은 `review-preflight`가 정한다.
 
 ## 판 올리기
 

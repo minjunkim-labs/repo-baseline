@@ -12,7 +12,7 @@ Matt Pocock 스킬이 뼈대이고, pstack은 Matt가 비우는 칸에만 쓴다
 | 스펙·티켓 | `to-spec` → `to-tickets`(사람). spec이 원본 Issue다. spec Issue에는 상태 라벨을 두지 않고(`to-spec`이 붙이는 `ready-for-agent`는 뗀다), 티켓 PR은 `Closes #<티켓>`으로 자기 티켓을 닫고, 마지막으로 병합하는 티켓 PR만 큐에 넣기 전에 `Closes #<spec>`을 더 적는다(티켓을 나란히 돌리면 마지막 PR은 병합 순서로 정해진다). 티켓은 GitHub blocked-by 관계와 상태 라벨을 쓴다 | |
 | 구현 | spec 뒤에는 티켓마다 새 세션. 막힘이 없는 티켓은 세션을 나란히 띄운다(세션마다 worktree·PR). `tdd`, 버그면 먼저 `diagnosing-bugs` | Matt `implement`·`implement-spec`(구현 세션이 리뷰를 짜고 판정하며 결과를 PR에 남기지 않아 POLICY §3 리뷰를 대신하지 못함. 함께 쓰면 리뷰가 두 번 돈다), pstack `tdd`(겹침), `poteto-mode`(흐름·병합 단계가 뼈대와 부딪힘) |
 | 검증 | 화면·게임처럼 돌려 봐야 하는 앱만 pstack `create-verification-skill`(사람) | |
-| 리뷰 | `prompts/review.md`가 Matt `code-review`에 두 축을 맡긴다. 어려움 PR이면 pstack `blast-radius`(사람, 영향 범위), `interrogate`(사람, 보안 관점) | |
+| 리뷰 | `prompts/review.md`가 Matt `code-review`에 두 축을 맡긴다. 어려움 PR은 같은 새 세션이 보안 관점까지 본다. pstack `blast-radius`(사람, 영향 범위)·`interrogate`(사람, 보안 관점)는 소유자가 원할 때만 | |
 | PR 본문 | 칸은 PR 템플릿이 정한다. Matt `pr`은 글쓰기 지침으로만 쓴다 | pstack `ketchup`·`show-me-your-work` |
 | 회고 | `prompts/retro.md` | pstack `correct`는 선택 |
 

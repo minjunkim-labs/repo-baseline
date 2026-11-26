@@ -1,0 +1,1 @@
+- 리뷰 규칙(POLICY §3, 코어 `AGENTS.md` 관리 블록, `prompts/review.md`): 어려움 리뷰는 새 세션 하나가 Spec·Standards·보안 관점을 본다. 리뷰어는 fork가 아니고 다른 작업 폴더에서 head를 연다. preflight는 세 번 실패하면 멈춘다. 결과는 PR에만 남긴다. 봇 요청은 PR을 연 세션이 한다. 막힌 push·댓글은 「남은 지적」으로 넘긴다. 시작 전에 열린 PR·Issue에서 같은 일을 찾는다. 소비 레포는 `upgrade`로 받는다.
