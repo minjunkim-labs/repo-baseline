@@ -1245,7 +1245,7 @@ class PreflightTests(unittest.TestCase):
         gh.commits["e" * 40] = ["app/.env"]
         code, report, _ = self.preflight(gh)
         self.assertEqual(code, 1)
-        self.assertEqual(report["secret_hits"], ["app/.env"])
+        self.assertEqual(report["env_file_hits"], ["app/.env"])
         self.assertIsNone(report["diff_argv"])
 
     def test_a_commit_at_the_rest_file_limit_fails(self):
