@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -1259,7 +1260,7 @@ class PreflightTests(unittest.TestCase):
         """Base is this core; head is the core of a tag whose AGENTS.md block says `tag_core`."""
         import baseline as b
         if version is None:  # the next patch, so the test keeps passing after each release bumps VERSION
-            major, minor, patch = b.VERSION.split(".")
+            major, minor, patch = re.match(r"(\d+)\.(\d+)\.(\d+)", b.VERSION).groups()  # a -dev suffix is ignored
             version = f"{major}.{minor}.{int(patch) + 1}"
         base = core_tree()
         agents = base["AGENTS.md"].replace("고치지 않는다".encode(), (tag_core or "고치지 않는다2").encode())
