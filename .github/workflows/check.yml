@@ -3,9 +3,8 @@ name: Baseline checks
 on:
   pull_request:
   # The merge queue tests the queued result here; without it a queued PR never merges.
+  # No push on main: the merge queue already tested the commit that main gets.
   merge_group:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -50,33 +49,39 @@ jobs:
           name: init-sha256-${{ matrix.os }}
           path: init-sha256-${{ matrix.os }}.txt
 
-  # Branch protection requires this job name (.github/repository-settings.json).
-  # It is the gate: it runs even when v2 fails (a skipped required check would count as passed).
-  ci:
-    name: ci
-    needs: v2
-    if: ${{ !cancelled() }}
+  # This repo runs its own v2 core, like a consumer repo (#189). It needs nothing from v2, so it runs beside it.
+  self:
+    name: self
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - name: v2 passed on both OSes
-        run: test "${{ needs.v2.result }}" = success
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: init-sha256-*
-          merge-multiple: true
-      - name: init wrote the same bytes on both OSes
-        run: cmp init-sha256-ubuntu-24.04.txt init-sha256-macos-15.txt
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.x'  # latest stable; the scripts use only the standard library
-      # This repo runs its own v2 core, like a consumer repo (#189).
       - name: baseline check
         run: python3 -I .baseline/baseline.py check
       - name: baseline run test
         run: python3 -I .baseline/baseline.py run test
       - name: baseline budget
         run: python3 -I .baseline/baseline.py budget
+
+  # Branch protection requires this job name (.github/repository-settings.json).
+  # It is the gate: it runs even when a job fails (a skipped required check would count as passed).
+  ci:
+    name: ci
+    needs: [v2, self]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: v2 and self passed
+        run: test "${{ needs.v2.result }}" = success && test "${{ needs.self.result }}" = success
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: init-sha256-*
+          merge-multiple: true
+      - name: init wrote the same bytes on both OSes
+        run: cmp init-sha256-ubuntu-24.04.txt init-sha256-macos-15.txt

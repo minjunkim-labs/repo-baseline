@@ -1,0 +1,1 @@
+- 이 저장소의 `check.yml`에서 자체 검사를 job `self`로 빼 v2와 함께 돌리고, merge_group과 같은 커밋을 다시 검사하던 `push: main` 트리거를 지웠다. 소비 레포가 옮길 일은 없다.
