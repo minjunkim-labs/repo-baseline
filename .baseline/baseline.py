@@ -33,7 +33,7 @@ ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
 # lines at the top, seed_sha256 everything (written only when missing, never checked or upgraded).
 MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
-    "AGENTS.md": {"block_sha256": "5a0264145665fe22598322b9a6c3bbf0f9f96c2c2ffd0b281e948ceb112ef8f1"},
+    "AGENTS.md": {"block_sha256": "9b299b649b2f8381c32addded8ead96a2fa48e3f78e44620f3f729bc9806f209"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
     "REVIEW.md": {"block_sha256": "25b2312c47d48ad39f14cd413895cc088d45042d96ce8013b0712bfe726d52a7"},
     ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},

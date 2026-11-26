@@ -40,7 +40,7 @@
 | 기본 | [ops](ops/) | 배포해서 사람이 쓰는 앱이면 켠다. 빼는 도구만 이유와 함께 적는다 |
 | 선택 | [team](team/) | 쓰기 권한이 있는 사람이 둘 이상이면 켠다. CODEOWNERS와 사람 승인 |
 
-PR을 열면 [prompts/review.md](prompts/review.md)로 리뷰한다. 등급은 `review-preflight`가 정한다. 문서는 필수 CI만, 쉬움은 하위 에이전트 리뷰 한 번, 어려움은 새 세션 리뷰와 보안 관점 리뷰 뒤 소유자가 병합한다(POLICY §3). 같은 지적이 반복되면 [prompts/retro.md](prompts/retro.md)를 실행한다.
+PR을 열면 [prompts/review.md](prompts/review.md)로 리뷰한다. 등급은 `review-preflight`가 정한다. 문서는 필수 CI만, 쉬움은 하위 에이전트 리뷰 한 번, 어려움은 새 세션 하나가 Spec·Standards와 보안 관점을 본 뒤 소유자가 병합한다(POLICY §3). 같은 지적이 반복되면 [prompts/retro.md](prompts/retro.md)를 실행한다.
 
 `templates/`, `profiles/`, `tools/`는 v1 도구다. v1 소비 레포가 다 옮기면 지운다. 그때까지 `tools/sync_consumers.py`는 돌리지 않는다.
 
