@@ -10,7 +10,7 @@
 #   그 단계에 inheritance가 없으면 상속은 거기서 멈춘다. https://docs.coderabbit.ai/configuration/configuration-inheritance
 # 근거(2026-11-26 확인):
 # - reviews.auto_review.enabled: 기본값 true. false면 PR을 자동으로 리뷰하지 않는다. https://docs.coderabbit.ai/reference/configuration
-#   리뷰 봇은 어려움 PR에서만 쓴다(POLICY §3). 리뷰어가 PR 댓글 `@coderabbitai review` 한 줄로 요청한다.
+#   리뷰 봇은 어려움 PR에서만 쓴다(POLICY §3). PR을 연 세션이 PR 댓글 `@coderabbitai review` 한 줄로 요청한다.
 #   이 명령은 자동 리뷰를 꺼도 동작한다. https://docs.coderabbit.ai/reference/review-commands
 language: "ko-KR"
 inheritance: true

@@ -201,7 +201,7 @@ done
 
 ## CodeRabbit 설정
 
-`.coderabbit.yaml`은 리뷰 언어를 한국어(`ko-KR`, 기본값 `en-US`)로 정하고 자동 리뷰를 끈다(`reviews.auto_review.enabled: false`, 기본값 `true`). 리뷰 봇은 어려움 PR에서만 리뷰어가 요청한다(POLICY §3). 근거 문서와 확인일은 파일 주석에 있다. `inheritance: true`가 있어서 이 파일에 없는 키는 바로 아래 설정 단계를 따른다. Central YAML(`coderabbit` 저장소의 설정)이 없으면 CodeRabbit 웹 설정이다. 그 단계에 `inheritance`가 없으면 상속은 거기서 멈춘다. 이 파일에 `inheritance: true`가 없으면 웹 설정 대신 기본값이 쓰인다. 요약·채팅 답글까지 한국어가 되는지는 확인하지 못했다. 이 파일은 저장소마다 다른 값이 없어 「계약 값」 표에 넣지 않는다. 그 표는 GitHub 설정 값이고, 이 파일은 파일 자체가 정본이다. 새 저장소는 (a)의 3에서, 기존 저장소는 (b)의 5에서 함께 복사한다. 따로 더하거나 공통값이 바뀌었으면 아래를 한다. 어느 쪽이든 병합한 뒤 3으로 확인한다.
+`.coderabbit.yaml`은 리뷰 언어를 한국어(`ko-KR`, 기본값 `en-US`)로 정하고 자동 리뷰를 끈다(`reviews.auto_review.enabled: false`, 기본값 `true`). 리뷰 봇은 어려움 PR에서만 PR을 연 세션이 요청한다(POLICY §3). 근거 문서와 확인일은 파일 주석에 있다. `inheritance: true`가 있어서 이 파일에 없는 키는 바로 아래 설정 단계를 따른다. Central YAML(`coderabbit` 저장소의 설정)이 없으면 CodeRabbit 웹 설정이다. 그 단계에 `inheritance`가 없으면 상속은 거기서 멈춘다. 이 파일에 `inheritance: true`가 없으면 웹 설정 대신 기본값이 쓰인다. 요약·채팅 답글까지 한국어가 되는지는 확인하지 못했다. 이 파일은 저장소마다 다른 값이 없어 「계약 값」 표에 넣지 않는다. 그 표는 GitHub 설정 값이고, 이 파일은 파일 자체가 정본이다. 새 저장소는 (a)의 3에서, 기존 저장소는 (b)의 5에서 함께 복사한다. 따로 더하거나 공통값이 바뀌었으면 아래를 한다. 어느 쪽이든 병합한 뒤 3으로 확인한다.
 
 1. 에이전트: 파일을 넣어 PR로 연다. 리뷰는 POLICY §3대로 한다.
    - 저장소 루트에 `.coderabbit.yml`이나 `.coderabbit.config.ts`가 있으면 아무것도 넣지 않고 PR 본문에 적어 소유자에게 남긴다. YAML 파일이 있으면 CodeRabbit은 `.coderabbit.config.ts`를 무시한다([configuration-overview](https://docs.coderabbit.ai/guides/configuration-overview), 2026-11-16 확인).
@@ -222,7 +222,7 @@ done
 
      확인: 종료 코드 0이다. 들여쓰기가 2칸이 아니거나 `enabled`가 `auto_review:` 바로 아래 줄이 아니면 실패하니 그렇게 맞춘다.
 2. 소유자: diff를 읽고 병합한다(POLICY §5).
-3. 에이전트: 그다음 문서·쉬움 PR에 CodeRabbit 리뷰가 붙지 않는지 보고, 그다음 어려움 PR에서 리뷰어가 요청한 리뷰가 한국어인지 본다.
+3. 에이전트: 그다음 문서·쉬움 PR에 CodeRabbit 리뷰가 붙지 않는지 보고, 그다음 어려움 PR에서 요청한 리뷰가 한국어인지 본다.
 
    확인: 문서·쉬움 PR에 CodeRabbit 리뷰가 없고, 어려움 PR의 줄 단위 댓글 본문이 한국어다. 어긋나면 CodeRabbit 웹의 조직 global override에 `language`나 `auto_review`가 있는지 소유자가 본다. 그 값이 저장소 YAML보다 우선한다([configuration-overview](https://docs.coderabbit.ai/guides/configuration-overview), 2026-11-16 확인).
 

@@ -36,7 +36,7 @@ Cursor도 `.agents/skills/`와 `.claude/skills/`를 읽고, 하위 폴더의 `.c
 | 단계 | pstack 스킬 | 쓰는 법 |
 | --- | --- | --- |
 | 자동 검사 | `correct`, `create-verification-skill`, `principle-encode-lessons-in-structure` | `correct`는 반복 실수를 구조 > 타입 > 린트 > 테스트 > 문서 순서로 막는다. [prompts/retro.md](../../prompts/retro.md)와 하는 일이 같다. 제안만 받고 사람이 고른다(POLICY §6). `create-verification-skill`은 앱을 실제로 돌려 보는 검증 스킬을 만든다 |
-| 리뷰 | `interrogate`, `blast-radius`, `no-comments` | 되돌리기 어려움 PR의 "보안 관점 한 번 더"에 `interrogate`를, Merge Danger의 영향 범위 확인에 `blast-radius`를 쓸 수 있다. 판정과 Review 칸은 [prompts/review.md](../../prompts/review.md)가 맡는다 |
+| 리뷰 | `interrogate`, `blast-radius`, `no-comments` | 소유자가 원하면 어려움 PR의 보안 관점에 `interrogate`를, Merge Danger의 영향 범위 확인에 `blast-radius`를 쓴다(WORKFLOW.md 「리뷰」). 판정과 Review 칸은 [prompts/review.md](../../prompts/review.md)가 맡는다 |
 | 구현 | `poteto-mode`, `architect`, `tdd`, `principle-test-behavior-not-implementation` | 시작 전 완료 기준을 정하는 규칙은 그대로다 |
 | 보고 | `ketchup`, `show-me-your-work` | 오래 혼자 돈 작업의 결정 기록을 PR 본문에 옮길 때 쓴다. 칸은 PR 템플릿을 지킨다 |
 
