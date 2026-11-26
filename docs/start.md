@@ -8,7 +8,7 @@
 
 ```bash
 B="$(mktemp -d)/repo-baseline"
-git clone --depth 1 --branch v2.0.0 https://github.com/minjunkim-labs/repo-baseline "$B"
+git clone --depth 1 --branch v2.0.1 https://github.com/minjunkim-labs/repo-baseline "$B"
 ```
 
 아래 `B`는 이 클론이다. 고정 경로(`/tmp/repo-baseline` 등)에 이미 있는 폴더는 다른 판이거나 남이 만든 것일 수 있으니 쓰지 않는다.
