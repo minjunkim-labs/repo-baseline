@@ -9,7 +9,7 @@ Matt Pocock 스킬이 뼈대이고, pstack은 Matt가 비우는 칸에만 쓴다
 | 단계 | 쓸 스킬 | 쓰지 않는 것 |
 | --- | --- | --- |
 | 접수·설계 | 작은 diff는 바로 구현. 크면 Matt `grill-with-docs`(사람), 세션 하나를 넘으면 `wayfinder`(사람). 인터페이스는 `codebase-design` | pstack `architect`(겹침) |
-| 스펙·티켓 | `to-spec` → `to-tickets`(사람). spec이 원본 Issue다. spec Issue에는 상태 라벨을 붙이지 않고, 마지막 티켓 PR이 `Closes #<spec>`으로 닫는다. 티켓은 GitHub blocked-by 관계와 상태 라벨을 쓴다 | |
+| 스펙·티켓 | `to-spec` → `to-tickets`(사람). spec이 원본 Issue다. spec Issue에는 상태 라벨을 두지 않고(`to-spec`이 붙이는 `ready-for-agent`는 뗀다), 마지막 티켓 PR이 `Closes #<spec>`으로 닫는다. 티켓은 GitHub blocked-by 관계와 상태 라벨을 쓴다 | |
 | 구현 | spec 뒤에는 티켓마다 새 세션. `tdd`, 버그면 먼저 `diagnosing-bugs` | Matt `implement`·`implement-spec`(구현 세션이 리뷰를 짜고 판정하며 결과를 PR에 남기지 않아 POLICY §3 리뷰를 대신하지 못함. 함께 쓰면 리뷰가 두 번 돈다), pstack `tdd`(겹침), `poteto-mode`(흐름·병합 단계가 뼈대와 부딪힘) |
 | 검증 | 화면·게임처럼 돌려 봐야 하는 앱만 pstack `create-verification-skill`(사람) | |
 | 리뷰 | `prompts/review.md`가 Matt `code-review`에 두 축을 맡긴다. 어려움 PR이면 pstack `blast-radius`(사람, 영향 범위), `interrogate`(사람, 보안 관점) | |
