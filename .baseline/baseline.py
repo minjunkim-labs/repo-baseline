@@ -33,10 +33,10 @@ ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
 # lines at the top, seed_sha256 everything (written only when missing, never checked or upgraded).
 MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
-    "AGENTS.md": {"block_sha256": "9b299b649b2f8381c32addded8ead96a2fa48e3f78e44620f3f729bc9806f209"},
+    "AGENTS.md": {"block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "25b2312c47d48ad39f14cd413895cc088d45042d96ce8013b0712bfe726d52a7"},
-    ".github/pull_request_template.md": {"sha256": "11a271edeca42572a39a609c9b739a08ab9258c9509e23020a1a4d586df48f02"},
+    "REVIEW.md": {"block_sha256": "f5216fadb17f42b92218cf17f42a55d4911eceab78d6e3b92d5b448878fb4185"},
+    ".github/pull_request_template.md": {"sha256": "e4d300491ddc034b8b5d20103e73da99d09ba67ac746c8210b46b4673dd50a62"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
     "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
@@ -154,6 +154,8 @@ MANIFESTS = {
 }
 # enqueue
 GRADES = ("문서", "쉬움", "어려움")
+# POLICY §3: the reviewer's model tier and effort per grade. Never model names (ADR 0002).
+REVIEW_TIERS = {"문서": None, "쉬움": {"model": "보통", "effort": "보통"}, "어려움": {"model": "무거움", "effort": "높음"}}
 STANDING = "- 상시 지시:"
 STANDING_COMMAND = "`python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
@@ -161,7 +163,7 @@ PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
             "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
             "reviewThreads(first:100){totalCount nodes{id isResolved comments(first:100){nodes{databaseId}}}}}}}")
-REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
 RESOLVE = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}"
 ENQUEUE = ("mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha})"
            "{mergeQueueEntry{position}}}")
@@ -1352,7 +1354,7 @@ def preflight(repo, number, remote):
                     if q in linked})
     report = {"pr": int(number), "fork": fork, "head": head, "base": base, "branch": pr["head"]["ref"],
               "author": pr["user"]["login"], "base_branch": pr["base"]["ref"],
-              "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "reasons": [],
+              "secret_hits": hits, "unreviewed_examples": examples, "grade": None, "review_tier": None, "reasons": [],
               "fetch_argv": None, "diff_argv": None}
     if not hits:
         # Grade inputs come from base: the PR cannot list itself out of the sensitive paths.
@@ -1401,6 +1403,7 @@ def preflight(repo, number, remote):
             report["grade"] = "어려움" if reasons else "문서" if all(map(is_doc, paths)) else "쉬움"
             reasons += [f"{name} 예외 아님: {problem}" for name, problem in exceptions]
         report["reasons"] = reasons
+        report["review_tier"] = REVIEW_TIERS[report["grade"]]
         report["fetch_argv"] = ["git", "fetch", "--no-tags", remote, base,
                                 f"+refs/pull/{number}/head:refs/review-preflight/{remote}/pr/{number}"]
         report["diff_argv"] = ["git", "diff", f"{base}...{head}", "--", ".", ":!.env*", ":!**/.env*"]
@@ -1432,6 +1435,8 @@ def cmd_review_preflight(args):
         print("리뷰 미완(비밀값 파일): " + show(report["secret_hits"]))
         return code
     print(f"등급: {report['grade']}")
+    tier = report["review_tier"]
+    print("리뷰 층: " + (f"{tier['model']}·{tier['effort']}" if tier else "없음"))
     for reason in report["reasons"]:
         print(f"이유: {show([reason])}")
     print("fetch: " + shlex.join(report["fetch_argv"]))
