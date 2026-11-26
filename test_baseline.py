@@ -2219,7 +2219,10 @@ class AllowEnqueueHookTests(unittest.TestCase):
         self.assertEqual(self.hook(), "allow")
 
     def test_settings_pin_this_baseline_py_and_allow_no_rule(self):
-        settings = json.loads((ROOT / "core/.claude/settings.json").read_text(encoding="utf-8"))
+        import baseline as b
+        core = json.loads((ROOT / "core/.claude/settings.json").read_text(encoding="utf-8"))
+        self.assertEqual(core["hooks"]["PreToolUse"][0]["hooks"][0]["args"][-1], "0" * 64)  # init writes the real pin
+        settings = json.loads(b.core_files(b.DEFAULT_COMMANDS)[".claude/settings.json"])
         hook, = settings["hooks"]["PreToolUse"][0]["hooks"]
         self.assertEqual(hook["args"], ["-I", "${CLAUDE_PROJECT_DIR}/.claude/hooks/allow_enqueue.py",
                                         "--sha256", self.pinned])

@@ -11,7 +11,7 @@
 - test: `sh -c 'python3 -m unittest test_baseline test_github && python3 -m unittest discover -s tools -p "test_*.py" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p "test_*.py" || exit 1; done'`
 - build: `N/A: 배포는 파일 복사다`
 
-pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로 본다. `baseline.py`·`core/`를 고치면 루트의 `.baseline/`과 관리 파일도 함께 고친다.
+pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로 본다. 루트의 `.baseline/`·관리 파일·`.claude/`는 소비 레포처럼 낸 태그의 판이다. `baseline.py`·`core/`를 고쳐도 함께 고치지 않는다. 태그를 낸 직후 소유자가 `python3 -I .baseline/baseline.py upgrade <태그>`로 맞춘다. 맞추기 전에는 태그를 받은 클론에서 `tools/test_distribution.py`가 실패한다. 샌드박스가 에이전트의 `.claude/` 쓰기를 막는다. `core/.claude/settings.json`의 `--sha256`은 자리표시(`0`×64)이고 `init`이 진짜 값으로 쓴다.
 
 ## 길잡이
 

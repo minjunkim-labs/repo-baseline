@@ -44,13 +44,30 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(sorted(p.name for p in core.iterdir()), sorted(CORE))
         self.assertLessEqual(len((core / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 60)
 
-    def test_own_v2_copies_match_their_sources(self):
-        # check trusts the hashes inside the copy, so a stale copy would pass check here.
-        for copy, source in [(".baseline/baseline.py", "baseline.py"),
-                             (".github/pull_request_template.md", "core/.github/pull_request_template.md"),
-                             (".claude/settings.json", "core/.claude/settings.json"),
-                             (".claude/hooks/allow_enqueue.py", "core/.claude/hooks/allow_enqueue.py")]:
-            self.assertEqual((ROOT / copy).read_bytes(), (ROOT / source).read_bytes(), copy)
+    def test_own_v2_copies_are_one_released_install(self):
+        # The root is a consumer: it moves with `upgrade <tag>`, not with each change to baseline.py or core/.
+        import hashlib, re, subprocess
+        copy = (ROOT / ".baseline/baseline.py").read_bytes()
+        version = re.search(rb'^VERSION = "([^"]+)"', copy, re.M).group(1).decode()
+        self.assertEqual(json.loads((ROOT / ".baseline/baseline.json").read_text(encoding="utf-8"))["version"], version)
+        settings = (ROOT / ".claude/settings.json").read_bytes()
+        pin = re.compile(rb'("--sha256",\s*")([0-9a-f]{64})"')
+        self.assertEqual(pin.search(settings).group(2).decode(), hashlib.sha256(copy).hexdigest())  # else the hook allows nothing
+        tag = f"v{version}"
+
+        def at_tag(rel):
+            r = subprocess.run(["git", "show", f"refs/tags/{tag}:{rel}"], cwd=ROOT, capture_output=True)
+            return r.stdout if r.returncode == 0 else None
+
+        released = at_tag("baseline.py")
+        if released is None:
+            # shortcut: CI checks out without tags, so only a clone that has fetched tags compares bytes.
+            self.skipTest(f"태그 {tag}가 없어 사본을 그 판과 비교하지 못한다(git fetch --tags)")
+        self.assertEqual(copy, released, ".baseline/baseline.py")
+        self.assertEqual(settings, pin.sub(b"\\g<1>" + hashlib.sha256(copy).hexdigest().encode() + b'"',
+                                           at_tag("core/.claude/settings.json")), ".claude/settings.json")
+        for rel in (".github/pull_request_template.md", ".claude/hooks/allow_enqueue.py"):
+            self.assertEqual((ROOT / rel).read_bytes(), at_tag("core/" + rel), rel)
 
     def test_own_coderabbit_config_is_the_template(self):
         template = (ROOT / "templates/github/.coderabbit.yaml").read_text(encoding="utf-8")

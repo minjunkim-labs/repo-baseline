@@ -42,7 +42,7 @@ Matt 스킬은 트래커·라벨·도메인 문서 설정을 `docs/agents/`에�
 ### 갱신하는 법
 
 1. `.github/workflows/skills-bump.yml`이 주 1회 `python3 -I baseline.py skills-bump --check`를 돌린다. 새 판이 있으면 Issue 「skills-bump: 새 스킬 판」을 열거나 본문을 바꾼다. 모델은 쓰지 않는다.
-2. 로컬 세션이 repo-baseline 클론에서 `python3 -I baseline.py skills-bump`를 돌린다. `skills/`, `.claude/skills/`, lock, `baseline.py`의 `MANAGED`, `.baseline/`, `.claude/settings.json`의 고정 해시를 바꾼다. 받은 바이트는 REST 트리의 blob SHA와 맞춰 본다. symlink·submodule과 1MiB 넘는 파일은 받지 않는다. 바꿀 스킬 폴더에 커밋하지 않은 변경(추적하지 않는 파일 포함)이 있거나, 쓰는 경로에 symlink가 있으면 아무것도 쓰지 않고 멈춘다.
+2. 소유자가 repo-baseline 클론에서 `python3 -I baseline.py skills-bump`를 돌린다(에이전트 샌드박스는 `.claude/` 쓰기를 막는다). `skills/`, `.claude/skills/`, lock, `baseline.py`의 `MANAGED`, `.baseline/`, `.claude/settings.json`의 고정 해시를 바꾼다. 받은 바이트는 REST 트리의 blob SHA와 맞춰 본다. symlink·submodule과 1MiB 넘는 파일은 받지 않는다. 바꿀 스킬 폴더에 커밋하지 않은 변경(추적하지 않는 파일 포함)이 있거나, 쓰는 경로에 symlink가 있으면 아무것도 쓰지 않고 멈춘다.
 3. 그 세션이 PR을 연다. 민감한 파일을 바꾸므로 어려움이고, 소유자가 diff를 읽고 병합한다. 바뀐 스킬이 위 표나 POLICY와 어긋나면(예: 같은 세션 리뷰, 병합 단계 추가) PR 본문에 적는다.
 
 workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_dispatch`로 띄운 CI의 `ci` check run은 그 커밋에서 성공했지만 PR의 check 목록에 들어가지 않아 PR이 `BLOCKED`로 남았다. 이 저장소는 GitHub Actions가 PR을 만들지 못하게 되어 있다(`can_approve_pull_request_reviews: false`). 앱 토큰 같은 장기 비밀값은 더하지 않는다.
