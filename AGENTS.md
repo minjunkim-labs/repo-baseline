@@ -23,6 +23,8 @@ pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로
 | `templates/`, `profiles/`, `tools/` | v1 도구. 소비 레포가 다 옮기면 지운다 |
 | `prompts/` | 셋업·리뷰·회고 프롬프트 |
 | `REVIEW.md` | 리뷰 기준. 리뷰할 때만 읽는다 |
+| `GLOSSARY.md` | 용어집. 새 용어는 여기에 먼저 쓴다 |
+| `changelog.d/` | PR마다 하나씩 더하는 변경 항목. 태그를 낼 때 모은다 |
 
 ## 이 저장소의 규칙
 
