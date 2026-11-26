@@ -1,0 +1,1 @@
+- `github/ci.yml`: `baseline check` 단계 위에 `run check`와 다른 점을 적은 주석을 더했다. 동작은 같다. 소비 레포는 원하면 그 주석을 자기 `ci.yml`에 옮긴다. 이 저장소의 `check.yml`·`skills-bump.yml`은 workflow·job·step 이름만 바꿨다(필수 검사 `ci`는 그대로).

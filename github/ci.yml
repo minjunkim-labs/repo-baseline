@@ -39,6 +39,7 @@ jobs:
       # The project's own setup (for example npm ci); "N/A: ..." prints and passes.
       - name: run setup
         run: python3 -I .baseline/baseline.py run setup
+      # baseline check tests the repo-baseline files; run check runs the project's own check.
       - name: baseline check
         run: python3 -I .baseline/baseline.py check
       - name: baseline budget
