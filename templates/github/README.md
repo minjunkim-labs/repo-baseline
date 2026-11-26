@@ -11,7 +11,7 @@
 | `repository-settings.json` | 복사하지 않는다 | `.github/repository-settings.json`에는 저장소마다 다른 값만 쓴다. 「저장소 설정 파일」 |
 | `SECURITY.md` | 저장소 루트 | GitHub은 `.github/`, 루트, `docs/` 순서로 이 파일을 찾는다. 셋 중 하나에 이미 있으면 그 파일에 합친다. `OWNER/REPO`를 채운다. 비공개 취약점 보고를 켠 뒤 이 파일을 병합한다 |
 | `agents/` | 에이전트 도구별 | `agents/README.md` |
-| `.coderabbit.yaml` | 저장소 루트 | CodeRabbit 리뷰 언어(한국어). 저장소마다 다른 값이 없는 공통 파일이다. 루트에 없으면 그대로 복사하고 고치지 않는다. 이미 있으면 `language` 줄만 합친다. 「CodeRabbit 설정」 |
+| `.coderabbit.yaml` | 저장소 루트 | CodeRabbit 리뷰 언어(한국어)와 자동 리뷰 끄기. 저장소마다 다른 값이 없는 공통 파일이다. 루트에 없으면 그대로 복사하고 고치지 않는다. 이미 있으면 `language` 줄과 `reviews.auto_review.enabled`만 합친다. 「CodeRabbit 설정」 |
 
 ## 계약 값
 
@@ -44,7 +44,7 @@
 2. 에이전트: 코어를 적용한다([prompts/setup.md](../../prompts/setup.md) 또는 [docs/start.md](../../docs/start.md)).
 3. 에이전트: 위 표의 파일을 복사하고 `ci.yml`의 `check`·`test`를 `AGENTS.md`의 명령으로 채운다. 세부 job을 나누면 「필수 체크 계약」대로 판정 job `ci`가 모은다.
 
-   확인: `grep -n REPLACE .github/workflows/ci.yml`이 아무것도 출력하지 않는다. `.coderabbit.yaml`을 새로 복사했으면 `cmp <repo-baseline>/templates/github/.coderabbit.yaml .coderabbit.yaml`이 아무것도 출력하지 않는다. 이미 있던 파일에 합쳤으면 `grep -qx 'language: "ko-KR"' .coderabbit.yaml`의 종료 코드가 0이다(「CodeRabbit 설정」의 1).
+   확인: `grep -n REPLACE .github/workflows/ci.yml`이 아무것도 출력하지 않는다. `.coderabbit.yaml`을 새로 복사했으면 `cmp <repo-baseline>/templates/github/.coderabbit.yaml .coderabbit.yaml`이 아무것도 출력하지 않는다. 이미 있던 파일에 합쳤으면 「CodeRabbit 설정」 1의 확인을 한다.
 4. 에이전트: `.github/repository-settings.json`에 「저장소 설정 파일」의 예시 모양으로 저장소마다 다른 값만 쓴다. 필수 체크는 「계약 값」의 값이다. `patterns_allowed`에는 workflow가 쓰는 GitHub 밖 action을 `owner/repo@*`로 적는다. 아래 명령이 출력한 것 가운데 `actions/`·`github/`로 시작하지 않는 것이다. 없으면 빈 목록이다.
 
    ```sh
@@ -99,7 +99,7 @@
 
 3. 에이전트: 필수 체크를 판정 job `ci` 하나로 모은다. 옛 필수 체크였던 job은 이름을 바꾸지 않고 세부 job으로 둔다. 판정 job `ci`가 그 job들을 `needs`로 모은다(「필수 체크 계약」). 필수 체크로 쓰던 모든 workflow의 `on:`에 `pull_request`와 `merge_group`이 있게 한다. 1에서 옮겼으면 옛 소유자 이름을 쓰는 곳도 고친다. `grep -rn '<개인>/' .github`가 아무것도 출력하지 않아야 한다.
 4. 에이전트: `.github/repository-settings.json`을 「저장소 설정 파일」의 예시 모양으로 줄인다. 파일이 없으면 (a)의 4대로 새로 쓴다. 남기는 값은 「저장소 설정 파일」의 둘째 항목에 적은 것뿐이다(1에서 옮겼으면 `repository`는 새 이름). `checks`는 「계약 값」의 값 하나로 바꾼다. 나머지는 모두 지운다. 그래서 `strict`도 템플릿 값을 따른다. 템플릿과 일부러 다르게 둔 값을 남겼으면 PR 본문에 이유를 적는다.
-5. 에이전트: 3·4를 PR 하나로 연다. 「CodeRabbit 설정」의 1대로 `.coderabbit.yaml`을 같은 PR에 넣는다. 루트에 이 파일이 없으면 복사하고, 이미 있으면 `language` 줄만 합친다. 민감한 파일이므로 새 세션이 리뷰한다.
+5. 에이전트: 3·4를 PR 하나로 연다. 「CodeRabbit 설정」의 1대로 `.coderabbit.yaml`을 같은 PR에 넣는다. 루트에 이 파일이 없으면 복사하고, 이미 있으면 `language` 줄과 `reviews.auto_review.enabled`만 합친다. 민감한 파일이므로 새 세션이 리뷰한다.
 
    확인: `gh pr checks <PR>`에 옛 필수 체크와 `ci`가 모두 `pass`로 나온다.
 6. 소유자: diff를 읽고 리뷰한 SHA로 큐에 넣는다(POLICY §5). 큐가 아직 없으면(1에서 옮긴 직후 등) 화면에서 squash로 병합한다. 병합된 뒤 `git -C <project> switch main && git -C <project> pull --ff-only`(기본 브랜치가 `main`이 아니면 그 이름).
@@ -201,7 +201,7 @@ done
 
 ## CodeRabbit 설정
 
-`.coderabbit.yaml`은 리뷰 언어를 한국어(`ko-KR`, 기본값 `en-US`)로 정한다. 근거 문서와 확인일은 파일 주석에 있다. `inheritance: true`가 있어서 이 파일에 없는 키는 바로 아래 설정 단계를 따른다. Central YAML(`coderabbit` 저장소의 설정)이 없으면 CodeRabbit 웹 설정이다. 그 단계에 `inheritance`가 없으면 상속은 거기서 멈춘다. 이 파일에 `inheritance: true`가 없으면 웹 설정 대신 기본값이 쓰인다. 요약·채팅 답글까지 한국어가 되는지는 확인하지 못했다. 이 파일은 저장소마다 다른 값이 없어 「계약 값」 표에 넣지 않는다. 그 표는 GitHub 설정 값이고, 이 파일은 파일 자체가 정본이다. 새 저장소는 (a)의 3에서, 기존 저장소는 (b)의 5에서 함께 복사한다. 따로 더하거나 공통값이 바뀌었으면 아래를 한다. 어느 쪽이든 병합한 뒤 3으로 확인한다.
+`.coderabbit.yaml`은 리뷰 언어를 한국어(`ko-KR`, 기본값 `en-US`)로 정하고 자동 리뷰를 끈다(`reviews.auto_review.enabled: false`, 기본값 `true`). 리뷰 봇은 어려움 PR에서만 리뷰어가 요청한다(POLICY §3). 근거 문서와 확인일은 파일 주석에 있다. `inheritance: true`가 있어서 이 파일에 없는 키는 바로 아래 설정 단계를 따른다. Central YAML(`coderabbit` 저장소의 설정)이 없으면 CodeRabbit 웹 설정이다. 그 단계에 `inheritance`가 없으면 상속은 거기서 멈춘다. 이 파일에 `inheritance: true`가 없으면 웹 설정 대신 기본값이 쓰인다. 요약·채팅 답글까지 한국어가 되는지는 확인하지 못했다. 이 파일은 저장소마다 다른 값이 없어 「계약 값」 표에 넣지 않는다. 그 표는 GitHub 설정 값이고, 이 파일은 파일 자체가 정본이다. 새 저장소는 (a)의 3에서, 기존 저장소는 (b)의 5에서 함께 복사한다. 따로 더하거나 공통값이 바뀌었으면 아래를 한다. 어느 쪽이든 병합한 뒤 3으로 확인한다.
 
 1. 에이전트: 파일을 넣어 PR로 연다. 리뷰는 POLICY §3대로 한다.
    - 저장소 루트에 `.coderabbit.yml`이나 `.coderabbit.config.ts`가 있으면 아무것도 넣지 않고 PR 본문에 적어 소유자에게 남긴다. YAML 파일이 있으면 CodeRabbit은 `.coderabbit.config.ts`를 무시한다([configuration-overview](https://docs.coderabbit.ai/guides/configuration-overview), 2026-11-16 확인).
@@ -213,17 +213,18 @@ done
      ```
 
      확인: `cmp`가 아무것도 출력하지 않고 종료 코드 0이다.
-   - `.coderabbit.yaml`이 이미 있으면 파일 전체를 복사하지 않는다. 그 파일에 `language: "ko-KR"` 줄만 합친다. 원래 `language` 줄이 있으면 그 줄을 바꾼다. 합친 사실을 PR 본문에 적는다.
+   - `.coderabbit.yaml`이 이미 있으면 파일 전체를 복사하지 않는다. 그 파일에 `language: "ko-KR"` 줄과 `reviews.auto_review.enabled: false`만 합친다. 원래 두 키 가운데 있는 것은 값을 바꾼다. `reviews:`나 `auto_review:`가 이미 있으면 그 아래에 넣는다. 합친 사실을 PR 본문에 적는다.
 
      ```sh
-     grep -qx 'language: "ko-KR"' <project>/.coderabbit.yaml
+     grep -qx 'language: "ko-KR"' <project>/.coderabbit.yaml &&
+       grep -A1 '^  auto_review:' <project>/.coderabbit.yaml | grep -qx '    enabled: false'
      ```
 
-     확인: 종료 코드 0이다.
+     확인: 종료 코드 0이다. 들여쓰기가 2칸이 아니거나 `enabled`가 `auto_review:` 바로 아래 줄이 아니면 실패하니 그렇게 맞춘다.
 2. 소유자: diff를 읽고 병합한다(POLICY §5).
-3. 에이전트: 그다음 PR에서 CodeRabbit 리뷰가 한국어인지 본다.
+3. 에이전트: 그다음 문서·쉬움 PR에 CodeRabbit 리뷰가 붙지 않는지 보고, 그다음 어려움 PR에서 리뷰어가 요청한 리뷰가 한국어인지 본다.
 
-   확인: CodeRabbit의 줄 단위 댓글 본문이 한국어다. 영어면 CodeRabbit 웹의 조직 global override에 `language`가 있는지 소유자가 본다. 그 값이 저장소 YAML보다 우선한다.
+   확인: 문서·쉬움 PR에 CodeRabbit 리뷰가 없고, 어려움 PR의 줄 단위 댓글 본문이 한국어다. 어긋나면 CodeRabbit 웹의 조직 global override에 `language`나 `auto_review`가 있는지 소유자가 본다. 그 값이 저장소 YAML보다 우선한다([configuration-overview](https://docs.coderabbit.ai/guides/configuration-overview), 2026-11-16 확인).
 
 공통값을 바꾸려면 저장소마다 PR을 내지 않고 이 템플릿을 바꾼 뒤 위 1~3을 다시 한다.
 
