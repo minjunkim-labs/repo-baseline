@@ -56,7 +56,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - name: every OS passed
+      - name: require every OS to pass
         env:
           RESULT: ${{ needs.test.result }}
         run: test "$RESULT" = success
