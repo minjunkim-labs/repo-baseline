@@ -213,14 +213,14 @@ done
      ```
 
      확인: `cmp`가 아무것도 출력하지 않고 종료 코드 0이다.
-   - `.coderabbit.yaml`이 이미 있으면 파일 전체를 복사하지 않는다. 그 파일에 `language: "ko-KR"` 줄과 `reviews.auto_review.enabled: false`만 합친다. 원래 그 키가 있으면 값을 바꾼다. `reviews:`나 `auto_review:`가 이미 있으면 그 아래에 넣는다. 합친 사실을 PR 본문에 적는다.
+   - `.coderabbit.yaml`이 이미 있으면 파일 전체를 복사하지 않는다. 그 파일에 `language: "ko-KR"` 줄과 `reviews.auto_review.enabled: false`만 합친다. 원래 두 키 가운데 있는 것은 값을 바꾼다. `reviews:`나 `auto_review:`가 이미 있으면 그 아래에 넣는다. 합친 사실을 PR 본문에 적는다.
 
      ```sh
-     grep -qx 'language: "ko-KR"' <project>/.coderabbit.yaml
-     grep -n -A2 'auto_review:' <project>/.coderabbit.yaml
+     grep -qx 'language: "ko-KR"' <project>/.coderabbit.yaml &&
+       grep -A1 '^  auto_review:' <project>/.coderabbit.yaml | grep -qx '    enabled: false'
      ```
 
-     확인: 종료 코드 0이다.
+     확인: 종료 코드 0이다. 들여쓰기가 2칸이 아니거나 `enabled`가 `auto_review:` 바로 아래 줄이 아니면 실패하니 그렇게 맞춘다.
 2. 소유자: diff를 읽고 병합한다(POLICY §5).
 3. 에이전트: 그다음 문서·쉬움 PR에 CodeRabbit 리뷰가 붙지 않는지 보고, 그다음 어려움 PR에서 리뷰어가 요청한 리뷰가 한국어인지 본다.
 
