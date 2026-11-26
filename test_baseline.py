@@ -2,6 +2,7 @@
 import hashlib
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 import subprocess
@@ -1255,9 +1256,12 @@ class PreflightTests(unittest.TestCase):
 
     # upgrade exception
 
-    def upgrade(self, version="2.0.1", tag_core=None, extra=None, tag_version=None, status="ahead", modes=None):
+    def upgrade(self, version=None, tag_core=None, extra=None, tag_version=None, status="ahead", modes=None):
         """Base is this core; head is the core of a tag whose AGENTS.md block says `tag_core`."""
         import baseline as b
+        if version is None:  # the next patch, so the test keeps passing after each release bumps VERSION
+            major, minor, patch = re.match(r"(\d+)\.(\d+)\.(\d+)", b.VERSION).groups()  # a -dev suffix is ignored
+            version = f"{major}.{minor}.{int(patch) + 1}"
         base = core_tree()
         agents = base["AGENTS.md"].replace("고치지 않는다".encode(), (tag_core or "고치지 않는다2").encode())
         managed = dict(b.MANAGED, **{"AGENTS.md": {"block_sha256": b.digest(agents, "block_sha256")}})
@@ -1296,7 +1300,7 @@ class PreflightTests(unittest.TestCase):
     def test_upgrade_needs_a_newer_tag_that_main_holds(self):
         self.assertEqual(self.upgrade(status="diverged")[0], "어려움")
         self.assertEqual(self.upgrade(version="2-x")[0], "어려움")
-        self.assertEqual(self.upgrade(version="1.9.0")[0], "어려움")  # downgrade from 2.0.0-dev
+        self.assertEqual(self.upgrade(version="1.9.0")[0], "어려움")  # downgrade
 
     def test_upgrade_through_a_symlink_is_hard(self):
         grade, reasons = self.upgrade(modes={".baseline/baseline.py": "120000"})

@@ -1,1 +1,0 @@
-- CodeRabbit 자동 리뷰를 끈다(`reviews.auto_review.enabled: false`). `templates/github/.coderabbit.yaml`을 그대로 복사한 저장소는 새 파일로 다시 복사하고, 합친 저장소는 그 키를 더한다. 어려움 PR에서는 리뷰어가 `@coderabbitai review`로 한 번 요청한다.
