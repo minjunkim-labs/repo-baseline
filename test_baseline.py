@@ -376,10 +376,13 @@ class MigrateTests(unittest.TestCase):
 
     def test_apply_keeps_a_standing_line_the_owner_wrote(self):
         self.write("AGENTS.md", self.AGENTS + "\n## 병합\n\n- 상시 지시: 우리 방식.\n")
-        self.assertEqual(self.migrate("--apply").returncode, 0)
+        result = self.migrate("--apply")
+        self.assertEqual(result.returncode, 0)
         agents = (self.repo / "AGENTS.md").read_text(encoding="utf-8")
         self.assertEqual([line for line in agents.splitlines() if line.startswith("- 상시 지시:")],
                          ["- 상시 지시: 우리 방식."])
+        # enqueue accepts only a line with its command, so the owner hears that this one is refused.
+        self.assertIn("확인 AGENTS.md: 상시 지시 줄에 `python3 -I .baseline/baseline.py enqueue", result.stdout)
 
     def test_apply_without_agents_md_writes_the_core(self):
         (self.repo / "AGENTS.md").unlink()

@@ -511,10 +511,14 @@ def migrate_agents(data, core_data, extra, blocks, notes):
         blocks.append("AGENTS.md: 관리 블록 표시가 하나씩 있어야 한다")
         return None, drafts
     # The line is core's default (POLICY: the owner deletes it to opt out); enqueue reads it from base.
-    if not any(line.startswith(STANDING) for line in new.decode("utf-8").splitlines()):
+    standing = [line for line in new.decode("utf-8").splitlines() if line.startswith(STANDING)]
+    if not standing:
         core = core_data.decode("utf-8")
         new = insert_before_block(new, core[core.index("## 병합\n"):core.index(START.decode())].encode("utf-8"))
         notes.append("AGENTS.md: 상시 지시 줄이 없어 코어의 「병합」 절을 블록 앞에 더한다. 끄려면 그 줄을 지운다")
+    elif not any(STANDING_COMMAND in line for line in standing):
+        notes.append(f"AGENTS.md: 상시 지시 줄에 {STANDING_COMMAND}이 없어 enqueue가 모든 PR을 거절한다. "
+                     "켜려면 그 명령을 줄에 넣는다")
     # check's own rule, so --apply never writes what check then refuses.
     got = new.decode("utf-8").splitlines()
     for name in COMMANDS:
