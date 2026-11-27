@@ -2388,6 +2388,148 @@ class AnonymousRetryTests(unittest.TestCase):
         self.assertEqual(len(seen), 4)
 
 
+class GitReadTests(unittest.TestCase):
+    """skills-bump --check reads a commit source over git when REST cannot: the token is refused by an IP
+    allow list and the anonymous retry hits the hourly limit (#175). The remote is a local bare repository."""
+
+    def setUp(self):
+        import baseline as b
+        self.b = b
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "root"
+        self.work = Path(self.tmp.name) / "work"
+        self.remote = Path(self.tmp.name) / "remote" / "c" / "p.git"
+        self.work.mkdir(parents=True)
+        self.run_git("init", "-q", "-b", "main", cwd=self.work)
+        self.shas = {}
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_git(self, *args, cwd=None, date=None):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@t", GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@t")
+        if date:
+            env.update(GIT_AUTHOR_DATE=date, GIT_COMMITTER_DATE=date)
+        done = REAL_RUN(["git", *args], cwd=cwd or self.work, env=env, check=True, capture_output=True)
+        return done.stdout.decode().strip()
+
+    def commit(self, label, date, files):
+        for rel, data in files.items():
+            path = self.work / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        self.run_git("add", "-A")
+        self.run_git("commit", "-qm", label, date=date)
+        self.shas[label] = self.run_git("rev-parse", "HEAD")
+        return self.shas[label]
+
+    def publish(self):
+        self.remote.parent.mkdir(parents=True, exist_ok=True)
+        REAL_RUN(["git", "clone", "-q", "--bare", str(self.work), str(self.remote)], check=True, capture_output=True)
+        for key, value in (("uploadpack.allowFilter", "true"), ("uploadpack.allowAnySHA1InWant", "true")):
+            REAL_RUN(["git", "--git-dir", str(self.remote), "config", key, value], check=True, capture_output=True)
+
+    def bump(self, pin, refusal=b"gh: ... has an IP allow list enabled ... (HTTP 403)\n", edit=None):
+        """(code, output) of `skills-bump --check` with the lock at `pin`, REST refused, and the copies of `pin`."""
+        import io
+        from contextlib import redirect_stderr, redirect_stdout
+        from datetime import datetime
+        from unittest import mock
+        from urllib.error import HTTPError
+        files = {rel: REAL_RUN(["git", "show", f"{self.shas[pin]}:{rel}"], cwd=self.work, check=True, capture_output=True).stdout
+                 for rel in ("pstack/LICENSE", "pstack/skills/blast/SKILL.md")}
+        for rel, data in files.items():
+            target = self.root / "skills" / ("blast/" + rel.rsplit("/", 1)[1] if rel.endswith("SKILL.md") else "blast/LICENSE")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
+        if edit:
+            (self.root / "skills/blast/SKILL.md").write_bytes(edit)
+        lock = {"sources": {"p": {"repo": "c/p", "update": "commit", "branch": "main", "days": 7, "license": "pstack/LICENSE",
+                                  "plugin": "pstack/plugin.json", "commit": self.shas[pin], "version": "0.1.0"}},
+                "skills": {"blast": {"source": "p", "path": "pstack/skills/blast", "requires": []}}}
+        (self.root / "skills/skills.lock.json").write_bytes(self.b.dump_json(lock))
+        seen = []
+
+        def run(argv, **kwargs):
+            if argv[:1] == ["gh"]:
+                seen.append(argv)
+                return subprocess.CompletedProcess(argv, 1, b"", refusal)
+            return REAL_RUN(argv, **kwargs)
+
+        def urlopen(request, timeout):
+            seen.append(request.full_url)
+            raise HTTPError(request.full_url, 403, "rate limit exceeded", {}, None)
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(self.b.subprocess, "run", run), mock.patch("urllib.request.urlopen", urlopen), \
+                mock.patch.object(self.b, "GIT_HOST", self.remote.parent.parent.as_uri()), redirect_stdout(out), redirect_stderr(err):
+            code = self.b.skills_bump(self.root, True, datetime.fromisoformat(NOW))
+        return code, out.getvalue() + err.getvalue()
+
+    def history(self):
+        blast = lambda n: {"pstack/LICENSE": b"MIT p\n", "pstack/skills/blast/SKILL.md": b"blast %d\n" % n}
+        self.commit("pin", "2026-10-01T00:00:00Z", blast(1))
+        self.commit("old", "2026-11-10T00:00:00Z", blast(2))  # 13 days before NOW: older than the 7 days
+        self.commit("new", "2026-11-22T00:00:00Z", blast(3))  # 1 day: too new
+
+    def test_a_commit_older_than_7_days_is_found_without_REST(self):
+        self.history()
+        self.publish()
+        code, out = self.bump("pin")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"p: {self.shas['pin'][:7]} → {self.shas['old'][:7]} (c/p, 스킬: blast)", out)
+        self.assertIn("p: REST가 막혀 git으로 읽는다", out)
+
+    def test_nothing_older_than_7_days_and_newer_than_the_pin_is_no_new_version(self):
+        self.history()
+        self.publish()
+        code, out = self.bump("old")
+        self.assertEqual(code, 0, out)
+        self.assertIn("새 판이 없다", out)
+
+    def test_a_commit_that_does_not_descend_from_the_pin_is_not_taken(self):
+        self.history()
+        self.run_git("switch", "-q", "-c", "side", self.shas["pin"])
+        self.commit("side", "2026-11-09T00:00:00Z", {"pstack/skills/blast/SKILL.md": b"side\n"})
+        self.run_git("switch", "-q", "main")
+        self.run_git("update-ref", "refs/heads/main", self.shas["old"])  # pinned on side: old is not behind it, not ahead
+        self.publish()
+        code, out = self.bump("side")
+        self.assertEqual(code, 0, out)
+        self.assertIn("새 판이 없다", out)
+
+    def test_a_changed_copy_is_found_at_the_pin(self):
+        self.history()
+        self.publish()
+        code, out = self.bump("old", edit=b"edited\n")
+        self.assertEqual(code, 1, out)
+        self.assertIn(f"p: {self.shas['old'][:7]} → {self.shas['old'][:7]}", out)
+
+    def test_a_symlink_in_the_skill_is_refused(self):
+        self.history()
+        (self.work / "pstack/skills/blast/link").symlink_to("SKILL.md")
+        self.commit("link", "2026-11-11T00:00:00Z", {})
+        self.publish()
+        code, out = self.bump("pin")
+        self.assertEqual(code, 2, out)
+        self.assertIn("일반 파일이 아니다", out)
+
+    def test_other_refusals_do_not_go_to_git(self):
+        self.history()
+        self.publish()
+        code, out = self.bump("pin", refusal=b"gh: Server Error (HTTP 500)\n")
+        self.assertEqual(code, 2, out)
+        self.assertIn("HTTP 500", out)
+
+    def test_a_remote_that_cannot_be_read_is_an_error(self):
+        self.history()
+        self.publish()
+        import shutil as sh
+        sh.rmtree(self.remote)
+        code, out = self.bump("pin")
+        self.assertEqual(code, 2, out)
+        self.assertIn("git ", out)
+
+
 class SkillsBumpTests(unittest.TestCase):
     """skills-bump in a temporary repo-baseline: skills/, its lock, baseline.py and .baseline/."""
 
