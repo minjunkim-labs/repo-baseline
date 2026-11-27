@@ -22,7 +22,7 @@ import tempfile
 import time
 from urllib.parse import quote
 
-VERSION = "2.3.0"
+VERSION = "2.4.0"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
 ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
@@ -35,8 +35,8 @@ MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "f5e1101fdcf937fa32494640097281009ef1e2fdd27f4ab0c93f0f12fb0c355f"},
-    ".github/pull_request_template.md": {"sha256": "093b514f391e73dfc4de4d4f84db8297d635ba176484b183d2606032a2d3beaa"},
+    "REVIEW.md": {"block_sha256": "1d9fd522e56e04b807d74b6f807e8e2712ecb2ec2c3a8c83fc7eaabcdac7d9bc"},
+    ".github/pull_request_template.md": {"sha256": "be9bb5adbfed5a924d05625197af43dcd48aef4099b264d1fef58c580db5494b"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
     "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
@@ -44,7 +44,7 @@ MANAGED = {
     "docs/agents/domain.md": {"seed_sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
     "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
-    ".claude/skills/arena/SKILL.md": {"sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"},
+    ".claude/skills/arena/SKILL.md": {"sha256": "24366948a9546dcb7dfc15a5cf7a4571edd917a8c1efef060b458a0fad608053"},
     ".claude/skills/blast-radius/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/blast-radius/SKILL.md": {"sha256": "4248d03e22365207d2e5f90c9542720f80a88a6b42fd542ef88dde3cf9f9223f"},
     ".claude/skills/code-review/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
@@ -105,7 +105,7 @@ MANAGED = {
     ".claude/skills/to-tickets/SKILL.md": {"sha256": "56ec23c5b2782785d4e65bff9e315b6d3aeb4ef977c174a219e99489fada1995"},
     ".claude/skills/to-tickets/agents/openai.yaml": {"sha256": "21bc6215fffcd7614e9f772bb1760e87cc5fc7dcc707e7d282bc9414267a6090"},
     ".claude/skills/unslop/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
-    ".claude/skills/unslop/SKILL.md": {"sha256": "ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f"},
+    ".claude/skills/unslop/SKILL.md": {"sha256": "2b823fd069e031c1420180be8e0d4f5e2fd25bf2c428049e5c835c59a489b5e0"},
     ".claude/skills/wayfinder/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/wayfinder/SKILL.md": {"sha256": "0c9fa96791aebf3b7d654cf35c6aadde97d81f57c17b07d13b27c14d9c46561f"},
     ".claude/skills/wayfinder/agents/openai.yaml": {"sha256": "88bc81a11a6d52ac67aeaa76b8b619e387020d47c5133a4dd4927fd15c4ad073"},
@@ -159,11 +159,22 @@ REVIEW_TIERS = {"문서": None, "쉬움": {"model": "보통", "effort": "보통"
 STANDING = "- 상시 지시:"
 STANDING_COMMAND = "`python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+# A cloud session cannot call GraphQL, so it asks the enqueue workflow with a PR comment and reads the reply.
+ENQUEUE_WORKFLOW = ".github/workflows/enqueue.yml"
+ENQUEUE_COMMENT = re.compile(r"/enqueue ([0-9a-f]{40})")
+ENQUEUE_MARK = "<!-- baseline-enqueue:{id} result={result} -->"
+ENQUEUE_REPLY = re.compile(r"<!-- baseline-enqueue:(\d+) result=(queued|refused|error) -->\n?(.*)", re.DOTALL)
+ENQUEUE_RESULTS = {"queued": 0, "refused": 1, "error": 2}
+ACTIONS_BOT = "github-actions[bot]"
+CLOUD_WAIT, CLOUD_POLL = 100, 5  # seconds to wait for the workflow's reply, and between looks (under an agent shell's 120 s limit)
 PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
             "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
             "reviewThreads(first:100){totalCount nodes{id isResolved comments(first:100){nodes{databaseId}}}}}}}")
-REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "검토 범위:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+SCOPE_RE = re.compile(r"(\d+)/(\d+)(?: \(건너뜀: (.+)\))?")
+# `path:line` or `path:start-end` in a finding. A path that is not a changed file is left alone: a finding may cite a caller.
+CITE_RE = re.compile(r"(?<![\w/.-])([\w.-]+(?:/[\w.-]+)*):(\d+)(?:-(\d+))?(?!\d)")
 RESOLVE = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}"
 ENQUEUE = ("mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha})"
            "{mergeQueueEntry{position}}}")
@@ -1469,7 +1480,8 @@ def cmd_review_preflight(args):
 
 
 def gh_graphql(query, **fields):
-    """GitHub GraphQL. Only the merge queue and review threads need it (no REST endpoint); cloud proxies block it."""
+    """GitHub GraphQL, for local runs. Only the merge queue and review threads need it (no REST endpoint). Cloud
+    proxies block it: a cloud session asks the enqueue workflow and uses the proxy's `ccr` review-thread routes."""
     argv = ["gh", "api", "graphql", "-f", f"query={query}"]
     for key, value in fields.items():
         argv += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
@@ -1568,6 +1580,13 @@ def changes_requested(reviews):
     return sorted(login for login, state in last.items() if state == "CHANGES_REQUESTED")
 
 
+def enqueue_traffic(comment):
+    """The `/enqueue <sha>` request (exactly that, so a finding cannot hide in it) or the workflow's answer to one."""
+    body = (comment.get("body") or "").strip()
+    return bool(ENQUEUE_COMMENT.fullmatch(body)
+                or (body.startswith("<!-- baseline-enqueue:") and (comment.get("user") or {}).get("login") == ACTIONS_BOT))
+
+
 def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     """Reviews and comments written after the review report, or edited by a person after it: nobody judged them.
 
@@ -1589,6 +1608,8 @@ def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     for path, found in (("pulls", line_comments), ("issues", pages(f"repos/{repo}/issues/{number}/comments"))):
         for c in found:
             if is_bot(c.get("user")) and path == "pulls" and c.get("id") in settled:
+                continue
+            if path == "issues" and enqueue_traffic(c):  # the cloud's request and the workflow's answer hold no finding
                 continue
             # shortcut: a finding added only by editing a bot's old comment (by the bot, or by a person with
             # write access) goes unseen, e.g. a pre-merge check turning red; count those edits if that happens.
@@ -1644,27 +1665,154 @@ def enqueue_problems(repo, number, sha, remote):
     return pr["id"], problems
 
 
+def enqueue_now(repo, number, sha, remote):
+    """(exit code, lines to print): the checks of POLICY §5, then the queue entry. Needs GraphQL."""
+    node, problems = enqueue_problems(repo, number, sha, remote)
+    if problems:
+        return 1, [f"enqueue: 넣지 않는다: {problem if problem.isprintable() else json.dumps(problem)}"
+                   for problem in problems]
+    gh_graphql(ENQUEUE, id=node, sha=sha)
+    return 0, [f"enqueue: {repo}#{number}을 {sha}로 머지 큐에 넣었다"]
+
+
+def github_post(path, body):
+    """REST POST with a JSON body; the parsed answer."""
+    result = subprocess.run(["gh", "api", "--method", "POST", path, "--input", "-"], input=json.dumps(body), text=True,
+                            capture_output=True, check=True, timeout=60)
+    return json.loads(result.stdout)
+
+
+def enqueue_by_comment(repo, number, sha):
+    """Cloud sessions: ask the enqueue workflow (which runs the same checks on GitHub's side) and wait for its reply."""
+    pr = gh_api(f"repos/{repo}/pulls/{number}")
+    if pr["head"]["sha"] != sha:
+        print(f"enqueue: 넣지 않는다: head가 {sha}가 아니라 {pr['head']['sha']}다")
+        return 1
+    if contents(repo, ENQUEUE_WORKFLOW, pr["base"]["ref"]) is None:
+        print(f"enqueue: 넣지 않는다: base 브랜치에 {ENQUEUE_WORKFLOW}가 없다. 클라우드는 이 workflow로만 큐에 넣는다"
+              "(github/README.md). 소유자가 화면에서 넣거나 로컬 세션에서 부른다")
+        return 1
+    asked = github_post(f"repos/{repo}/issues/{number}/comments", {"body": f"/enqueue {sha}"})
+    print(f"enqueue: workflow에 요청했다(댓글 {asked['id']}). 답을 기다린다")
+    deadline = time.monotonic() + CLOUD_WAIT
+    while True:
+        for c in pages(f"repos/{repo}/issues/{number}/comments?since={quote(asked['created_at'])}"):
+            reply = ENQUEUE_REPLY.fullmatch(c.get("body") or "")
+            # Only the Actions bot's words count: anyone can post the marker.
+            if reply and int(reply[1]) == asked["id"] and (c.get("user") or {}).get("login") == ACTIONS_BOT:
+                print(reply[3].strip())
+                return ENQUEUE_RESULTS[reply[2]]
+        if time.monotonic() >= deadline:
+            print(f"enqueue: {CLOUD_WAIT}초 안에 workflow의 답이 없다. 요청 댓글 {asked['id']}은 이미 달렸다. "
+                  "다시 부르지 말고 PR의 답 댓글(`<!-- baseline-enqueue:<댓글 id> ...`)과 Actions 실행을 먼저 본다", file=sys.stderr)
+            return 2
+        time.sleep(CLOUD_POLL)
+
+
 def cmd_enqueue(args):
-    if os.environ.get("CLAUDE_CODE_REMOTE") == "true":
-        print("enqueue: 클라우드 세션에서는 넣지 않는다. 프록시가 GraphQL(큐 넣기)을 막는다. 로컬 세션에서 부른다.",
-              file=sys.stderr)
-        return 2
     if not SHA_RE.fullmatch(args.sha):
         print("enqueue: SHA는 40자 소문자 hex다", file=sys.stderr)
         return 2
     try:
         repo, number = pr_target(args.pr, args.remote)
-        node, problems = enqueue_problems(repo, number, args.sha, args.remote)
-        if problems:
-            for problem in problems:
-                print(f"enqueue: 넣지 않는다: {problem if problem.isprintable() else json.dumps(problem)}")
-            return 1
-        gh_graphql(ENQUEUE, id=node, sha=args.sha)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        if os.environ.get("CLAUDE_CODE_REMOTE") == "true":  # the proxy blocks GraphQL there
+            return enqueue_by_comment(repo, number, args.sha)
+        code, lines = enqueue_now(repo, number, args.sha, args.remote)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as error:
         print(f"enqueue: 실행 실패: {error}", file=sys.stderr)
         return 2
-    print(f"enqueue: {repo}#{number}을 {args.sha}로 머지 큐에 넣었다")
-    return 0
+    print("\n".join(lines))
+    return code
+
+
+def cmd_enqueue_comment(args):
+    """The workflow's half: read the comment event, check who asked, run the checks, queue, answer in the PR."""
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        comment, issue, repo = event["comment"], event["issue"], event["repository"]["full_name"]
+        found = ENQUEUE_COMMENT.fullmatch((comment.get("body") or "").strip())
+        if "pull_request" not in issue or not found:
+            print("enqueue-comment: `/enqueue <40자 SHA>` 한 줄뿐인 PR 댓글이 아니다. 하지 않는다")
+            return 0
+        number, sha, actor = str(issue["number"]), found[1], comment["user"]["login"]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"enqueue-comment: 이벤트를 읽지 못했다: {error}", file=sys.stderr)
+        return 2
+    try:
+        if gh_api(f"repos/{repo}/collaborators/{quote(actor, safe='')}/permission").get("permission") not in ("admin", "write"):
+            code, lines = 1, [f"enqueue: 넣지 않는다: 요청한 {actor}에게 쓰기 권한이 없다"]
+        else:
+            code, lines = enqueue_now(repo, number, sha, "origin")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as error:
+        code, lines = 2, [f"enqueue: 실행 실패: {error}"]
+    result = next(name for name, value in ENQUEUE_RESULTS.items() if value == code)
+    print("\n".join(lines))
+    try:  # the cloud session waits for this answer
+        github_post(f"repos/{repo}/issues/{number}/comments",
+                    {"body": ENQUEUE_MARK.format(id=comment["id"], result=result) + "\n" + "\n".join(lines)})
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"enqueue-comment: 답 댓글을 쓰지 못했다: {error}", file=sys.stderr)
+        return 2
+    return code
+
+
+def finding_items(lines):
+    """The `- ` items right after the one 「남은 지적:」 line. None or two such lines: no items (it is refused)."""
+    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
+    items = []
+    for line in lines[starts[0] + 1:] if len(starts) == 1 else ():
+        if not line.startswith(("- ", "* ")):
+            break
+        items.append(line[2:].strip())
+    return items
+
+
+def scope_problems(text, paths):
+    """Why 「검토 범위」 does not account for every changed file of the PR (paths).
+
+    It cannot show a file was read, only that the reviewer wrote down how many were and which were skipped."""
+    lines = section(("## Review\n" + text).encode("utf-8"), "Review")
+    at = [line for line in lines if line.startswith("검토 범위:")]
+    if len(at) != 1:
+        return ["「검토 범위」가 한 줄이 아니다"]
+    found = SCOPE_RE.fullmatch(at[0][len("검토 범위:"):].strip().strip("`"))
+    if not found:
+        return ["「검토 범위」는 `<검토한 수>/<전체 수>`이고, 건너뛰었으면 ` (건너뜀: <경로> — <이유>; …)`가 붙는다"]
+    done, total = int(found[1]), int(found[2])
+    problems = [] if total == len(paths) else [f"「검토 범위」의 전체 수 {total}가 PR의 변경 파일 수 {len(paths)}와 다르다"]
+    skipped = [item.strip() for item in (found[3] or "").split(";") if item.strip()]
+    named = set()
+    for item in skipped:
+        path, arrow, reason = item.partition(" — ")
+        if not arrow or not reason.strip():
+            problems.append(f"「검토 범위」의 건너뜀 항목에 까닭이 없다: {item}")
+        elif path not in paths:
+            problems.append(f"「검토 범위」의 건너뜀 경로가 PR의 변경 파일이 아니다: {path}")
+        else:
+            named.add(path)
+    if done + len(named) != total or len(named) != len(skipped):
+        problems.append("「검토 범위」의 검토한 수와 건너뜀 경로 수를 더해도 전체 수가 되지 않는다(경로는 한 번씩)")
+    return problems
+
+
+def cite_problems(repo, head, text, paths):
+    """Findings that cite `path:line` outside the head version of a changed file: the position drifted."""
+    items = finding_items(section(("## Review\n" + text).encode("utf-8"), "Review"))
+    problems, length = [], {}
+    for item in items:
+        for path, first, last in CITE_RE.findall(item):
+            if path not in paths:
+                continue
+            if path not in length:
+                try:
+                    data = contents(repo, path, head)
+                except OSError:  # too large to read: the position stays unchecked
+                    data = None
+                length[path] = None if data is None else len(data.splitlines())  # None: deleted in the PR
+            start, end = int(first), int(last or first)
+            if length[path] is not None and not 1 <= start <= end <= length[path]:
+                problems.append(f"「남은 지적」이 {path}:{first}{'-' + last if last else ''}를 가리키는데 head의 그 파일은 {length[path]}줄이다")
+    return problems
 
 
 def report_problems(text, head):
@@ -1676,13 +1824,7 @@ def report_problems(text, head):
     problems = [] if fields["리뷰한 head"] == head else [f"「리뷰한 head」가 지금 PR head {head}가 아니다"]
     if fields["등급"] not in GRADES:
         problems.append(f"「등급」이 {'·'.join(GRADES)} 중 하나 한 줄이 아니다")
-    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
-    at = starts[0] if len(starts) == 1 else len(lines)  # none or two lines: items stay empty and it is refused
-    items = []
-    for line in lines[at + 1:]:
-        if not line.startswith(("- ", "* ")):
-            break
-        items.append(line[2:].strip())
+    items = finding_items(lines)
     left = (fields["남은 지적"] or "").removesuffix(" (목록이 이어진다)")
     if not (left == "없음" and not items or left == "" and items and "없음" not in items
             or left and not left.startswith("없음") and not items):
@@ -1721,7 +1863,11 @@ def cmd_review_report(args):
             judged.append((int(cid), reply.strip()))
         repo, number = pr_target(args.pr, args.remote)
         head = gh_api(f"repos/{repo}/pulls/{number}")["head"]["sha"]
-        problems = report_problems(text, head)
+        files = pages(f"repos/{repo}/pulls/{number}/files")
+        if len(files) >= 3000:
+            raise OSError("REST가 보여 주는 한도(파일 3000개)에 닿아 변경 파일을 다 셀 수 없다")
+        paths = {f["filename"] for f in files}
+        problems = report_problems(text, head) + scope_problems(text, paths) + cite_problems(repo, head, text, paths)
         if problems:
             for problem in problems:
                 print(f"review-report: 쓰지 않는다: {problem}")
@@ -1740,22 +1886,30 @@ def cmd_review_report(args):
             if len(set(roots)) != len(roots):
                 print("review-report: 쓰지 않는다: 같은 스레드를 --thread로 두 번 줬다")
                 return 1
-            # A cloud run answers without resolving; the local run that carries the report over resolves only.
             # Only a writer's reply counts: in a public repo anyone can post the same words first.
+            # The cloud proxy blocks the collaborator permission lookup, so there the comment's own
+            # author_association stands in (shortcut: it does not see write access, so it also admits a collaborator
+            # with read or triage access and an organization member without write access).
             wanted = set(judged)
             posted = set()
             for c in comments.values():
                 key = (c.get("in_reply_to_id"), (c.get("body") or "").strip())
                 login = (c.get("user") or {}).get("login")
-                if key in wanted and login and not is_bot(c.get("user")) and gh_api(
-                        f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission") in (
-                        "admin", "write"):
+                if key in wanted and login and not is_bot(c.get("user")) and (
+                        c.get("author_association") in ("OWNER", "MEMBER", "COLLABORATOR") if cloud else
+                        gh_api(f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission")
+                        in ("admin", "write")):
                     posted.add(key)
-        if judged and not cloud:
-            owner, name = repo.split("/")
-            nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
-                "reviewThreads"]["nodes"]
-            threads = {c["databaseId"]: t for t in nodes for c in t["comments"]["nodes"]}
+        if judged:  # {first comment id of the thread: {"id": GraphQL id (local only), "resolved": bool}}
+            if cloud:  # the proxy's REST routes for review threads (GraphQL is blocked)
+                nodes = gh_api(f"repos/{repo}/pulls/{number}/ccr/review_threads")
+                threads = {cid: {"resolved": t["resolved"]} for t in nodes for cid in t["comment_ids"]}
+            else:
+                owner, name = repo.split("/")
+                nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
+                    "reviewThreads"]["nodes"]
+                threads = {c["databaseId"]: {"id": t["id"], "resolved": t["isResolved"]}
+                           for t in nodes for c in t["comments"]["nodes"]}
             missing = [str(cid) for cid, _ in judged if cid not in threads]
             if missing:
                 print(f"review-report: 쓰지 않는다: 리뷰 스레드에 없는 댓글 id: {', '.join(missing)}")
@@ -1763,19 +1917,30 @@ def cmd_review_report(args):
         answered = []
         try:
             for cid, reply in judged:
-                if not cloud and threads[cid]["isResolved"]:  # a rerun after a partial failure answers once
+                if threads[cid]["resolved"]:  # a rerun after a partial failure answers once
                     print(f"review-report: 댓글 {cid}의 스레드는 이미 해결됐다. 건너뛴다")
                     continue
                 if (cid, reply) in posted:
                     print(f"review-report: 댓글 {cid}의 스레드에는 같은 판정이 이미 있다. 답은 다시 달지 않는다")
+                    said = "의 스레드를"
                 else:
                     github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
                     answered.append(str(cid))
+                    said = "에 답하고 스레드를"
                 if cloud:
-                    print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
+                    try:
+                        github_write("POST", f"repos/{repo}/pulls/{number}/ccr/comments/{cid}/resolve", None)
+                        # The route is the proxy's, not GitHub's: believe the thread list, not the exit code.
+                        left = [t for t in gh_api(f"repos/{repo}/pulls/{number}/ccr/review_threads")
+                                if cid in t["comment_ids"] and not t["resolved"]]
+                    except (OSError, subprocess.SubprocessError):
+                        left = True
+                    if left:
+                        print(f"review-report: 댓글 {cid}{said} 해결하지 못했다. 로컬 세션이나 GitHub 화면에서 해결한다")
+                        continue
                 else:
                     gh_graphql(RESOLVE, id=threads[cid]["id"])
-                    print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
+                print(f"review-report: 댓글 {cid}{said} 해결했다")
         except (OSError, subprocess.SubprocessError) as error:
             raise OSError(f"{error} (이미 답한 댓글: {', '.join(answered) or '없음'}. 본문은 쓰지 않았다)") from error
         pr = gh_api(f"repos/{repo}/pulls/{number}")  # read again: bots rewrite the body while threads are answered
@@ -1857,10 +2022,69 @@ def newest_pin(src, cutoff):
     return None
 
 
-def snapshot(src, names, skills, commit):
-    """{"<skill>/<rel>": (path in the source, tree entry)} at the commit, with the source LICENSE in each skill."""
+GIT_HOST = "https://github.com"
+
+
+def git_pin(src, cutoff, names, skills):
+    """(pin, tree) of an `update: commit` source read over anonymous git, never REST: an org's IP allow list
+    refuses the Actions token, and anonymous REST shares an hourly limit with every runner on that IP (#175).
+    The lock needs the pin as a full SHA. pin is what newest_pin or the lock's own pin would give; tree has
+    the REST shape, for the skill folders and the LICENSE only. Fetches commits and trees without blobs; cat-file then downloads the blobs of those
+    files from the promisor remote for their sizes, so the size limit in snapshot comes after the download."""
+    if src["update"] != "commit":
+        raise OSError(f"{src['repo']}: git으로 읽기는 commit 출처만 된다")
+    pinned = src.get("commit")
+    if not (isinstance(pinned, str) and re.fullmatch(r"[0-9a-f]{40}", pinned)):  # also keeps it from reading as a git option
+        raise OSError(f"{src['repo']}: git으로 읽으려면 lock의 commit이 40자 SHA여야 한다")
+    with tempfile.TemporaryDirectory() as tmp:
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_LITERAL_PATHSPECS="1")
+
+        def git(*args, stdin=None, check=True):
+            try:  # credential.helper= : an empty list, so no token or login goes with the request
+                run = subprocess.run(["git", "-c", "credential.helper=", "--git-dir", tmp, *args], input=stdin,
+                                     capture_output=True, env=env, timeout=120)
+            except subprocess.TimeoutExpired as error:
+                raise OSError(f"git {args[0]}: 120초 안에 끝나지 않았다") from error
+            if check and run.returncode:
+                raise OSError(f"git {args[0]} {src['repo']}: {run.stderr.decode('utf-8', 'replace').strip()}")
+            return run
+
+        git("init", "-q", "--bare")
+        git("remote", "add", "origin", f"{GIT_HOST}/{src['repo']}.git")
+        fetch = ("fetch", "-q", "--no-tags", "--filter=blob:none", "origin")
+        # the window starts a day before the pin so the pin is in it even with skewed commit dates
+        git(*fetch, "--depth=1", pinned)
+        since = datetime.fromtimestamp(int(git("show", "-s", "--format=%ct", pinned).stdout), timezone.utc) - timedelta(days=1)
+        git(*fetch, f"--shallow-since={since:%Y-%m-%dT%H:%M:%SZ}", f"refs/heads/{src['branch']}")
+        tip = git("rev-parse", "FETCH_HEAD").stdout.decode().strip()
+        found = git("rev-list", "-1", f"--until={cutoff:%Y-%m-%dT%H:%M:%SZ}", tip).stdout.decode().strip()
+        # never back, never sideways: the found commit has to descend from the pin
+        newer = found and found != pinned and git("merge-base", "--is-ancestor", pinned, found, check=False).returncode == 0
+        commit = found if newer else pinned
+        paths = [skills[name]["path"].rstrip("/") for name in names] + [src["license"]]
+        listing = git("ls-tree", "-r", "-z", commit, "--", *paths).stdout.decode("utf-8", "surrogateescape")
+        entries = []
+        for record in filter(None, listing.split("\0")):
+            meta, path = record.split("\t", 1)
+            mode, kind, sha = meta.split(" ")
+            entries.append({"path": path, "mode": mode, "type": kind, "sha": sha})
+        blobs = [e["sha"] for e in entries if e["type"] == "blob"]
+        sizes = {}
+        for line in git("cat-file", "--batch-check", stdin="".join(f"{sha}\n" for sha in blobs).encode()).stdout.decode().splitlines():
+            sha, kind, *size = line.split(" ")
+            if kind == "blob" and size:
+                sizes[sha] = int(size[0])
+        for entry in entries:
+            if entry["sha"] in sizes:
+                entry["size"] = sizes[entry["sha"]]
+    return (None, commit) if newer else (src.get("tag"), commit), {"truncated": False, "tree": entries}
+
+
+def snapshot(src, names, skills, commit, tree=None):
+    """{"<skill>/<rel>": (path in the source, tree entry)} at the commit, with the source LICENSE in each skill.
+    tree: the REST tree shape when it was read some other way (git_pin)."""
     repo = src["repo"]
-    tree = gh_api(f"repos/{repo}/git/trees/{commit}?recursive=1")
+    tree = tree or gh_api(f"repos/{repo}/git/trees/{commit}?recursive=1")
     if tree.get("truncated"):
         raise OSError(f"{repo}@{commit[:7]}: 트리가 커서 REST가 다 보여 주지 않는다")
     entries = {e["path"]: e for e in tree["tree"]}
@@ -1913,10 +2137,17 @@ def skills_bump(root, check, now):
         updates = []
         for name, src in lock["sources"].items():
             # No newer version: still check the copies against the pin (a skill added to the lock).
-            pin = newest_pin(src, now - timedelta(days=src["days"])) or (
-                (src.get("tag"), src["commit"]) if src.get("commit") else None)
+            cutoff = now - timedelta(days=src["days"])
             names = sorted(n for n, s in lock["skills"].items() if s["source"] == name)
-            files = snapshot(src, names, lock["skills"], pin[1]) if pin else None
+            try:
+                pin = newest_pin(src, cutoff) or ((src.get("tag"), src["commit"]) if src.get("commit") else None)
+                files = snapshot(src, names, lock["skills"], pin[1]) if pin else None
+            except OSError as error:
+                if not (check and src["update"] == "commit" and "IP allow list" in str(error)):
+                    raise
+                print(f"skills-bump: {name}: REST가 막혀 git으로 읽는다", file=sys.stderr)
+                pin, tree = git_pin(src, cutoff, names, lock["skills"])  # the check reads only: git is enough
+                files = snapshot(src, names, lock["skills"], pin[1], tree) if pin else None
             if files and {rel: e["sha"] for rel, (_, e) in files.items()} != local_shas(root, names):
                 updates.append((name, src, pin, names, files))
         if not updates:
@@ -3253,10 +3484,11 @@ def main(argv=None):
     preflight_parser.add_argument("pr", help="PR URL 또는 번호")
     preflight_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     preflight_parser.add_argument("--json", action="store_true", help="JSON 한 개로 출력한다")
-    enqueue_parser = sub.add_parser("enqueue", help="문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다(로컬 전용)")
+    enqueue_parser = sub.add_parser("enqueue", help="문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다(클라우드는 enqueue workflow에 댓글로 요청한다)")
     enqueue_parser.add_argument("pr", help="PR URL 또는 번호")
     enqueue_parser.add_argument("sha", help="리뷰한 head(40자 SHA)")
     enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
+    sub.add_parser("enqueue-comment", help="enqueue workflow가 부른다: `/enqueue <SHA>` 댓글 이벤트를 읽고 큐에 넣고 답한다")
     report_parser = sub.add_parser("review-report", help="스레드 판정에 답하고 해결한 뒤 PR 본문의 Review 칸만 바꾼다")
     report_parser.add_argument("pr", help="PR URL 또는 번호")
     report_parser.add_argument("--file", required=True, help="Review 칸의 줄(「리뷰한 head:」「등급:」「남은 지적:」 등)")
@@ -3270,7 +3502,7 @@ def main(argv=None):
                    ).add_argument("action", choices=("plan", "apply"))
     args = parser.parse_args(argv)
     return {"init": cmd_init, "migrate": cmd_migrate, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
-            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue, "review-report": cmd_review_report,
+            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue, "enqueue-comment": cmd_enqueue_comment, "review-report": cmd_review_report,
             "skills-bump": cmd_skills_bump, "doctor": cmd_doctor, "github": cmd_github}[args.command](args)
 
 
