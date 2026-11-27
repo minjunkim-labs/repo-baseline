@@ -1,0 +1,1 @@
+- 코어 `REVIEW.md`의 Standards가 원인 없이 다시 돌려 통과시킨 테스트와 까닭 없이 지운 테스트를 실패로 본다. `upgrade`로 관리 블록이 바뀐다. `prompts/retro.md`는 새 검사를 최근 PR의 head에서 먼저 돌려 보이게 한다. 손으로 옮길 일은 없다.
