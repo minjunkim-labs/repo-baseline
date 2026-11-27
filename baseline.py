@@ -166,7 +166,7 @@ ENQUEUE_MARK = "<!-- baseline-enqueue:{id} result={result} -->"
 ENQUEUE_REPLY = re.compile(r"<!-- baseline-enqueue:(\d+) result=(queued|refused|error) -->\n?(.*)", re.DOTALL)
 ENQUEUE_RESULTS = {"queued": 0, "refused": 1, "error": 2}
 ACTIONS_BOT = "github-actions[bot]"
-CLOUD_WAIT, CLOUD_POLL = 300, 10  # seconds to wait for the workflow's reply, and between looks
+CLOUD_WAIT, CLOUD_POLL = 100, 5  # seconds to wait for the workflow's reply, and between looks (under an agent shell's 120 s limit)
 PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
             "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
@@ -1702,8 +1702,8 @@ def enqueue_by_comment(repo, number, sha):
                 print(reply[3].strip())
                 return ENQUEUE_RESULTS[reply[2]]
         if time.monotonic() >= deadline:
-            print(f"enqueue: {CLOUD_WAIT}초 안에 workflow의 답이 없다. 요청 댓글 {asked['id']}과 Actions 실행을 본다. "
-                  "다시 부르기 전에 큐에 들어갔는지 먼저 확인한다", file=sys.stderr)
+            print(f"enqueue: {CLOUD_WAIT}초 안에 workflow의 답이 없다. 요청 댓글 {asked['id']}은 이미 달렸다. "
+                  "다시 부르지 말고 PR의 답 댓글(`<!-- baseline-enqueue:<댓글 id> ...`)과 Actions 실행을 먼저 본다", file=sys.stderr)
             return 2
         time.sleep(CLOUD_POLL)
 
