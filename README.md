@@ -42,13 +42,11 @@
 
 PR을 열면 [prompts/review.md](prompts/review.md)로 리뷰한다. 등급은 `review-preflight`가 정한다. 문서는 필수 CI만, 쉬움은 하위 에이전트 리뷰 한 번, 어려움은 새 세션 하나가 Spec·Standards와 보안 관점을 본 뒤 소유자가 병합한다(POLICY §3). 같은 지적이 반복되면 [prompts/retro.md](prompts/retro.md)를 실행한다.
 
-`templates/`, `profiles/`, `tools/`는 v1 도구다. v1 소비 레포가 다 옮기면 지운다. 그때까지 `tools/sync_consumers.py`는 돌리지 않는다.
-
 ## 적용 중인 프로젝트
 
-2026-11-25 기준으로 아래 다섯 곳은 v1이다. 저장소마다 PR 하나로 `migrate`를 써서 v2로 옮긴다. 이 저장소는 v2 코어를 쓴다.
+아래 다섯 곳과 이 저장소가 v2 코어를 쓴다(2026-11-27 확인). 판 올리기는 저장소마다 `upgrade` PR 하나다.
 
-| 프로젝트 | 저장소 | 옮기는 Issue |
+| 프로젝트 | 저장소 | 옮긴 Issue |
 | --- | --- | --- |
 | answer-desk | `minjunkim-labs/answer-desk` | #186 |
 | portfolio | `minjunkim-labs/portfolio` | #193 |

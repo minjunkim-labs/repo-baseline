@@ -8,10 +8,10 @@
 
 - setup: `N/A: 의존성이 없다(Python 3.9 이상, IANA 시간대 데이터. 없으면 python3 -m pip install tzdata)`
 - check: `python3 -I .baseline/baseline.py check`
-- test: `sh -c 'python3 -m unittest test_baseline test_github && python3 -m unittest discover -s tools -p "test_*.py" && for d in profiles/pr-conventions profiles/hash-copy; do python3 -m unittest discover -s "$d" -p "test_*.py" || exit 1; done'`
+- test: `python3 -m unittest test_baseline test_github test_distribution`
 - build: `N/A: 배포는 파일 복사다`
 
-pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로 본다. 루트의 `.baseline/`·관리 파일·`.claude/`는 소비 레포처럼 낸 태그의 판이다. `baseline.py`·`core/`를 고쳐도 함께 고치지 않는다. 태그를 낸 직후 소유자가 `python3 -I .baseline/baseline.py upgrade <태그>`로 맞춘다. 맞추기 전에는 태그를 받은 클론에서 `tools/test_distribution.py`가 실패한다. 샌드박스가 에이전트의 `.claude/` 쓰기를 막는다. `core/.claude/settings.json`의 `--sha256`은 자리표시(`0`×64)이고 `init`이 진짜 값으로 쓴다.
+루트의 `.baseline/`·관리 파일·`.claude/`는 소비 레포처럼 낸 태그의 판이다. `baseline.py`·`core/`를 고쳐도 함께 고치지 않는다. 태그를 낸 직후 소유자가 `python3 -I .baseline/baseline.py upgrade <태그>`로 맞춘다. 맞추기 전에는 태그를 받은 클론에서 `tools/test_distribution.py`가 실패한다. 샌드박스가 에이전트의 `.claude/` 쓰기를 막는다. `core/.claude/settings.json`의 `--sha256`은 자리표시(`0`×64)이고 `init`이 진짜 값으로 쓴다.
 
 ## 길잡이
 
@@ -20,7 +20,6 @@ pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로
 | `baseline.py`, `core/`, `skills/` | v2 도구, 코어, 스킬 사본 원본 |
 | `WORKFLOW.md`, `docs/agents/` | 단계별 스킬 표, Matt 스킬 설정 |
 | `github/`, `ops/`, `team/` | v2 프로필 |
-| `templates/`, `profiles/`, `tools/` | v1 도구. 소비 레포가 다 옮기면 지운다 |
 | `prompts/` | 셋업·리뷰·회고 프롬프트 |
 | `REVIEW.md` | 리뷰 기준. 리뷰할 때만 읽는다 |
 | `GLOSSARY.md` | 용어집. 새 용어는 여기에 먼저 쓴다 |
@@ -31,10 +30,9 @@ pr-conventions 테스트의 `FAIL:` 줄은 예시다. 성공은 종료 코드로
 - 상시 지시: 문서·쉬움 PR은 리뷰가 끝나면 `python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`로 머지 큐에 넣는다.
 - PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 하나를 더한다. `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮길 일을 쓴다. `CHANGELOG.md`는 고치지 않는다. 태그를 낼 때 지난 태그 뒤 항목을 릴리스 노트 `docs/releases/v<판>.md`로 모으고 지운다. 같은 PR에서 `baseline.py`의 `VERSION`도 그 판으로 바꾼다.
 - 같은 사실을 README, `docs/start.md`, `prompts/setup.md`에 적었으면 함께 고친다.
-- 소비 레포가 v2로 옮길 때까지 `tools/sync_consumers.py`를 돌리지 않는다.
 - 리뷰는 `origin/main` 판의 `prompts/review.md`·`.baseline/baseline.py`·`REVIEW.md`로 한다.
 - 에이전트 도구의 문서를 근거로 쓰면 공식 문서 링크와 확인일을 적는다. 코어에 특정 도구·모델 이름을 넣지 않는다.
-- 저장소 설정을 서버에 적용하지 않는다(`tools/apply_github_settings.py --apply`는 소유자가 실행한다).
+- 저장소 설정을 서버에 적용하지 않는다(`baseline.py github apply`는 소유자가 실행한다).
 
 <!-- baseline:start -->
 ## 작업 방식

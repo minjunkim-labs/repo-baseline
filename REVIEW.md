@@ -50,7 +50,7 @@
 
 ## 민감한 파일
 
-이 경로를 건드리면 보안 관점의 리뷰를 더한다: `.github/workflows/**`, `.github/repository-settings.json`, `.github/dependabot.yml`, 에이전트 설정 폴더(`.claude/`·`.agents/`·`.codex/`·`.cursor/`, 하위 폴더 포함)와 `.mcp.json`, `templates/github/**`, `tools/apply_github_settings.py`, `profiles/pr-conventions/*.py`, `profiles/pr-conventions/pr-policy.yml`, `profiles/hash-copy/*.py`, `profiles/hash-copy/*.json`, `profiles/hash-copy/dependabot-ecosystem.yml`, `profiles/team/CODEOWNERS`, `tools/review_preflight.py`, `profiles/matt-skills/*.py`, `tools/sync_consumers.py`, `tools/consumers.json`, `tools/check_ops.py`, `profiles/ops/README.md`, `templates/core/pull_request_template.md`, `.github/pull_request_template.md`, `baseline.py`, `core/**`, `github/ci.yml`, `team/CODEOWNERS`, `ops/ops.md`. `tools/review_preflight.py`와 `profiles/matt-skills/*.py`는 리뷰어 기기에서 도는 리뷰 안전장치다. `tools/`의 셋은 동기화 전용 PR을 리뷰 없이 큐에 넣는 상시 지시와 그 판정이다(POLICY §5). `profiles/ops/README.md`와 `templates/core/pull_request_template.md`는 `tools/consumers.json`이 소비 레포에 리뷰 없이 옮기는 원본이다. 원본을 더하면 이 목록에도 더한다. 끝의 다섯은 소비 레포의 `.baseline/`·관리 블록·CI·소유권·ops 규칙이 되는 v2 원본이다. `profiles/`의 여섯은 소비 레포가 복사해 CI, 해시 검사 대상, Dependabot, 소유권 설정으로 쓴다.
+이 경로를 건드리면 보안 관점의 리뷰를 더한다: `.github/workflows/**`, `.github/repository-settings.json`, `.github/dependabot.yml`, 에이전트 설정 폴더(`.claude/`·`.agents/`·`.codex/`·`.cursor/`, 하위 폴더 포함)와 `.mcp.json`, `.github/pull_request_template.md`, `baseline.py`, `core/**`, `github/ci.yml`, `github/dependabot.yml`, `github/dependabot-ecosystem.yml`, `github/.coderabbit.yaml`, `github/SECURITY.md`, `team/CODEOWNERS`, `ops/ops.md`. `baseline.py`부터 끝까지는 소비 레포의 `.baseline/`·관리 블록·CI·Dependabot·CodeRabbit 설정·보안 정책·소유권·ops 규칙이 되는 v2 원본이다. 원본을 더하면 이 목록에도 더한다.
 
 ## 코딩 기준
 
@@ -62,4 +62,3 @@
 
 리뷰가 놓친 버그나 반복된 오탐은 사용자가 승인한 것만 한 줄씩 더한다.
 
-- `templates/`·`profiles/`·`tools/`는 v1이라 v2 기준이 아니다.

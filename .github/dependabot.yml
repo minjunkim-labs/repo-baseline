@@ -1,4 +1,4 @@
-# This repository's own config (no package manifest). The template for projects is templates/github/dependabot.yml.
+# This repository's own config (no package manifest). The template for projects is github/dependabot.yml.
 version: 2
 updates:
   # Workflow actions are pinned to full SHAs; this keeps the pins current.
