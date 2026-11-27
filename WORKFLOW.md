@@ -125,9 +125,9 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 - 지침의 원본은 `AGENTS.md` 하나로 맞다. 표에서 확인된 도구는 모두 읽거나 읽게 설정할 수 있고, Gemini CLI만 `context.fileName` 설정이 필요하다. `?`인 곳(Grok Bot, Antigravity 클라우드)은 저장소 지침이 적용된다고 보지 않고 로컬에서 한다.
 - 스킬 사본은 `.claude/skills/`에만 있다. Codex, Antigravity, Gemini CLI는 이 폴더를 읽는다고 문서가 말하지 않는다. 이 도구들이 함께 읽는 곳은 `.agents/skills/`다. 사본을 어디에 둘지는 아직 정하지 않았다.
 - 저장소 deny·훅은 도구마다 형식이 다르고, 코어는 `.claude/settings.json`만 둔다. 로컬에서는 Claude Code와 Grok CLI만 이 파일을 적용하고, 클라우드는 대부분 적용하지 않거나 문서가 없다. 어느 위치에서나 남는 바닥은 서버(브랜치 보호, 필수 CI, 머지 큐)와 `enqueue` 자신의 검사다. 그래서 check는 CI가 반드시 다시 돌린다.
-- 클라우드에서 브랜치 push와 PR이 된다고 확인된 것은 Claude, Codex, Cursor, Jules다. Grok Bot과 Antigravity 클라우드는 문서가 없으니 로컬에서 한다. Claude 클라우드에서는 GraphQL을 쓰는 `gh pr`·`gh issue`가 실패하고, 다른 도구는 문서가 없다. 그래서 Issue를 만들고 고치는 스펙·티켓 단계는 내 기기에서 한다. `enqueue`는 로컬 전용으로 둔다. 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다.
+- 클라우드에서 브랜치 push와 PR이 된다고 확인된 것은 Claude, Codex, Cursor, Jules다. Grok Bot과 Antigravity 클라우드는 문서가 없으니 로컬에서 한다. Claude 클라우드에서는 GraphQL을 쓰는 `gh pr`·`gh issue`가 실패하고, 다른 도구는 문서가 없다. 그래서 Issue를 만들고 고치는 스펙·티켓 단계는 내 기기에서 한다. `enqueue`는 로컬에서는 직접 넣고, 클라우드에서는 `github/enqueue.yml` workflow에 댓글로 요청한다(검사는 같다). 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다.
 - 태그 push는 Claude 클라우드가 거부하고 다른 도구는 문서가 없다. 태그는 소유자가 내 기기에서 낸다.
-- 비밀값이 필요한 일과 큐 넣기는 내 기기에서 한다. 클라우드에는 병합 권한이 없는 비밀값만 둔다(POLICY §7).
+- 비밀값이 필요한 일은 내 기기에서 한다. 큐 넣기는 클라우드에서도 `enqueue`가 workflow에 요청해 된다. 클라우드에는 병합 권한이 없는 비밀값만 둔다(POLICY §7).
 - 흐름은 다중에 기대지 않는다. 쓰더라도 세션마다 위 단독 칸을 따른다. 리뷰를 맡기는 세션이 구현 대화를 물려받는지(fork 등)는 도구마다 확인한다.
 
 ## 클라우드 환경 설정

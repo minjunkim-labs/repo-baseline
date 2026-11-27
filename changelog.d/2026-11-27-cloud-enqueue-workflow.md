@@ -1,0 +1,1 @@
+- 클라우드 세션도 `enqueue`로 머지 큐에 넣는다. `github/enqueue.yml`을 `.github/workflows/enqueue.yml`로 복사하고(workflow 권한이 바뀌므로 소유자가 병합), `upgrade`로 `enqueue-comment` 명령이 있는 판을 받는다. 로컬은 그대로다. 이 workflow가 없으면 클라우드의 `enqueue`는 그 사실을 알리고 멈춘다.

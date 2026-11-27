@@ -45,7 +45,7 @@
 
 ## 3. 프로필
 
-- GitHub(`git remote -v`가 GitHub을 가리킬 때): 원본 `github/README.md`대로 `github/ci.yml`을 `.github/workflows/ci.yml`로 복사하고(기존 CI가 있으면 `check`를 돌리는 단계를 합친다), `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다. Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 그 README의 표를 따른다. `github plan`·`github apply`는 소유자가 할 일로 보고에 적는다.
+- GitHub(`git remote -v`가 GitHub을 가리킬 때): 원본 `github/README.md`대로 `github/ci.yml`을 `.github/workflows/ci.yml`로 복사하고(기존 CI가 있으면 `check`를 돌리는 단계를 합친다), 클라우드 세션이 큐에 넣게 하려면 `github/enqueue.yml`도 `.github/workflows/enqueue.yml`로 복사하고(소유자가 병합한다), `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다. Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 그 README의 표를 따른다. `github plan`·`github apply`는 소유자가 할 일로 보고에 적는다.
 - ops(배포해서 사람이 쓰는 앱일 때): 원본 `ops/README.md` 「켜기」를 따른다. SDK는 설치하지 않는다. 판단이 애매하면 소유자에게 묻는다.
 - team(쓰기 권한자가 둘 이상일 때): 원본 `team/README.md`를 따른다.
 

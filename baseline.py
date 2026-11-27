@@ -159,6 +159,14 @@ REVIEW_TIERS = {"문서": None, "쉬움": {"model": "보통", "effort": "보통"
 STANDING = "- 상시 지시:"
 STANDING_COMMAND = "`python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`"
 SHA_RE = re.compile(r"[0-9a-f]{40}")
+# A cloud session cannot call GraphQL, so it asks the enqueue workflow with a PR comment and reads the reply.
+ENQUEUE_WORKFLOW = ".github/workflows/enqueue.yml"
+ENQUEUE_COMMENT = re.compile(r"/enqueue ([0-9a-f]{40})")
+ENQUEUE_MARK = "<!-- baseline-enqueue:{id} result={result} -->"
+ENQUEUE_REPLY = re.compile(r"<!-- baseline-enqueue:(\d+) result=(queued|refused|error) -->\n?(.*)", re.DOTALL)
+ENQUEUE_RESULTS = {"queued": 0, "refused": 1, "error": 2}
+ACTIONS_BOT = "github-actions[bot]"
+CLOUD_WAIT, CLOUD_POLL = 300, 10  # seconds to wait for the workflow's reply, and between looks
 PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
             "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
@@ -1571,6 +1579,13 @@ def changes_requested(reviews):
     return sorted(login for login, state in last.items() if state == "CHANGES_REQUESTED")
 
 
+def enqueue_traffic(comment):
+    """The `/enqueue <sha>` request (exactly that, so a finding cannot hide in it) or the workflow's answer to one."""
+    body = (comment.get("body") or "").strip()
+    return bool(ENQUEUE_COMMENT.fullmatch(body)
+                or (body.startswith("<!-- baseline-enqueue:") and (comment.get("user") or {}).get("login") == ACTIONS_BOT))
+
+
 def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     """Reviews and comments written after the review report, or edited by a person after it: nobody judged them.
 
@@ -1592,6 +1607,8 @@ def external_reviews(repo, number, reported, reviews, settled=frozenset()):
     for path, found in (("pulls", line_comments), ("issues", pages(f"repos/{repo}/issues/{number}/comments"))):
         for c in found:
             if is_bot(c.get("user")) and path == "pulls" and c.get("id") in settled:
+                continue
+            if path == "issues" and enqueue_traffic(c):  # the cloud's request and the workflow's answer hold no finding
                 continue
             # shortcut: a finding added only by editing a bot's old comment (by the bot, or by a person with
             # write access) goes unseen, e.g. a pre-merge check turning red; count those edits if that happens.
@@ -1647,27 +1664,95 @@ def enqueue_problems(repo, number, sha, remote):
     return pr["id"], problems
 
 
+def enqueue_now(repo, number, sha, remote):
+    """(exit code, lines to print): the checks of POLICY §5, then the queue entry. Needs GraphQL."""
+    node, problems = enqueue_problems(repo, number, sha, remote)
+    if problems:
+        return 1, [f"enqueue: 넣지 않는다: {problem if problem.isprintable() else json.dumps(problem)}"
+                   for problem in problems]
+    gh_graphql(ENQUEUE, id=node, sha=sha)
+    return 0, [f"enqueue: {repo}#{number}을 {sha}로 머지 큐에 넣었다"]
+
+
+def github_post(path, body):
+    """REST POST with a JSON body; the parsed answer."""
+    result = subprocess.run(["gh", "api", "--method", "POST", path, "--input", "-"], input=json.dumps(body), text=True,
+                            capture_output=True, check=True, timeout=60)
+    return json.loads(result.stdout)
+
+
+def enqueue_by_comment(repo, number, sha):
+    """Cloud sessions: ask the enqueue workflow (which runs the same checks on GitHub's side) and wait for its reply."""
+    pr = gh_api(f"repos/{repo}/pulls/{number}")
+    if pr["head"]["sha"] != sha:
+        print(f"enqueue: 넣지 않는다: head가 {sha}가 아니라 {pr['head']['sha']}다")
+        return 1
+    if contents(repo, ENQUEUE_WORKFLOW, pr["base"]["ref"]) is None:
+        print(f"enqueue: 넣지 않는다: base 브랜치에 {ENQUEUE_WORKFLOW}가 없다. 클라우드는 이 workflow로만 큐에 넣는다"
+              "(github/README.md). 소유자가 화면에서 넣거나 로컬 세션에서 부른다")
+        return 1
+    asked = github_post(f"repos/{repo}/issues/{number}/comments", {"body": f"/enqueue {sha}"})
+    print(f"enqueue: workflow에 요청했다(댓글 {asked['id']}). 답을 기다린다")
+    deadline = time.monotonic() + CLOUD_WAIT
+    while True:
+        for c in pages(f"repos/{repo}/issues/{number}/comments?since={quote(asked['created_at'])}"):
+            reply = ENQUEUE_REPLY.fullmatch(c.get("body") or "")
+            # Only the Actions bot's words count: anyone can post the marker.
+            if reply and int(reply[1]) == asked["id"] and (c.get("user") or {}).get("login") == ACTIONS_BOT:
+                print(reply[3].strip())
+                return ENQUEUE_RESULTS[reply[2]]
+        if time.monotonic() >= deadline:
+            print(f"enqueue: {CLOUD_WAIT}초 안에 workflow의 답이 없다. 요청 댓글 {asked['id']}과 Actions 실행을 본다. "
+                  "다시 부르기 전에 큐에 들어갔는지 먼저 확인한다", file=sys.stderr)
+            return 2
+        time.sleep(CLOUD_POLL)
+
+
 def cmd_enqueue(args):
-    if os.environ.get("CLAUDE_CODE_REMOTE") == "true":
-        print("enqueue: 클라우드 세션에서는 넣지 않는다. 프록시가 GraphQL(큐 넣기)을 막는다. 로컬 세션에서 부른다.",
-              file=sys.stderr)
-        return 2
     if not SHA_RE.fullmatch(args.sha):
         print("enqueue: SHA는 40자 소문자 hex다", file=sys.stderr)
         return 2
     try:
         repo, number = pr_target(args.pr, args.remote)
-        node, problems = enqueue_problems(repo, number, args.sha, args.remote)
-        if problems:
-            for problem in problems:
-                print(f"enqueue: 넣지 않는다: {problem if problem.isprintable() else json.dumps(problem)}")
-            return 1
-        gh_graphql(ENQUEUE, id=node, sha=args.sha)
-    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        if os.environ.get("CLAUDE_CODE_REMOTE") == "true":  # the proxy blocks GraphQL there
+            return enqueue_by_comment(repo, number, args.sha)
+        code, lines = enqueue_now(repo, number, args.sha, args.remote)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as error:
         print(f"enqueue: 실행 실패: {error}", file=sys.stderr)
         return 2
-    print(f"enqueue: {repo}#{number}을 {args.sha}로 머지 큐에 넣었다")
-    return 0
+    print("\n".join(lines))
+    return code
+
+
+def cmd_enqueue_comment(args):
+    """The workflow's half: read the comment event, check who asked, run the checks, queue, answer in the PR."""
+    try:
+        event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        comment, issue, repo = event["comment"], event["issue"], event["repository"]["full_name"]
+        found = ENQUEUE_COMMENT.fullmatch((comment.get("body") or "").strip())
+        if "pull_request" not in issue or not found:
+            print("enqueue-comment: `/enqueue <40자 SHA>` 한 줄뿐인 PR 댓글이 아니다. 하지 않는다")
+            return 0
+        number, sha, actor = str(issue["number"]), found[1], comment["user"]["login"]
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"enqueue-comment: 이벤트를 읽지 못했다: {error}", file=sys.stderr)
+        return 2
+    try:
+        if gh_api(f"repos/{repo}/collaborators/{quote(actor, safe='')}/permission").get("permission") not in ("admin", "write"):
+            code, lines = 1, [f"enqueue: 넣지 않는다: 요청한 {actor}에게 쓰기 권한이 없다"]
+        else:
+            code, lines = enqueue_now(repo, number, sha, "origin")
+    except (OSError, ValueError, KeyError, TypeError, AttributeError, subprocess.SubprocessError) as error:
+        code, lines = 2, [f"enqueue: 실행 실패: {error}"]
+    result = next(name for name, value in ENQUEUE_RESULTS.items() if value == code)
+    print("\n".join(lines))
+    try:  # the cloud session waits for this answer
+        github_post(f"repos/{repo}/issues/{number}/comments",
+                    {"body": ENQUEUE_MARK.format(id=comment["id"], result=result) + "\n" + "\n".join(lines)})
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        print(f"enqueue-comment: 답 댓글을 쓰지 못했다: {error}", file=sys.stderr)
+        return 2
+    return code
 
 
 def finding_items(lines):
@@ -3379,10 +3464,11 @@ def main(argv=None):
     preflight_parser.add_argument("pr", help="PR URL 또는 번호")
     preflight_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
     preflight_parser.add_argument("--json", action="store_true", help="JSON 한 개로 출력한다")
-    enqueue_parser = sub.add_parser("enqueue", help="문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다(로컬 전용)")
+    enqueue_parser = sub.add_parser("enqueue", help="문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다(클라우드는 enqueue workflow에 댓글로 요청한다)")
     enqueue_parser.add_argument("pr", help="PR URL 또는 번호")
     enqueue_parser.add_argument("sha", help="리뷰한 head(40자 SHA)")
     enqueue_parser.add_argument("--remote", default="origin", help="base 저장소의 remote(번호만 줄 때)")
+    sub.add_parser("enqueue-comment", help="enqueue workflow가 부른다: `/enqueue <SHA>` 댓글 이벤트를 읽고 큐에 넣고 답한다")
     report_parser = sub.add_parser("review-report", help="스레드 판정에 답하고 해결한 뒤 PR 본문의 Review 칸만 바꾼다")
     report_parser.add_argument("pr", help="PR URL 또는 번호")
     report_parser.add_argument("--file", required=True, help="Review 칸의 줄(「리뷰한 head:」「등급:」「남은 지적:」 등)")
@@ -3396,7 +3482,7 @@ def main(argv=None):
                    ).add_argument("action", choices=("plan", "apply"))
     args = parser.parse_args(argv)
     return {"init": cmd_init, "migrate": cmd_migrate, "check": cmd_check, "run": cmd_run, "budget": cmd_budget, "upgrade": cmd_upgrade,
-            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue, "review-report": cmd_review_report,
+            "review-preflight": cmd_review_preflight, "enqueue": cmd_enqueue, "enqueue-comment": cmd_enqueue_comment, "review-report": cmd_review_report,
             "skills-bump": cmd_skills_bump, "doctor": cmd_doctor, "github": cmd_github}[args.command](args)
 
 

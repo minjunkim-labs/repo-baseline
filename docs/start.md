@@ -89,6 +89,7 @@ python3 -I .baseline/baseline.py doctor
 원격이 GitHub이면 [github 프로필](../github/README.md)을 켠다.
 
 - [github/ci.yml](../github/ci.yml)을 `.github/workflows/ci.yml`로 복사한다. ubuntu·macOS에서 `run setup`, `check`, `budget`, `run check`, `run test`를 돈다. 고칠 칸이 없다. 기존 CI workflow가 있으면 덮어쓰지 않고, 그 workflow에 `check`를 돌리는 단계를 합친다.
+- 클라우드 세션이 PR을 큐에 넣게 하려면 [github/enqueue.yml](../github/enqueue.yml)을 `.github/workflows/enqueue.yml`로 복사한다(workflow 권한을 바꾸므로 소유자가 병합한다). 쓰지 않으면 클라우드의 `enqueue`는 그 파일이 없다고 멈춘다.
 - `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다.
 - 소유자가 최신 기본 브랜치에서 `python3 -I .baseline/baseline.py github plan`을 읽고 `github apply`로 적용한다. 에이전트는 `apply`를 돌리지 않는다.
 - Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 [github 프로필](../github/README.md)의 표가 가리키는 파일을 복사한다.
