@@ -1,1 +1,0 @@
-- POLICY §3에 일마다 모델 층·effort 표가 생겼다. `review-preflight`가 `리뷰 층:` 줄(`--json`은 `review_tier`)을 출력한다. PR 템플릿 Review 칸에 「리뷰한 모델」 줄이 생겼다. 관리 파일·블록은 upgrade로 받는다.

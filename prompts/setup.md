@@ -8,7 +8,7 @@
 
 ## 지킬 것
 
-- 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 태그 `v2.1.1`(또는 소유자가 정한 더 새 태그)이다. 저장소 밖의 새 임시 폴더에 받는다: `B="$(mktemp -d)/repo-baseline" && git clone --depth 1 --branch v2.1.1 https://github.com/minjunkim-labs/repo-baseline "$B"`. 소유자가 더 새 태그를 정했으면 `--branch`의 값을 그 태그로 바꾼다. 아래 `B`는 이 클론이다. 이미 있는 폴더(예: `/tmp/repo-baseline`)를 원본으로 쓰지 않는다.
+- 원본은 공개 저장소 `https://github.com/minjunkim-labs/repo-baseline`의 태그 `v2.2.0`(또는 소유자가 정한 더 새 태그)이다. 저장소 밖의 새 임시 폴더에 받는다: `B="$(mktemp -d)/repo-baseline" && git clone --depth 1 --branch v2.2.0 https://github.com/minjunkim-labs/repo-baseline "$B"`. 소유자가 더 새 태그를 정했으면 `--branch`의 값을 그 태그로 바꾼다. 아래 `B`는 이 클론이다. 이미 있는 폴더(예: `/tmp/repo-baseline`)를 원본으로 쓰지 않는다.
 - 읽을 것은 원본의 `docs/start.md`, `POLICY.md`, (GitHub이면) `github/README.md`, (배포하는 앱이면) `ops/README.md`, (쓰기 권한자가 둘 이상이면) `team/README.md`뿐이다. 판 올리기면 지금 판과 새 판 사이의 `docs/releases/v*.md`도 읽는다. `templates/`·`profiles/`·`tools/`는 v1 도구라 읽지 않는다. 예외: `github/README.md`가 가리키는 `templates/github/` 파일(Dependabot, `SECURITY.md`, `.coderabbit.yaml`)은 읽고 복사한다. 이름이 낯설면 `GLOSSARY.md`를 읽는다.
 - 관리 블록(`<!-- baseline:start -->`~`<!-- baseline:end -->`)과 관리 파일은 고치지 않는다. 고치면 `check`가 실패한다. `docs/agents/`의 Matt 스킬 설정 세 파일(`issue-tracker.md`·`domain.md`·`triage-labels.md`)은 시작 파일이라 고쳐도 된다. 같은 폴더의 `LICENSE`는 관리 파일이고, ops 프로필의 `ops.md`는 `check`가 본다. `.gitattributes`는 맨 앞 줄 아래에만 더한다.
 - `migrate` 막힘은 원본 `docs/start.md` 2절의 표대로 푼다. 프로젝트 내용을 옮기기 전에는 어떤 파일도 지우지 않고, 관리 블록이 있는 파일(`AGENTS.md`, `REVIEW.md`)과 `CLAUDE.md`는 지우지 않는다. 옮길 곳이 분명하지 않으면 소유자에게 묻는다.

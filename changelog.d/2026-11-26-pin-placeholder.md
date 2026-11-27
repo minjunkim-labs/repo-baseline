@@ -1,1 +1,0 @@
-- `core/.claude/settings.json`의 훅 `--sha256`이 자리표시(`0`×64)가 됐다. `init`과 `upgrade`가 설치한 `.baseline/baseline.py`의 해시로 바꿔 쓰므로 소비 레포는 손댈 일이 없다.
