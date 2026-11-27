@@ -97,7 +97,7 @@ python3 -I .baseline/baseline.py doctor
 
 ## 5. 첫 PR
 
-본문은 `.github/pull_request_template.md` 양식이다. Summary에 완료 기준을 쓰고, Evidence에 3절 명령의 실제 출력을 붙인다.
+본문은 `.github/pull_request_template.md` 양식이다. Summary에 완료 기준을 쓰고, Evidence에 3절 명령의 실제 출력을 붙인다. 「실행 확인」은 기준 파일만 바꿨으면 `없음: 프로젝트 동작을 바꾸지 않았다`다.
 
 코어는 `.baseline/`과 에이전트 설정 폴더(`.claude/`)를 더하므로 이 PR은 어려움이다. 새 세션 하나가 Spec·Standards와 보안 관점을 본 뒤 소유자가 병합한다(POLICY §3). 리뷰는 [prompts/review.md](../prompts/review.md)로 하고, 등급은 `review-preflight`가 정한다.
 
