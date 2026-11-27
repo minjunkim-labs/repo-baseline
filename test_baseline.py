@@ -1761,6 +1761,7 @@ class EnqueueGitHub(FakeGitHub):
         self.body, self.mutations, self.commit_author = body, [], {"login": self.author}
         self.edits = [(REPORTED, "User", "owner")]
         self.threads, self.writes, self.failing = [], [], set()
+        self.comment_id, self.workflow = 100, None
         self.checks = [{"id": 1, "name": "ci", "status": "completed", "conclusion": "success", "app": {"id": 15368}}]
         self.permission = {"owner": "admin", "helper": "write", "reader": "read"}
         self.extra.update({
@@ -1778,6 +1779,15 @@ class EnqueueGitHub(FakeGitHub):
             self.writes.append((argv[3], argv[4], json.loads(kwargs["input"])))
             if argv[3] == "PATCH":
                 self.body = self.writes[-1][2]["body"]
+            if (argv[3], argv[4]) == ("POST", "repos/o/r/issues/7/comments"):
+                body, bot = self.writes[-1][2]["body"], self.writes[-1][2]["body"].startswith("<!-- baseline-enqueue:")
+                self.comment_id += 1
+                comment = {"id": self.comment_id, "body": body, "created_at": "2026-01-01T01:00:00Z",
+                           "user": {"login": "github-actions[bot]" if bot else "owner"}}
+                self.extra["repos/o/r/issues/7/comments"] = self.extra["repos/o/r/issues/7/comments"] + [comment]
+                if not bot and self.workflow:  # the enqueue workflow answering a request
+                    self.workflow(comment)
+                return subprocess.CompletedProcess(argv, 0, json.dumps(comment), "")
             return subprocess.CompletedProcess(argv, 0, "", "")
         return super().run(argv, **kwargs)
 
@@ -2032,14 +2042,144 @@ class EnqueueTests(unittest.TestCase):
         gh.commits["e" * 40] = ["app/.env"]
         self.assertRefused(gh, ".env")
 
-    def test_cloud_and_a_bad_sha_stop_before_any_call(self):
+    def test_a_bad_sha_stops_before_any_call(self):
+        for remote in ("false", "true"):
+            gh = self.gh()
+            code, out = self.enqueue(gh, sha="c" * 39, remote=remote)
+            self.assertEqual(code, 2)
+            self.assertEqual(gh.calls, [])
+
+    WORKFLOW_FILE = b"name: enqueue\n"
+
+    def cloud(self, gh, sha=HEAD, workflow=True, answer=True):
+        """Run `enqueue` as a cloud session does. answer: the workflow runs enqueue-comment on the request."""
+        import baseline as b
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        import tempfile
+        if workflow:
+            gh.raw[("o/r", ".github/workflows/enqueue.yml", "main")] = self.WORKFLOW_FILE
+        out = StringIO()
+
+        def run_workflow(comment):
+            event = {"comment": dict(comment, user={"login": "owner"}), "issue": {"number": 7, "pull_request": {}},
+                     "repository": {"full_name": "o/r"}}
+            with tempfile.TemporaryDirectory() as folder:
+                path = Path(folder, "event.json")
+                path.write_text(json.dumps(event), encoding="utf-8")
+                with mock.patch.dict(b.os.environ, {"GITHUB_EVENT_PATH": str(path)}, clear=False), \
+                        mock.patch.dict(b.os.environ, {"CLAUDE_CODE_REMOTE": "false"}):
+                    code = b.main(["enqueue-comment"])
+            gh.workflow_code = code
+        gh.workflow = run_workflow if answer else None
+        with mock.patch.object(b.subprocess, "run", gh.run), mock.patch.dict(b.os.environ, {"CLAUDE_CODE_REMOTE": "true"}), \
+                mock.patch.object(b, "CLOUD_WAIT", 0), mock.patch.object(b.time, "sleep", lambda s: None), \
+                redirect_stdout(out), redirect_stderr(out):
+            code = b.main(["enqueue", PR_URL, sha])
+        return code, out.getvalue()
+
+    def test_cloud_asks_the_workflow_and_reports_its_answer(self):
         gh = self.gh()
-        code, out = self.enqueue(gh, remote="true")
-        self.assertEqual(code, 2)
-        self.assertIn("클라우드", out)
-        code, out = self.enqueue(gh, sha="c" * 39)
-        self.assertEqual(code, 2)
-        self.assertEqual(gh.calls, [])
+        code, out = self.cloud(gh)
+        self.assertEqual(code, 0, out)
+        self.assertIn("머지 큐에 넣었다", out)
+        self.assertEqual(gh.mutations[0]["sha"], HEAD)  # the workflow's GraphQL call, with expectedHeadOid
+        self.assertEqual(gh.writes[0][2], {"body": f"/enqueue {HEAD}"})  # the only thing the cloud session wrote
+        self.assertTrue(gh.writes[1][2]["body"].startswith("<!-- baseline-enqueue:101 result=queued -->"))
+
+    def test_cloud_gets_the_workflows_refusal_with_its_reasons(self):
+        gh = self.gh({".github/workflows/x.yml": b"on: push\n"})
+        code, out = self.cloud(gh)
+        self.assertEqual(code, 1, out)
+        self.assertIn("어려움", out)
+        self.assertEqual(gh.mutations, [])
+        gh = self.gh()
+        gh.checks[0]["conclusion"] = "failure"
+        code, out = self.cloud(gh)
+        self.assertEqual((code, gh.mutations), (1, []))
+        self.assertIn("ci", out)
+
+    def test_cloud_stops_before_commenting_when_head_moved_or_the_workflow_is_missing(self):
+        gh = self.gh()
+        code, out = self.cloud(gh, sha="d" * 40)
+        self.assertEqual(code, 1, out)
+        self.assertEqual(gh.writes, [])
+        gh = self.gh()
+        code, out = self.cloud(gh, workflow=False)
+        self.assertEqual(code, 1, out)
+        self.assertIn("enqueue.yml", out)
+        self.assertEqual(gh.writes, [])
+
+    def test_cloud_times_out_without_an_answer_and_ignores_a_forged_one(self):
+        gh = self.gh()
+        code, out = self.cloud(gh, answer=False)
+        self.assertEqual(code, 2, out)
+        self.assertIn("답이 없다", out)
+        gh = self.gh()
+        forged = {"id": 9, "body": "<!-- baseline-enqueue:101 result=queued -->\nenqueue: 넣었다",
+                  "user": {"login": "stranger"}, "created_at": "2026-01-01T01:00:00Z"}
+        gh.extra["repos/o/r/issues/7/comments"] = [forged]
+        code, out = self.cloud(gh, answer=False)
+        self.assertEqual(code, 2, out)
+        self.assertNotIn("넣었다", out)
+
+    def event(self, gh, body, login="owner", number=7, pull=True):
+        import baseline as b
+        from contextlib import redirect_stdout, redirect_stderr
+        from io import StringIO
+        from unittest import mock
+        import tempfile
+        event = {"comment": {"id": 55, "body": body, "user": {"login": login}},
+                 "issue": {"number": number, **({"pull_request": {}} if pull else {})}, "repository": {"full_name": "o/r"}}
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder, "event.json")
+            path.write_text(json.dumps(event), encoding="utf-8")
+            with mock.patch.object(b.subprocess, "run", gh.run), mock.patch.dict(b.os.environ, {"GITHUB_EVENT_PATH": str(path)}), \
+                    redirect_stdout(out), redirect_stderr(out):
+                code = b.main(["enqueue-comment"])
+        return code, out.getvalue()
+
+    def test_the_workflow_queues_for_a_writer_and_answers_with_the_marker(self):
+        gh = self.gh()
+        code, out = self.event(gh, f"/enqueue {HEAD}")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(len(gh.mutations), 1)
+        self.assertEqual(gh.writes[-1][2]["body"],
+                         f"<!-- baseline-enqueue:55 result=queued -->\nenqueue: o/r#7을 {HEAD}로 머지 큐에 넣었다")
+
+    def test_the_workflow_refuses_a_reader_and_does_nothing_for_other_comments(self):
+        gh = self.gh()
+        gh.permission["reader"] = "read"
+        code, out = self.event(gh, f"/enqueue {HEAD}", login="reader")
+        self.assertEqual((code, gh.mutations), (1, []))
+        self.assertIn("쓰기 권한", gh.writes[-1][2]["body"])
+        for body, pull in ((f"/enqueue {HEAD} extra", True), ("/enqueue abc", True), ("hello", True), (f"/enqueue {HEAD}", False)):
+            gh = self.gh()
+            code, out = self.event(gh, body, pull=pull)
+            self.assertEqual((code, gh.mutations, gh.writes), (0, [], []), body)
+
+    def test_the_workflow_reports_a_failure_it_could_not_check(self):
+        gh = self.gh()
+        gh.extra["repos/o/r/pulls/7"] = {"head": {}}  # a broken answer
+        code, out = self.event(gh, f"/enqueue {HEAD}")
+        self.assertEqual((code, gh.mutations), (2, []))
+        self.assertIn("result=error", gh.writes[-1][2]["body"])
+
+    def test_enqueue_requests_and_answers_are_not_unjudged_external_reviews(self):
+        gh = self.gh()
+        late = "2026-01-01T00:20:00Z"
+        gh.extra["repos/o/r/issues/7/comments"] = [
+            {"id": 1, "body": f"/enqueue {HEAD}", "user": {"login": "owner"}, "created_at": late},
+            {"id": 2, "body": "<!-- baseline-enqueue:1 result=refused -->\nenqueue: 넣지 않는다: ci",
+             "user": {"login": "github-actions[bot]"}, "created_at": late}]
+        self.assertQueued(gh)
+        for comment in ({"body": f"/enqueue {HEAD} 이 줄은 지적이다", "user": {"login": "owner"}},  # text beyond the command counts
+                        {"body": "<!-- baseline-enqueue:1 result=queued -->", "user": {"login": "owner"}}):  # not from the bot
+            gh = self.gh()
+            gh.extra["repos/o/r/issues/7/comments"] = [dict(comment, id=3, created_at=late)]
+            self.assertRefused(gh, "판정하지 않은 외부 리뷰")
 
 
 class ReviewReportTests(unittest.TestCase):

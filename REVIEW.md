@@ -50,7 +50,7 @@
 
 ## 민감한 파일
 
-이 경로를 건드리면 보안 관점의 리뷰를 더한다: `.github/workflows/**`, `.github/repository-settings.json`, `.github/dependabot.yml`, 에이전트 설정 폴더(`.claude/`·`.agents/`·`.codex/`·`.cursor/`, 하위 폴더 포함)와 `.mcp.json`, `.github/pull_request_template.md`, `baseline.py`, `core/**`, `github/ci.yml`, `github/dependabot.yml`, `github/dependabot-ecosystem.yml`, `github/.coderabbit.yaml`, `github/SECURITY.md`, `github/README.md`, `team/CODEOWNERS`, `ops/ops.md`. `baseline.py`부터 끝까지는 소비 레포의 `.baseline/`·관리 블록·CI·Dependabot·CodeRabbit 설정·보안 정책·소유권·ops 규칙이 되는 v2 원본이다. `github/README.md`는 조직 설정(Actions 권한, 2FA 등)의 기준을 담는다. 원본을 더하면 이 목록에도 더한다.
+이 경로를 건드리면 보안 관점의 리뷰를 더한다: `.github/workflows/**`, `.github/repository-settings.json`, `.github/dependabot.yml`, 에이전트 설정 폴더(`.claude/`·`.agents/`·`.codex/`·`.cursor/`, 하위 폴더 포함)와 `.mcp.json`, `.github/pull_request_template.md`, `baseline.py`, `core/**`, `github/ci.yml`, `github/enqueue.yml`, `github/dependabot.yml`, `github/dependabot-ecosystem.yml`, `github/.coderabbit.yaml`, `github/SECURITY.md`, `github/README.md`, `team/CODEOWNERS`, `ops/ops.md`. `baseline.py`부터 끝까지는 소비 레포의 `.baseline/`·관리 블록·CI·Dependabot·CodeRabbit 설정·보안 정책·소유권·ops 규칙이 되는 v2 원본이다. `github/README.md`는 조직 설정(Actions 권한, 2FA 등)의 기준을 담는다. 원본을 더하면 이 목록에도 더한다.
 
 ## 코딩 기준
 

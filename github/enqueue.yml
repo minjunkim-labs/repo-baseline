@@ -1,0 +1,43 @@
+# repo-baseline v2 enqueue workflow (github/README.md). Copy to .github/workflows/enqueue.yml.
+# A cloud session cannot call GitHub GraphQL, so it cannot queue a PR. `baseline.py enqueue` there comments
+# `/enqueue <reviewed head SHA>` on the PR instead, and this workflow runs the same checks as the local command
+# (POLICY §5) on GitHub's side, queues the PR with expectedHeadOid, and answers in a PR comment.
+# This file changes workflow permissions, so the PR that adds it is hard (POLICY §3) and the owner merges it.
+#
+# Why a comment and not workflow_dispatch: an issue_comment run always uses the workflow file and the
+# .baseline/ copy on the default branch, so a PR cannot change the code that decides whether it may be queued.
+# A dispatch run uses the file on whatever branch it is started from.
+name: enqueue
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions: {}
+
+jobs:
+  enqueue:
+    # Only a PR comment that starts with the command. The script reads the comment from the event file and
+    # accepts nothing but `/enqueue <40 hex>` from someone with write access; the text is never put in a shell.
+    if: ${{ github.event.issue.pull_request && startsWith(github.event.comment.body, '/enqueue ') }}
+    # One request per PR at a time. The group is on the job, which is evaluated after the `if`, so other
+    # comments on the PR do not take the group's single waiting place. A queued request is never cancelled.
+    concurrency:
+      group: enqueue-${{ github.event.issue.number }}
+      cancel-in-progress: false
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write       # enqueuePullRequest and the collaborator permission lookup need push access
+      pull-requests: write
+      issues: write         # the answer comment
+      checks: read
+      statuses: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: enqueue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 -I .baseline/baseline.py enqueue-comment

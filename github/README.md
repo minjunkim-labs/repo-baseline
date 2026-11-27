@@ -5,10 +5,29 @@
 | 무엇 | 어디 |
 | --- | --- |
 | CI | [ci.yml](ci.yml)을 `.github/workflows/ci.yml`로 복사한다. 고칠 칸이 없다. ubuntu·macOS가 `.mise.toml`의 같은 판으로 돌고, `ci` job이 둘의 결과를 모은다 |
+| 클라우드의 큐 넣기 | [enqueue.yml](enqueue.yml)을 `.github/workflows/enqueue.yml`로 복사한다. 아래 「클라우드에서 큐에 넣기」 |
 | 저장소 설정·상태 라벨 | `.baseline/baseline.py github plan`과 `github apply`. 공통값은 `baseline.py`의 `GITHUB_SETTINGS`·`LABELS`에 있다 |
 | Dependabot | [dependabot.yml](dependabot.yml)을 `.github/dependabot.yml`로 복사하고, 패키지 관리자마다 [dependabot-ecosystem.yml](dependabot-ecosystem.yml)의 블록을 `updates:` 아래에 붙인다 |
 | `SECURITY.md` | [SECURITY.md](SECURITY.md)를 저장소 루트로 복사하고 `OWNER/REPO`를 채운다. GitHub은 `.github/`, 루트, `docs/` 순서로 이 파일을 찾으니, 이미 있으면 그 파일에 합친다. `github apply`가 비공개 취약점 보고를 켠 뒤 병합한다 |
 | `.coderabbit.yaml` | 아래 「CodeRabbit 설정」 |
+
+## 클라우드에서 큐에 넣기
+
+Claude Code 클라우드의 프록시는 GitHub GraphQL을 막아서 `enqueue`가 큐에 넣을 수 없다. [enqueue.yml](enqueue.yml)을 복사해 두면 클라우드의 `python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`가 GitHub 쪽에서 같은 일을 하게 한다. 로컬에서는 이 workflow가 필요 없다.
+
+1. `enqueue`가 PR에 `/enqueue <40자 SHA>` 댓글 한 줄을 단다. 그 전에 head가 그 SHA인지, base 브랜치에 이 workflow가 있는지 REST로 본다.
+2. workflow가 돈다. `issue_comment` 실행은 기본 브랜치의 workflow 파일과 `.baseline/baseline.py`를 쓴다. PR이 이 코드를 바꿔 자기를 통과시킬 수 없다. `workflow_dispatch`는 시작한 브랜치의 파일로 돌아서 쓰지 않는다.
+3. 댓글 작성자가 쓰기 권한자인지 보고, 로컬 `enqueue`와 같은 검사(POLICY §5)를 돌리고, 맞으면 `expectedHeadOid`로 큐에 넣는다. 댓글 본문은 이벤트 파일에서만 읽고 셸에 넣지 않는다. `/enqueue <SHA>` 한 줄이 아니면 아무것도 하지 않는다.
+4. workflow가 `<!-- baseline-enqueue:<요청 댓글 id> result=queued|refused|error -->`로 시작하는 댓글에 결과와 이유를 쓴다. `enqueue`는 `github-actions[bot]`이 쓴 그 댓글만 믿고 100초까지 기다려(에이전트 셸의 기본 제한 120초 안) 출력하고 종료 코드(0 넣음, 1 거절, 2 오류)로 돌려준다.
+5. 요청 댓글과 workflow의 답은 「리뷰 보고 뒤의 판정하지 않은 외부 리뷰」로 세지 않는다. 요청 댓글은 `/enqueue <SHA>` 한 줄일 때만 그렇다. 다른 글이 붙으면 지적으로 센다.
+
+- 이 workflow를 더하는 PR은 `.github/workflows/**`라 어려움이고 소유자가 병합한다. 권한은 `contents: write`(큐에 넣기와 협업자 권한 조회), `pull-requests: write`, `issues: write`(답 댓글), `checks: read`, `statuses: read`다.
+- 소비 레포가 이 workflow보다 먼저 `upgrade`로 `enqueue-comment` 명령이 있는 판(이 기능이 들어간 태그 이후)을 받아야 한다.
+- 이 workflow의 `GITHUB_TOKEN`으로 큐에 넣을 수 있는지는 처음 쓸 때 확인한다. 안 되면 workflow가 그 이유를 PR에 답한다. 그때는 소유자가 화면에서 넣거나 로컬에서 부른다.
+- 에이전트가 쓰기 권한자의 계정으로 `/enqueue` 댓글을 직접 달아도 같은 검사를 거친다. `main`·큐·필수 CI는 그대로 막는다.
+- 어려움 PR, fork PR은 이 길로도 넣어지지 않는다.
+- 100초 안에 답이 없으면 `enqueue`는 2로 끝난다. 요청 댓글은 이미 달렸으므로 다시 부르지 말고 PR의 답 댓글을 본다. 같은 PR의 요청은 하나씩 차례로 돈다.
+- 답 댓글이 `queued`여도 큐가 실제로 병합까지 가는지는 `merge_group` CI가 `GITHUB_TOKEN`이 넣은 항목에서도 도는지에 달려 있다. 처음 쓸 때 확인한다.
 
 ## 저장소 설정 파일
 
