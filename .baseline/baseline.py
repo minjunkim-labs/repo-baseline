@@ -22,7 +22,7 @@ import tempfile
 import time
 from urllib.parse import quote
 
-VERSION = "2.2.0"
+VERSION = "2.3.0"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
 ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
@@ -35,8 +35,8 @@ MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "f5216fadb17f42b92218cf17f42a55d4911eceab78d6e3b92d5b448878fb4185"},
-    ".github/pull_request_template.md": {"sha256": "e4d300491ddc034b8b5d20103e73da99d09ba67ac746c8210b46b4673dd50a62"},
+    "REVIEW.md": {"block_sha256": "f5e1101fdcf937fa32494640097281009ef1e2fdd27f4ab0c93f0f12fb0c355f"},
+    ".github/pull_request_template.md": {"sha256": "093b514f391e73dfc4de4d4f84db8297d635ba176484b183d2606032a2d3beaa"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
     "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
@@ -898,17 +898,38 @@ def gh_api(path, raw=False):
     raw returns file bytes, or None when the file is not there."""
     accept = "application/vnd.github.raw+json" if raw else "application/vnd.github+json"
     result = subprocess.run(["gh", "api", "-H", f"Accept: {accept}", path], capture_output=True)
-    if result.returncode:
-        if raw and b"(HTTP 404)" in result.stderr:
+    code, stdout, stderr = result.returncode, result.stdout, result.stderr
+    if code and b"IP allow list" in stderr:  # e.g. cursor/plugins refuses the Actions token (#175)
+        refused = stderr.strip()
+        code, stdout, stderr = anonymous_api(path, accept)
+        if code:  # keep why the token failed: a private repo answers 404 without one
+            stderr += b"; " + refused
+    if code:
+        if raw and b"(HTTP 404)" in stderr:
             return None
-        raise OSError(f"gh api {path}: {result.stderr.decode('utf-8', 'replace').strip()}")
-    if len(result.stdout) > MAX_READ * 32:
+        raise OSError(f"gh api {path}: {stderr.decode('utf-8', 'replace').strip()}")
+    if len(stdout) > MAX_READ * 32:
         raise OSError(f"gh api {path}: 응답이 너무 크다")
     if raw:
-        if len(result.stdout) > MAX_READ:
+        if len(stdout) > MAX_READ:
             raise OSError(f"{path}: {MAX_READ}바이트를 넘는다")
-        return result.stdout
-    return json.loads(result.stdout)
+        return stdout
+    return json.loads(stdout)
+
+
+def anonymous_api(path, accept):
+    """(code, body, error) of the same REST call without a token. An org's IP allow list refuses tokens
+    from other IPs; its public repos stay readable without one (60 calls an hour, so only as a retry)."""
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+    request = Request(f"https://api.github.com/{path}", headers={"Accept": accept, "User-Agent": "repo-baseline"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            return 0, response.read(MAX_READ * 32 + 1), b""
+    except HTTPError as error:
+        return 1, b"", f"토큰 없이: {error.reason} (HTTP {error.code})".encode()
+    except OSError as error:  # URLError: network failure or timeout
+        return 1, b"", f"토큰 없이: {error}".encode()
 
 
 def pages(path, key=None):
@@ -2489,8 +2510,7 @@ def cmd_doctor(args):
 # github plan|apply: repository settings and status labels (owner only)
 GITHUB_PROFILE = ".github/repository-settings.json"
 # Common values. A project file holds only its own values (identity, required checks, allowed actions,
-# exceptions) and wins: objects merge by key, lists are replaced whole. test_github.py keeps this equal to
-# the v1 templates/github/repository-settings.json until v1 is deleted.
+# exceptions) and wins: objects merge by key, lists are replaced whole.
 GITHUB_SETTINGS = json.loads(r"""
 {"schema_version": 1, "repository": "REPLACE-OWNER/NAME", "repository_id": 0, "default_branch": "main",
  "expected": {
