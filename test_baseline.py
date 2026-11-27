@@ -2119,6 +2119,23 @@ class EnqueueTests(unittest.TestCase):
         self.assertIn("enqueue.yml", out)
         self.assertEqual(gh.writes, [])
 
+    def test_the_workflow_only_runs_for_trusted_authors_and_never_shares_a_group_between_comments(self):
+        text = (Path(__file__).parent / "github" / "enqueue.yml").read_text()
+        gate = re.search(r"^    if: >-\n((?:      .*\n)+)", text, re.M)
+        self.assertIsNotNone(gate, "the job's if: must stay a folded block")
+        expr = " ".join(gate.group(1).split())
+        self.assertTrue(expr.startswith("${{ ") and expr.endswith(" }}"), expr)
+        # The job must need all three conditions: a `||`, a `!` or a trailing `|| true` would run it for anyone.
+        self.assertNotIn("||", expr)
+        self.assertNotIn("!", expr)
+        self.assertEqual(expr[4:-3].split(" && "), [
+            "github.event.issue.pull_request",
+            "startsWith(github.event.comment.body, '/enqueue ')",
+            "contains(fromJSON('[\"OWNER\",\"MEMBER\",\"COLLABORATOR\"]'), github.event.comment.author_association)"])
+        # A group keeps one waiting job, so a group shared by a PR's comments cancels the waiting request unanswered.
+        self.assertIn("group: enqueue-${{ github.event.comment.id }}", text)
+        self.assertNotIn("github.event.issue.number }}\n", text.split("concurrency:")[1])
+
     def test_cloud_times_out_without_an_answer_and_ignores_a_forged_one(self):
         gh = self.gh()
         code, out = self.cloud(gh, answer=False)
