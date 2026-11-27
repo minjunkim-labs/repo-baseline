@@ -71,7 +71,7 @@
 커밋하고 PR을 연다. 본문은 `.github/pull_request_template.md` 양식이다.
 
 - Summary: 한 일(새 저장소·옮기기·판 올리기, 켠 프로필). 완료 기준: `check`·`budget`이 통과한다(`check`는 `.gitignore`의 비밀값 줄도 본다), 명령 4칸이 돈다, 비밀값이 스테이징되지 않았다. 전에 통과하던 프로젝트 명령은 그대로 통과한다.
-- Evidence: 5절 출력. 확인하지 않은 범위.
+- Evidence: 5절 출력. 확인하지 않은 범위. 「실행 확인」은 기준 파일만 바꿨으면 `없음: 프로젝트 동작을 바꾸지 않았다`.
 - 등급: 1·2절은 `.baseline/`과 `.claude/`를 더하므로 어려움이다. 4절에서 관리 바이트만 바꿨으면 `review-preflight`가 쉬움으로 볼 수 있다.
 - Review: 비워 둔다. 리뷰는 다른 컨텍스트가 원본의 `prompts/review.md`로 한다.
 
