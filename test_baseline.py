@@ -1009,10 +1009,10 @@ class SourceTests(unittest.TestCase):
             for word in ("MUST", "NEVER", "!"):
                 self.assertNotIn(word, text, rel)
 
-    def test_pr_template_has_the_review_fields_enqueue_reads(self):
+    def test_pr_template_has_the_review_fields_the_report_tools_read(self):
         text = (ROOT / "core/.github/pull_request_template.md").read_text(encoding="utf-8")
         review = text.split("## Review\n", 1)[1].splitlines()
-        for field in ("리뷰한 head:", "등급:", "남은 지적:"):
+        for field in ("리뷰한 head:", "검토 범위:", "등급:", "남은 지적:"):
             self.assertEqual([line for line in review if line.startswith(field)], [field], field)
 
 
@@ -2043,7 +2043,7 @@ class EnqueueTests(unittest.TestCase):
 
 
 class ReviewReportTests(unittest.TestCase):
-    SECTION = "리뷰어(구현과 다른 컨텍스트): 하위 에이전트\n리뷰한 head: {head}\n등급: 쉬움\n고친 것: 없음\n남은 지적: {left}\n"
+    SECTION = "리뷰어(구현과 다른 컨텍스트): 하위 에이전트\n리뷰한 head: {head}\n검토 범위: 1/1\n등급: 쉬움\n고친 것: 없음\n남은 지적: {left}\n"
     BODY = "## Summary\n완료 기준: x\n\n## Review\n\n리뷰한 head:\n남은 지적:\n\n🤖 footer\n\n## Summary by CodeRabbit\nc\n"
 
     def report(self, gh, text, *extra, remote="false"):
@@ -2119,6 +2119,31 @@ class ReviewReportTests(unittest.TestCase):
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "77=판정")
         self.assertEqual((code, gh.writes), (1, []), out)
         self.assertIn("77", out)
+
+    def test_the_review_scope_must_account_for_every_changed_file(self):
+        base = self.SECTION.format(head=HEAD, left="없음")
+        for scope, reason in (("검토 범위: 1/1\n", None), ("검토 범위: 0/1 (건너뜀: src/app.py — 생성 파일)\n", None),
+                              ("", "한 줄이 아니다"), ("검토 범위: 1/1\n검토 범위: 1/1\n", "한 줄이 아니다"),
+                              ("검토 범위: 전부\n", "<검토한 수>/<전체 수>"), ("검토 범위: 2/2\n", "변경 파일 수 1"),
+                              ("검토 범위: 0/1\n", "더해도"), ("검토 범위: 0/1 (건너뜀: src/app.py)\n", "까닭이 없다"),
+                              ("검토 범위: 0/1 (건너뜀: x.py — 이유)\n", "변경 파일이 아니다")):
+            gh = self.gh()
+            code, out = self.report(gh, base.replace("검토 범위: 1/1\n", scope))
+            self.assertEqual(code, 0 if reason is None else 1, (scope, out))
+            if reason:
+                self.assertIn(reason, out)
+                self.assertEqual(gh.writes, [])
+
+    def test_a_finding_that_cites_a_line_past_the_end_of_a_changed_file_is_not_written(self):
+        gh = self.gh()  # src/app.py has one line
+        text = self.SECTION.format(head=HEAD, left="\n- [Spec] P1 src/app.py:1 ok\n- [Standards] P2 src/app.py:9 x")
+        code, out = self.report(gh, text)
+        self.assertEqual((code, gh.writes), (1, []), out)
+        self.assertIn("src/app.py:9", out)
+        self.assertNotIn("src/app.py:1 ", out)
+        gh = self.gh()  # other paths and a range inside the file pass
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="\n- [Spec] P1 other.py:900 a\n- [Spec] P2 src/app.py:1-1 b"))
+        self.assertEqual(code, 0, out)
 
     def test_a_reply_id_is_answered_in_its_thread(self):
         gh = self.gh()
