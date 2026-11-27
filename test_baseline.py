@@ -1776,7 +1776,12 @@ class EnqueueGitHub(FakeGitHub):
             self.calls.append(list(argv))
             if argv[4] in self.failing:
                 raise subprocess.CalledProcessError(1, argv)
-            self.writes.append((argv[3], argv[4], json.loads(kwargs["input"])))
+            self.writes.append((argv[3], argv[4], json.loads(kwargs["input"]) if kwargs.get("input") is not None else None))
+            resolve = re.fullmatch(r"repos/o/r/pulls/7/ccr/comments/(\d+)/resolve", argv[4])
+            if argv[3] == "POST" and resolve:  # the proxy's route: resolves the thread the comment is in
+                for t in self.threads:
+                    if int(resolve[1]) in [c["databaseId"] for c in t["comments"]["nodes"]]:
+                        t["isResolved"] = True
             if argv[3] == "PATCH":
                 self.body = self.writes[-1][2]["body"]
             if (argv[3], argv[4]) == ("POST", "repos/o/r/issues/7/comments"):
@@ -1795,6 +1800,9 @@ class EnqueueGitHub(FakeGitHub):
         route = path.split("?")[0]
         if route == "repos/o/r/pulls/7" and "page=" not in path:
             return dict(super().answer(path), body=self.body)
+        if route == "repos/o/r/pulls/7/ccr/review_threads":
+            return [{"resolved": t["isResolved"], "comment_ids": [c["databaseId"] for c in t["comments"]["nodes"]]}
+                    for t in self.threads]
         if route == f"repos/o/r/commits/{HEAD}/check-runs":
             return {"check_runs": self.checks}
         if route == "repos/o/r/pulls/7/commits" and "page=1" in path:
@@ -2222,10 +2230,12 @@ class ReviewReportTests(unittest.TestCase):
         gh.edits = [("2026-01-01T00:30:00Z", "User", "owner")]
         self.assertEqual(EnqueueTests.enqueue(EnqueueTests(), gh)[0], 0)
 
-    def test_local_run_after_a_cloud_run_resolves_without_answering_again(self):
+    def test_local_run_after_a_cloud_run_that_could_not_resolve_finishes_without_answering_again(self):
         gh = self.gh()
+        gh.failing.add("repos/o/r/pulls/7/ccr/comments/5/resolve")  # the proxy route refused
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림", remote="true")
         self.assertEqual(code, 0, out)
+        self.assertIn("해결하지 못했다", out)
         self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/5/replies"),
                                                      ("PATCH", "repos/o/r/pulls/7")])
         gh.extra["repos/o/r/pulls/7/comments"].append({"id": 11, "in_reply_to_id": 5, "body": "판정: 버림",
@@ -2344,17 +2354,47 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertEqual([w[0] for w in gh.writes], ["PATCH"])
 
-    def test_cloud_answers_threads_but_leaves_resolving_to_a_local_session(self):
+    def test_cloud_answers_and_resolves_threads_through_the_proxy_routes(self):
         gh = self.gh()
-        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정", remote="true")
-        self.assertEqual(code, 0, out)
-        self.assertEqual([w[0] for w in gh.writes], ["POST", "PATCH"])
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "9=판정", remote="true")
+        self.assertEqual(code, 0, out)  # 9 is a reply in the thread whose first comment is 5
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/comments/5/replies"),
+                                                     ("POST", "repos/o/r/pulls/7/ccr/comments/5/resolve"),
+                                                     ("PATCH", "repos/o/r/pulls/7")])
+        self.assertIsNone(gh.writes[1][2])
+        self.assertTrue(gh.threads[0]["isResolved"])
         self.assertFalse(any(argv[2] == "graphql" for argv in gh.calls))
-        self.assertIn("로컬 세션", out)
-        gh = self.gh()  # a wrong id stops it before any write in the cloud too
+        self.assertIn("스레드를 해결했다", out)
+        gh.writes = []  # a rerun sees the thread resolved and writes only the body
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정", remote="true")
+        self.assertEqual((code, [w[0] for w in gh.writes]), (0, ["PATCH"]), out)
+        self.assertIn("이미 해결됐다", out)
+
+    def test_cloud_a_wrong_id_stops_before_any_write(self):
+        gh = self.gh()
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=a", "--thread", "77=b",
                                 remote="true")
         self.assertEqual((code, gh.writes), (1, []), out)
+        gh = self.gh()
+        gh.threads = []  # a comment the proxy lists no thread for
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=a", remote="true")
+        self.assertEqual((code, gh.writes), (1, []), out)
+
+    def test_cloud_judges_an_existing_reply_by_author_association_without_the_permission_lookup(self):
+        said = {"id": 11, "in_reply_to_id": 5, "body": "판정: 버림", "user": {"login": "owner", "type": "User"}}
+        gh = self.gh()
+        gh.extra["repos/o/r/pulls/7/comments"].append(dict(said, author_association="OWNER"))
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림", remote="true")
+        self.assertEqual(code, 0, out)
+        self.assertIn("같은 판정이 이미 있다", out)
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/ccr/comments/5/resolve"),
+                                                     ("PATCH", "repos/o/r/pulls/7")])
+        self.assertFalse(any("/collaborators/" in argv[-1] for argv in gh.calls))  # the proxy blocks it
+        gh = self.gh()  # an outsider's identical words do not count
+        gh.extra["repos/o/r/pulls/7/comments"].append(dict(said, author_association="NONE"))
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림", remote="true")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(gh.writes[0][:2], ("POST", "repos/o/r/pulls/7/comments/5/replies"))
 
 
 class AllowEnqueueHookTests(unittest.TestCase):

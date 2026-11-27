@@ -1480,7 +1480,8 @@ def cmd_review_preflight(args):
 
 
 def gh_graphql(query, **fields):
-    """GitHub GraphQL. Only the merge queue and review threads need it (no REST endpoint); cloud proxies block it."""
+    """GitHub GraphQL, for local runs. Only the merge queue and review threads need it (no REST endpoint). Cloud
+    proxies block it: a cloud session asks the enqueue workflow and uses the proxy's `ccr` review-thread routes."""
     argv = ["gh", "api", "graphql", "-f", f"query={query}"]
     for key, value in fields.items():
         argv += ["-F" if isinstance(value, int) else "-f", f"{key}={value}"]
@@ -1885,22 +1886,29 @@ def cmd_review_report(args):
             if len(set(roots)) != len(roots):
                 print("review-report: 쓰지 않는다: 같은 스레드를 --thread로 두 번 줬다")
                 return 1
-            # A cloud run answers without resolving; the local run that carries the report over resolves only.
             # Only a writer's reply counts: in a public repo anyone can post the same words first.
+            # The cloud proxy blocks the collaborator permission lookup, so there the comment's own
+            # author_association stands in (shortcut: it also admits a collaborator with read access only).
             wanted = set(judged)
             posted = set()
             for c in comments.values():
                 key = (c.get("in_reply_to_id"), (c.get("body") or "").strip())
                 login = (c.get("user") or {}).get("login")
-                if key in wanted and login and not is_bot(c.get("user")) and gh_api(
-                        f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission") in (
-                        "admin", "write"):
+                if key in wanted and login and not is_bot(c.get("user")) and (
+                        c.get("author_association") in ("OWNER", "MEMBER", "COLLABORATOR") if cloud else
+                        gh_api(f"repos/{repo}/collaborators/{quote(login, safe='')}/permission").get("permission")
+                        in ("admin", "write")):
                     posted.add(key)
-        if judged and not cloud:
-            owner, name = repo.split("/")
-            nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
-                "reviewThreads"]["nodes"]
-            threads = {c["databaseId"]: t for t in nodes for c in t["comments"]["nodes"]}
+        if judged:  # {first comment id of the thread: {"id": GraphQL id (local only), "resolved": bool}}
+            if cloud:  # the proxy's REST routes for review threads (GraphQL is blocked)
+                nodes = gh_api(f"repos/{repo}/pulls/{number}/ccr/review_threads")
+                threads = {cid: {"resolved": t["resolved"]} for t in nodes for cid in t["comment_ids"]}
+            else:
+                owner, name = repo.split("/")
+                nodes = gh_graphql(PR_QUERY, owner=owner, name=name, number=int(number))["repository"]["pullRequest"][
+                    "reviewThreads"]["nodes"]
+                threads = {c["databaseId"]: {"id": t["id"], "resolved": t["isResolved"]}
+                           for t in nodes for c in t["comments"]["nodes"]}
             missing = [str(cid) for cid, _ in judged if cid not in threads]
             if missing:
                 print(f"review-report: 쓰지 않는다: 리뷰 스레드에 없는 댓글 id: {', '.join(missing)}")
@@ -1908,7 +1916,7 @@ def cmd_review_report(args):
         answered = []
         try:
             for cid, reply in judged:
-                if not cloud and threads[cid]["isResolved"]:  # a rerun after a partial failure answers once
+                if threads[cid]["resolved"]:  # a rerun after a partial failure answers once
                     print(f"review-report: 댓글 {cid}의 스레드는 이미 해결됐다. 건너뛴다")
                     continue
                 if (cid, reply) in posted:
@@ -1917,10 +1925,14 @@ def cmd_review_report(args):
                     github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
                     answered.append(str(cid))
                 if cloud:
-                    print(f"review-report: 댓글 {cid}에 답했다. 스레드 해결은 로컬 세션이 한다(클라우드는 GraphQL이 막힌다)")
+                    try:
+                        github_write("POST", f"repos/{repo}/pulls/{number}/ccr/comments/{cid}/resolve", None)
+                    except (OSError, subprocess.SubprocessError):  # the route is the proxy's, not GitHub's: say what is left
+                        print(f"review-report: 댓글 {cid}에 답했다. 스레드는 해결하지 못했다. 로컬 세션이나 GitHub 화면에서 해결한다")
+                        continue
                 else:
                     gh_graphql(RESOLVE, id=threads[cid]["id"])
-                    print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
+                print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
         except (OSError, subprocess.SubprocessError) as error:
             raise OSError(f"{error} (이미 답한 댓글: {', '.join(answered) or '없음'}. 본문은 쓰지 않았다)") from error
         pr = gh_api(f"repos/{repo}/pulls/{number}")  # read again: bots rewrite the body while threads are answered

@@ -24,7 +24,7 @@
 | `run <setup\|check\|test\|build>` | `commands.json`의 명령을 돌린다. `.mise.toml`에 판이 있으면 `mise exec`로 돈다 |
 | `doctor` | 이 기기가 기준과 다른 곳(도구 판, WSL, 같은 이름 개인 스킬, `autoMode.environment`, `.mise.toml` 신뢰 등)과 고치는 명령을 출력한다 |
 | `review-preflight <PR>` | GitHub REST로 PR의 리뷰 등급(문서·쉬움·어려움)과 이유, 리뷰 층(모델 층·effort), diff 명령을 출력한다 |
-| `review-report <PR> --file <파일>` | 리뷰어가 스레드 판정에 답하고 PR 본문의 Review 칸을 쓴다 |
+| `review-report <PR> --file <파일>` | 리뷰어가 스레드 판정에 답하고 해결하고 PR 본문의 Review 칸을 쓴다. 클라우드는 GraphQL 대신 프록시가 여는 `pulls/<번호>/ccr/` 경로로 스레드를 읽고 해결한다 |
 | `enqueue <PR> <리뷰한 head>` | 문서·쉬움 PR을 다시 확인하고 머지 큐에 넣는다. 어려움 PR은 넣지 않는다. 클라우드에서는 GraphQL이 막혀 [github/enqueue.yml](github/enqueue.yml) workflow에 `/enqueue` 댓글로 요청하고 그 답을 기다린다 |
 | `budget` | `AGENTS.md`·`REVIEW.md`·`prompts/review.md` 크기를 공식 문서의 상한과 비교한다 |
 | `skills-bump [--check]` | 스킬 출처마다 7일 지난 새 판으로 사본을 바꾼다. repo-baseline 전용 |
