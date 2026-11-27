@@ -900,7 +900,10 @@ def gh_api(path, raw=False):
     result = subprocess.run(["gh", "api", "-H", f"Accept: {accept}", path], capture_output=True)
     code, stdout, stderr = result.returncode, result.stdout, result.stderr
     if code and b"IP allow list" in stderr:  # e.g. cursor/plugins refuses the Actions token (#175)
+        refused = stderr.strip()
         code, stdout, stderr = anonymous_api(path, accept)
+        if code:  # keep why the token failed: a private repo answers 404 without one
+            stderr += b"; " + refused
     if code:
         if raw and b"(HTTP 404)" in stderr:
             return None
@@ -925,6 +928,8 @@ def anonymous_api(path, accept):
             return 0, response.read(MAX_READ * 32 + 1), b""
     except HTTPError as error:
         return 1, b"", f"토큰 없이: {error.reason} (HTTP {error.code})".encode()
+    except OSError as error:  # URLError: network failure or timeout
+        return 1, b"", f"토큰 없이: {error}".encode()
 
 
 def pages(path, key=None):

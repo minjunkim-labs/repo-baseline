@@ -2336,7 +2336,7 @@ class AnonymousRetryTests(unittest.TestCase):
     def test_an_ip_allow_list_refusal_is_read_again_without_a_token(self):
         import io
         from unittest import mock
-        from urllib.error import HTTPError
+        from urllib.error import HTTPError, URLError
         import baseline as b
         refused = subprocess.CompletedProcess([], 1, b"", b"gh: ... has an IP allow list enabled ... (HTTP 403)\n")
         seen = []
@@ -2345,16 +2345,22 @@ class AnonymousRetryTests(unittest.TestCase):
             seen.append(request)
             if "missing" in request.full_url:
                 raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+            if "offline" in request.full_url:
+                raise URLError("timed out")
             return io.BytesIO(b'[{"sha": "abc"}]')
         with mock.patch.object(b.subprocess, "run", return_value=refused), \
                 mock.patch("urllib.request.urlopen", urlopen):
             self.assertEqual(b.gh_api("repos/c/p/commits?per_page=1"), [{"sha": "abc"}])
             self.assertIsNone(b.contents("c/p", "missing", "main"))
+            with self.assertRaisesRegex(OSError, r"^gh api repos/c/p/missing: 토큰 없이: Not Found .*IP allow list"):
+                b.gh_api("repos/c/p/missing")  # a private repo: the token's refusal stays in the message
+            with self.assertRaisesRegex(OSError, r"^gh api repos/c/p/offline: 토큰 없이: .*timed out"):
+                b.gh_api("repos/c/p/offline")
             with mock.patch.object(b.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, b"", b"(HTTP 403)")):
                 self.assertRaises(OSError, b.gh_api, "repos/c/p/commits")  # other refusals are not retried
         self.assertEqual(seen[0].full_url, "https://api.github.com/repos/c/p/commits?per_page=1")
         self.assertFalse(seen[0].has_header("Authorization"))
-        self.assertEqual(len(seen), 2)
+        self.assertEqual(len(seen), 4)
 
 
 class SkillsBumpTests(unittest.TestCase):
