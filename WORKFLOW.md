@@ -49,7 +49,7 @@ pstack 스킬은 사람이 요청할 때만 쓴다. 이 저장소의 규칙이 p
 
 ### 계획 도구(Linear)
 
-GitHub Issue가 원본이다(POLICY §8). 목표·완료 조건·결정 기록·열림과 닫힘·하위 Issue·차단 관계와 상태 라벨은 Issue에 둔다. Linear를 쓰면 Linear의 GitHub Issues 동기화로만 붙이고, 사이클·프로젝트·공개하지 않을 판단만 Linear에 둔다. 차단 관계는 동기화되지 않는다([Linear GitHub 문서](https://linear.app/docs/github), 2026-11-20 확인).
+GitHub Issue가 원본이다(POLICY §8). 목표·완료 조건·결정 기록·열림과 닫힘·하위 Issue·차단 관계와 상태 라벨은 Issue에 둔다. Linear를 쓰면 Linear의 GitHub Issues 동기화로만 붙이고, 사이클·프로젝트·공개하지 않을 판단만 Linear에 둔다. 차단 관계는 동기화되지 않는다. 제목·설명·우선순위·동기화 스레드의 댓글은 공개 Issue로 동기화되므로, 공개하지 않을 판단은 동기화 스레드 밖의 댓글에만 둔다([Linear GitHub 문서](https://linear.app/docs/github), 2026-11-20 확인).
 
 ## 스킬 사본
 
