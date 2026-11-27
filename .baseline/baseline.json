@@ -10,7 +10,7 @@
       "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
     },
     ".claude/skills/arena/SKILL.md": {
-      "sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"
+      "sha256": "24366948a9546dcb7dfc15a5cf7a4571edd917a8c1efef060b458a0fad608053"
     },
     ".claude/skills/blast-radius/LICENSE": {
       "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
@@ -193,7 +193,7 @@
       "sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"
     },
     ".claude/skills/unslop/SKILL.md": {
-      "sha256": "ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f"
+      "sha256": "2b823fd069e031c1420180be8e0d4f5e2fd25bf2c428049e5c835c59a489b5e0"
     },
     ".claude/skills/wayfinder/LICENSE": {
       "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"
@@ -208,7 +208,7 @@
       "prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"
     },
     ".github/pull_request_template.md": {
-      "sha256": "093b514f391e73dfc4de4d4f84db8297d635ba176484b183d2606032a2d3beaa"
+      "sha256": "be9bb5adbfed5a924d05625197af43dcd48aef4099b264d1fef58c580db5494b"
     },
     "AGENTS.md": {
       "block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"
@@ -217,7 +217,7 @@
       "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
     },
     "REVIEW.md": {
-      "block_sha256": "f5e1101fdcf937fa32494640097281009ef1e2fdd27f4ab0c93f0f12fb0c355f"
+      "block_sha256": "9e39e59841aabc89ea7f7b489961da36979b7aa9dda1e8d714821449951c8af1"
     },
     "docs/agents/LICENSE": {
       "sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"

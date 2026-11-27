@@ -35,8 +35,8 @@ MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "f5e1101fdcf937fa32494640097281009ef1e2fdd27f4ab0c93f0f12fb0c355f"},
-    ".github/pull_request_template.md": {"sha256": "093b514f391e73dfc4de4d4f84db8297d635ba176484b183d2606032a2d3beaa"},
+    "REVIEW.md": {"block_sha256": "9e39e59841aabc89ea7f7b489961da36979b7aa9dda1e8d714821449951c8af1"},
+    ".github/pull_request_template.md": {"sha256": "be9bb5adbfed5a924d05625197af43dcd48aef4099b264d1fef58c580db5494b"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
     "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
@@ -44,7 +44,7 @@ MANAGED = {
     "docs/agents/domain.md": {"seed_sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
     "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
-    ".claude/skills/arena/SKILL.md": {"sha256": "2e418753dfc64239e4d6412e7b739196d268e22ef1a4ecfbb8c0498bd3c82636"},
+    ".claude/skills/arena/SKILL.md": {"sha256": "24366948a9546dcb7dfc15a5cf7a4571edd917a8c1efef060b458a0fad608053"},
     ".claude/skills/blast-radius/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/blast-radius/SKILL.md": {"sha256": "4248d03e22365207d2e5f90c9542720f80a88a6b42fd542ef88dde3cf9f9223f"},
     ".claude/skills/code-review/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
@@ -105,7 +105,7 @@ MANAGED = {
     ".claude/skills/to-tickets/SKILL.md": {"sha256": "56ec23c5b2782785d4e65bff9e315b6d3aeb4ef977c174a219e99489fada1995"},
     ".claude/skills/to-tickets/agents/openai.yaml": {"sha256": "21bc6215fffcd7614e9f772bb1760e87cc5fc7dcc707e7d282bc9414267a6090"},
     ".claude/skills/unslop/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
-    ".claude/skills/unslop/SKILL.md": {"sha256": "ccab208e315ce05e2fab8eeee2f7879f1289b5c6844840b2d307adf31c79144f"},
+    ".claude/skills/unslop/SKILL.md": {"sha256": "2b823fd069e031c1420180be8e0d4f5e2fd25bf2c428049e5c835c59a489b5e0"},
     ".claude/skills/wayfinder/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/wayfinder/SKILL.md": {"sha256": "0c9fa96791aebf3b7d654cf35c6aadde97d81f57c17b07d13b27c14d9c46561f"},
     ".claude/skills/wayfinder/agents/openai.yaml": {"sha256": "88bc81a11a6d52ac67aeaa76b8b619e387020d47c5133a4dd4927fd15c4ad073"},
@@ -163,7 +163,10 @@ PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
             "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
             "reviewThreads(first:100){totalCount nodes{id isResolved comments(first:100){nodes{databaseId}}}}}}}")
-REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "검토 범위:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+SCOPE_RE = re.compile(r"(\d+)/(\d+)(?: \(건너뜀: (.+)\))?")
+# `path:line` or `path:start-end` in a finding. A path that is not a changed file is left alone: a finding may cite a caller.
+CITE_RE = re.compile(r"(?<![\w/.-])([\w.-]+(?:/[\w.-]+)*):(\d+)(?:-(\d+))?(?!\d)")
 RESOLVE = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}"
 ENQUEUE = ("mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha})"
            "{mergeQueueEntry{position}}}")
@@ -1667,6 +1670,65 @@ def cmd_enqueue(args):
     return 0
 
 
+def finding_items(lines):
+    """The `- ` items right after the one 「남은 지적:」 line. None or two such lines: no items (it is refused)."""
+    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
+    items = []
+    for line in lines[starts[0] + 1:] if len(starts) == 1 else ():
+        if not line.startswith(("- ", "* ")):
+            break
+        items.append(line[2:].strip())
+    return items
+
+
+def scope_problems(text, paths):
+    """Why 「검토 범위」 does not account for every changed file of the PR (paths).
+
+    It cannot show a file was read, only that the reviewer wrote down how many were and which were skipped."""
+    lines = section(("## Review\n" + text).encode("utf-8"), "Review")
+    at = [line for line in lines if line.startswith("검토 범위:")]
+    if len(at) != 1:
+        return ["「검토 범위」가 한 줄이 아니다"]
+    found = SCOPE_RE.fullmatch(at[0][len("검토 범위:"):].strip().strip("`"))
+    if not found:
+        return ["「검토 범위」는 `<검토한 수>/<전체 수>`이고, 건너뛰었으면 ` (건너뜀: <경로> — <이유>; …)`가 붙는다"]
+    done, total = int(found[1]), int(found[2])
+    problems = [] if total == len(paths) else [f"「검토 범위」의 전체 수 {total}가 PR의 변경 파일 수 {len(paths)}와 다르다"]
+    skipped = [item.strip() for item in (found[3] or "").split(";") if item.strip()]
+    named = set()
+    for item in skipped:
+        path, arrow, reason = item.partition(" — ")
+        if not arrow or not reason.strip():
+            problems.append(f"「검토 범위」의 건너뜀 항목에 까닭이 없다: {item}")
+        elif path not in paths:
+            problems.append(f"「검토 범위」의 건너뜀 경로가 PR의 변경 파일이 아니다: {path}")
+        else:
+            named.add(path)
+    if done + len(named) != total or len(named) != len(skipped):
+        problems.append("「검토 범위」의 검토한 수와 건너뜀 경로 수를 더해도 전체 수가 되지 않는다(경로는 한 번씩)")
+    return problems
+
+
+def cite_problems(repo, head, text, paths):
+    """Findings that cite `path:line` outside the head version of a changed file: the position drifted."""
+    items = finding_items(section(("## Review\n" + text).encode("utf-8"), "Review"))
+    problems, length = [], {}
+    for item in items:
+        for path, first, last in CITE_RE.findall(item):
+            if path not in paths:
+                continue
+            if path not in length:
+                try:
+                    data = contents(repo, path, head)
+                except OSError:  # too large to read: the position stays unchecked
+                    data = None
+                length[path] = None if data is None else len(data.splitlines())  # None: deleted in the PR
+            start, end = int(first), int(last or first)
+            if length[path] is not None and not 1 <= start <= end <= length[path]:
+                problems.append(f"「남은 지적」이 {path}:{first}{'-' + last if last else ''}를 가리키는데 head의 그 파일은 {length[path]}줄이다")
+    return problems
+
+
 def report_problems(text, head):
     """Why a `## Review` section text is not one enqueue can read, checked with enqueue's own parser."""
     if any(line.startswith("## ") for line in text.splitlines()):
@@ -1676,13 +1738,7 @@ def report_problems(text, head):
     problems = [] if fields["리뷰한 head"] == head else [f"「리뷰한 head」가 지금 PR head {head}가 아니다"]
     if fields["등급"] not in GRADES:
         problems.append(f"「등급」이 {'·'.join(GRADES)} 중 하나 한 줄이 아니다")
-    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
-    at = starts[0] if len(starts) == 1 else len(lines)  # none or two lines: items stay empty and it is refused
-    items = []
-    for line in lines[at + 1:]:
-        if not line.startswith(("- ", "* ")):
-            break
-        items.append(line[2:].strip())
+    items = finding_items(lines)
     left = (fields["남은 지적"] or "").removesuffix(" (목록이 이어진다)")
     if not (left == "없음" and not items or left == "" and items and "없음" not in items
             or left and not left.startswith("없음") and not items):
@@ -1721,7 +1777,11 @@ def cmd_review_report(args):
             judged.append((int(cid), reply.strip()))
         repo, number = pr_target(args.pr, args.remote)
         head = gh_api(f"repos/{repo}/pulls/{number}")["head"]["sha"]
-        problems = report_problems(text, head)
+        files = pages(f"repos/{repo}/pulls/{number}/files")
+        if len(files) >= 3000:
+            raise OSError("REST가 보여 주는 한도(파일 3000개)에 닿아 변경 파일을 다 셀 수 없다")
+        paths = {f["filename"] for f in files}
+        problems = report_problems(text, head) + scope_problems(text, paths) + cite_problems(repo, head, text, paths)
         if problems:
             for problem in problems:
                 print(f"review-report: 쓰지 않는다: {problem}")

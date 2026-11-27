@@ -133,13 +133,13 @@
     },
     "pstack": {
       "branch": "main",
-      "commit": "bf0c7cd80abdbf7fe47b634978a7d1b4071f71a7",
+      "commit": "aaeb0ea3a0584995aa8f55ce44c6c5259414b896",
       "days": 7,
       "license": "pstack/LICENSE",
       "plugin": "pstack/plugin.json",
       "repo": "cursor/plugins",
       "update": "commit",
-      "version": "0.15.42"
+      "version": "0.15.46"
     }
   }
 }
