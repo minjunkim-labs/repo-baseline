@@ -35,8 +35,8 @@ MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "f5e1101fdcf937fa32494640097281009ef1e2fdd27f4ab0c93f0f12fb0c355f"},
-    ".github/pull_request_template.md": {"sha256": "093b514f391e73dfc4de4d4f84db8297d635ba176484b183d2606032a2d3beaa"},
+    "REVIEW.md": {"block_sha256": "33d3accd301a743e3087bf4a37fb8a2ddaa51094e4a2f2c4d22b626787a66391"},
+    ".github/pull_request_template.md": {"sha256": "be9bb5adbfed5a924d05625197af43dcd48aef4099b264d1fef58c580db5494b"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
     "docs/agents/issue-tracker.md": {"seed_sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
@@ -163,7 +163,10 @@ PASSED = {"success", "neutral", "skipped"}
 PR_QUERY = ("query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest("
             "number:$number){id body createdAt userContentEdits(last:100){nodes{editedAt editor{__typename}}} "
             "reviewThreads(first:100){totalCount nodes{id isResolved comments(first:100){nodes{databaseId}}}}}}}")
-REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+REPORT_FIELDS = ("리뷰어", "리뷰한 head:", "리뷰한 모델:", "검토 범위:", "등급:", "고친 것:", "남은 지적:", "외부 리뷰 판정:")
+SCOPE_RE = re.compile(r"(\d+)/(\d+)(?: \(건너뜀: (.+)\))?")
+# `path:line` or `path:start-end` in a finding. A path that is not a changed file is left alone: a finding may cite a caller.
+CITE_RE = re.compile(r"(?<![\w/.-])([\w.-]+(?:/[\w.-]+)*):(\d+)(?:-(\d+))?(?!\d)")
 RESOLVE = "mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}"
 ENQUEUE = ("mutation($id:ID!,$sha:GitObjectID!){enqueuePullRequest(input:{pullRequestId:$id,expectedHeadOid:$sha})"
            "{mergeQueueEntry{position}}}")
@@ -1646,6 +1649,65 @@ def cmd_enqueue(args):
     return 0
 
 
+def finding_items(lines):
+    """The `- ` items right after the one 「남은 지적:」 line. None or two such lines: no items (it is refused)."""
+    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
+    items = []
+    for line in lines[starts[0] + 1:] if len(starts) == 1 else ():
+        if not line.startswith(("- ", "* ")):
+            break
+        items.append(line[2:].strip())
+    return items
+
+
+def scope_problems(text, paths):
+    """Why 「검토 범위」 does not account for every changed file of the PR (paths).
+
+    It cannot show a file was read, only that the reviewer wrote down how many were and which were skipped."""
+    lines = section(("## Review\n" + text).encode("utf-8"), "Review")
+    at = [line for line in lines if line.startswith("검토 범위:")]
+    if len(at) != 1:
+        return ["「검토 범위」가 한 줄이 아니다"]
+    found = SCOPE_RE.fullmatch(at[0][len("검토 범위:"):].strip().strip("`"))
+    if not found:
+        return ["「검토 범위」는 `<검토한 수>/<전체 수>`이고, 건너뛰었으면 ` (건너뜀: <경로> — <이유>; …)`가 붙는다"]
+    done, total = int(found[1]), int(found[2])
+    problems = [] if total == len(paths) else [f"「검토 범위」의 전체 수 {total}가 PR의 변경 파일 수 {len(paths)}와 다르다"]
+    skipped = [item.strip() for item in (found[3] or "").split(";") if item.strip()]
+    named = set()
+    for item in skipped:
+        path, arrow, reason = item.partition(" — ")
+        if not arrow or not reason.strip():
+            problems.append(f"「검토 범위」의 건너뜀 항목에 까닭이 없다: {item}")
+        elif path not in paths:
+            problems.append(f"「검토 범위」의 건너뜀 경로가 PR의 변경 파일이 아니다: {path}")
+        else:
+            named.add(path)
+    if done + len(named) != total or len(named) != len(skipped):
+        problems.append("「검토 범위」의 검토한 수와 건너뜀 경로 수를 더해도 전체 수가 되지 않는다(경로는 한 번씩)")
+    return problems
+
+
+def cite_problems(repo, head, text, paths):
+    """Findings that cite `path:line` outside the head version of a changed file: the position drifted."""
+    items = finding_items(section(("## Review\n" + text).encode("utf-8"), "Review"))
+    problems, length = [], {}
+    for item in items:
+        for path, first, last in CITE_RE.findall(item):
+            if path not in paths:
+                continue
+            if path not in length:
+                try:
+                    data = contents(repo, path, head)
+                except OSError:  # too large to read: the position stays unchecked
+                    data = None
+                length[path] = None if data is None else len(data.splitlines())  # None: deleted in the PR
+            start, end = int(first), int(last or first)
+            if length[path] is not None and not 1 <= start <= end <= length[path]:
+                problems.append(f"「남은 지적」이 {path}:{first}{'-' + last if last else ''}를 가리키는데 head의 그 파일은 {length[path]}줄이다")
+    return problems
+
+
 def report_problems(text, head):
     """Why a `## Review` section text is not one enqueue can read, checked with enqueue's own parser."""
     if any(line.startswith("## ") for line in text.splitlines()):
@@ -1655,13 +1717,7 @@ def report_problems(text, head):
     problems = [] if fields["리뷰한 head"] == head else [f"「리뷰한 head」가 지금 PR head {head}가 아니다"]
     if fields["등급"] not in GRADES:
         problems.append(f"「등급」이 {'·'.join(GRADES)} 중 하나 한 줄이 아니다")
-    starts = [i for i, line in enumerate(lines) if line.startswith("남은 지적:")]
-    at = starts[0] if len(starts) == 1 else len(lines)  # none or two lines: items stay empty and it is refused
-    items = []
-    for line in lines[at + 1:]:
-        if not line.startswith(("- ", "* ")):
-            break
-        items.append(line[2:].strip())
+    items = finding_items(lines)
     left = (fields["남은 지적"] or "").removesuffix(" (목록이 이어진다)")
     if not (left == "없음" and not items or left == "" and items and "없음" not in items
             or left and not left.startswith("없음") and not items):
@@ -1700,7 +1756,11 @@ def cmd_review_report(args):
             judged.append((int(cid), reply.strip()))
         repo, number = pr_target(args.pr, args.remote)
         head = gh_api(f"repos/{repo}/pulls/{number}")["head"]["sha"]
-        problems = report_problems(text, head)
+        files = pages(f"repos/{repo}/pulls/{number}/files")
+        if len(files) >= 3000:
+            raise OSError("REST가 보여 주는 한도(파일 3000개)에 닿아 변경 파일을 다 셀 수 없다")
+        paths = {f["filename"] for f in files}
+        problems = report_problems(text, head) + scope_problems(text, paths) + cite_problems(repo, head, text, paths)
         if problems:
             for problem in problems:
                 print(f"review-report: 쓰지 않는다: {problem}")
