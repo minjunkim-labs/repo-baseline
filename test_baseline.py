@@ -1761,7 +1761,7 @@ class EnqueueGitHub(FakeGitHub):
         self.body, self.mutations, self.commit_author = body, [], {"login": self.author}
         self.edits = [(REPORTED, "User", "owner")]
         self.threads, self.writes, self.failing = [], [], set()
-        self.comment_id, self.workflow = 100, None
+        self.comment_id, self.workflow, self.resolve_ignored = 100, None, False
         self.checks = [{"id": 1, "name": "ci", "status": "completed", "conclusion": "success", "app": {"id": 15368}}]
         self.permission = {"owner": "admin", "helper": "write", "reader": "read"}
         self.extra.update({
@@ -1778,7 +1778,7 @@ class EnqueueGitHub(FakeGitHub):
                 raise subprocess.CalledProcessError(1, argv)
             self.writes.append((argv[3], argv[4], json.loads(kwargs["input"]) if kwargs.get("input") is not None else None))
             resolve = re.fullmatch(r"repos/o/r/pulls/7/ccr/comments/(\d+)/resolve", argv[4])
-            if argv[3] == "POST" and resolve:  # the proxy's route: resolves the thread the comment is in
+            if argv[3] == "POST" and resolve and not self.resolve_ignored:  # the proxy's route: resolves the thread
                 for t in self.threads:
                     if int(resolve[1]) in [c["databaseId"] for c in t["comments"]["nodes"]]:
                         t["isResolved"] = True
@@ -2245,6 +2245,31 @@ class ReviewReportTests(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertEqual([w[:2] for w in gh.writes], [("RESOLVE", "T1"), ("PATCH", "repos/o/r/pulls/7")])
 
+    def test_a_cloud_rerun_after_a_failed_resolve_does_not_answer_again(self):
+        gh = self.gh()
+        gh.failing.add("repos/o/r/pulls/7/ccr/comments/5/resolve")
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림", remote="true")
+        self.assertEqual(code, 0, out)
+        gh.extra["repos/o/r/pulls/7/comments"].append({"id": 11, "in_reply_to_id": 5, "body": "판정: 버림",
+                                                       "user": {"login": "owner", "type": "User"},
+                                                       "author_association": "MEMBER"})
+        gh.writes, gh.failing = [], set()
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정: 버림", remote="true")
+        self.assertEqual(code, 0, out)
+        self.assertEqual([w[:2] for w in gh.writes], [("POST", "repos/o/r/pulls/7/ccr/comments/5/resolve"),
+                                                     ("PATCH", "repos/o/r/pulls/7")])
+        self.assertIn("같은 판정이 이미 있다", out)
+        self.assertNotIn("답하고", out)  # it did not answer this time
+        self.assertIn("5의 스레드를 해결했다", out)
+
+    def test_cloud_trusts_the_thread_list_not_the_exit_code_of_the_resolve_route(self):
+        gh = self.gh()
+        gh.resolve_ignored = True  # accepted (exit 0) but the thread stays open
+        code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정", remote="true")
+        self.assertEqual(code, 0, out)
+        self.assertIn("해결하지 못했다", out)
+        self.assertFalse(gh.threads[0]["isResolved"])
+
     def test_the_same_words_from_an_outsider_do_not_count_as_answered(self):
         gh = self.gh()
         gh.extra["repos/o/r/pulls/7/comments"].append({"id": 11, "in_reply_to_id": 5, "body": "판정: 버림",
@@ -2364,7 +2389,7 @@ class ReviewReportTests(unittest.TestCase):
         self.assertIsNone(gh.writes[1][2])
         self.assertTrue(gh.threads[0]["isResolved"])
         self.assertFalse(any(argv[2] == "graphql" for argv in gh.calls))
-        self.assertIn("스레드를 해결했다", out)
+        self.assertIn("에 답하고 스레드를 해결했다", out)
         gh.writes = []  # a rerun sees the thread resolved and writes only the body
         code, out = self.report(gh, self.SECTION.format(head=HEAD, left="없음"), "--thread", "5=판정", remote="true")
         self.assertEqual((code, [w[0] for w in gh.writes]), (0, ["PATCH"]), out)

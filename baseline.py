@@ -1888,7 +1888,8 @@ def cmd_review_report(args):
                 return 1
             # Only a writer's reply counts: in a public repo anyone can post the same words first.
             # The cloud proxy blocks the collaborator permission lookup, so there the comment's own
-            # author_association stands in (shortcut: it also admits a collaborator with read access only).
+            # author_association stands in (shortcut: it does not see write access, so it also admits a collaborator
+            # with read or triage access and an organization member without write access).
             wanted = set(judged)
             posted = set()
             for c in comments.values():
@@ -1921,18 +1922,25 @@ def cmd_review_report(args):
                     continue
                 if (cid, reply) in posted:
                     print(f"review-report: 댓글 {cid}의 스레드에는 같은 판정이 이미 있다. 답은 다시 달지 않는다")
+                    said = "의 스레드를"
                 else:
                     github_write("POST", f"repos/{repo}/pulls/{number}/comments/{cid}/replies", {"body": reply})
                     answered.append(str(cid))
+                    said = "에 답하고 스레드를"
                 if cloud:
                     try:
                         github_write("POST", f"repos/{repo}/pulls/{number}/ccr/comments/{cid}/resolve", None)
-                    except (OSError, subprocess.SubprocessError):  # the route is the proxy's, not GitHub's: say what is left
-                        print(f"review-report: 댓글 {cid}에 답했다. 스레드는 해결하지 못했다. 로컬 세션이나 GitHub 화면에서 해결한다")
+                        # The route is the proxy's, not GitHub's: believe the thread list, not the exit code.
+                        left = [t for t in gh_api(f"repos/{repo}/pulls/{number}/ccr/review_threads")
+                                if cid in t["comment_ids"] and not t["resolved"]]
+                    except (OSError, subprocess.SubprocessError):
+                        left = True
+                    if left:
+                        print(f"review-report: 댓글 {cid}{said} 해결하지 못했다. 로컬 세션이나 GitHub 화면에서 해결한다")
                         continue
                 else:
                     gh_graphql(RESOLVE, id=threads[cid]["id"])
-                print(f"review-report: 댓글 {cid}에 답하고 스레드를 해결했다")
+                print(f"review-report: 댓글 {cid}{said} 해결했다")
         except (OSError, subprocess.SubprocessError) as error:
             raise OSError(f"{error} (이미 답한 댓글: {', '.join(answered) or '없음'}. 본문은 쓰지 않았다)") from error
         pr = gh_api(f"repos/{repo}/pulls/{number}")  # read again: bots rewrite the body while threads are answered
