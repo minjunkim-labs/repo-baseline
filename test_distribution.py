@@ -6,8 +6,7 @@ import stat
 import tempfile
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
-CORE = ["AGENTS.md", "REVIEW.md", "gitignore", "pull_request_template.md"]
+ROOT = Path(__file__).resolve().parent
 LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
 
 
@@ -39,10 +38,8 @@ def fragment_problem(path):
 
 
 class DistributionTests(unittest.TestCase):
-    def test_core_is_small_copyable_files_without_python(self):
-        core = ROOT / "templates/core"
-        self.assertEqual(sorted(p.name for p in core.iterdir()), sorted(CORE))
-        self.assertLessEqual(len((core / "AGENTS.md").read_text(encoding="utf-8").splitlines()), 60)
+    def test_core_agents_file_stays_small(self):
+        self.assertLessEqual(len((ROOT / "core/AGENTS.md").read_text(encoding="utf-8").splitlines()), 60)
 
     def test_own_v2_copies_are_one_released_install(self):
         # The root is a consumer: it moves with `upgrade <tag>`, not with each change to baseline.py or core/.
@@ -70,7 +67,7 @@ class DistributionTests(unittest.TestCase):
             self.assertEqual((ROOT / rel).read_bytes(), at_tag("core/" + rel), rel)
 
     def test_own_coderabbit_config_is_the_template(self):
-        template = (ROOT / "templates/github/.coderabbit.yaml").read_text(encoding="utf-8")
+        template = (ROOT / "github/.coderabbit.yaml").read_text(encoding="utf-8")
         self.assertEqual((ROOT / ".coderabbit.yaml").read_text(encoding="utf-8"), template)
         self.assertIn('\nlanguage: "ko-KR"\n', template)
         self.assertIn("\ninheritance: true\n", template)
@@ -120,31 +117,14 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(missing, [])
 
     def test_no_model_names_in_core_or_policy(self):
-        for rel in ["POLICY.md", "templates/core/AGENTS.md", "templates/core/REVIEW.md"]:
+        for rel in ["POLICY.md", "core/AGENTS.md", "core/REVIEW.md"]:
             text = (ROOT / rel).read_text(encoding="utf-8").lower()
             for word in ("opus", "sonnet", "composer", "grok"):
                 self.assertNotIn(word, text, rel)
 
     def test_default_settings_do_not_require_the_gate(self):
-        for rel in ["templates/github/repository-settings.json", ".github/repository-settings.json"]:
-            self.assertNotIn('"review/gate"', (ROOT / rel).read_text(encoding="utf-8"), rel)
+        self.assertNotIn('"review/gate"', (ROOT / ".github/repository-settings.json").read_text(encoding="utf-8"))
 
-
-    def test_contract_table_matches_the_settings_template(self):
-        readme = (ROOT / "templates/github/README.md").read_text(encoding="utf-8")
-        table = readme.split("## 계약 값", 1)[1].split("\n## ", 1)[0]
-        written = dict(re.findall(r"`([a-z_]+)=([^`]+)`", table))
-        template = json.loads((ROOT / "templates/github/repository-settings.json").read_text(encoding="utf-8"))
-        expected = template["expected"]
-        queue = next(rule["parameters"] for ruleset in expected["rulesets"] if ruleset["name"] == "merge-queue"
-                     for rule in ruleset["rules"] if rule["type"] == "merge_queue")
-        values = {**queue, "strict": expected["protection"]["required_status_checks"]["strict"],
-                  "app_id": expected["protection"]["required_status_checks"]["checks"][0]["app_id"],
-                  **{key: expected["repository"][key] for key in
-                     ("allow_squash_merge", "allow_merge_commit", "allow_rebase_merge",
-                      "allow_auto_merge", "delete_branch_on_merge")}}
-        self.assertEqual(written, {key: str(value).lower() if isinstance(value, bool) else str(value)
-                                   for key, value in values.items()})
 
 if __name__ == "__main__":
     unittest.main()

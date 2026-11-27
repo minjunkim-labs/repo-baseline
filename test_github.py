@@ -852,10 +852,8 @@ class ApplyTests(unittest.TestCase):
         with redirect_stderr(io.StringIO()):
             self.assertEqual(b.github(root, True, read=lambda _: self.fail("read"), write=None), 2)
 
-    def test_template_and_own_profile_share_the_policy_values(self):
-        # Until v1 is deleted, its template and the v2 common values are the same values.
-        template = json.loads((ROOT / "templates/github/repository-settings.json").read_text(encoding="utf-8"))
-        self.assertEqual(b.GITHUB_SETTINGS, template)
+    def test_common_values_alone_still_have_placeholders(self):
+        template = copy.deepcopy(b.GITHUB_SETTINGS)
         with self.assertRaisesRegex(ValueError, "빈칸"):
             b.github_load(project(self, template))
         placeholder = copy.deepcopy(BASELINE)

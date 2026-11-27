@@ -30,6 +30,27 @@ Matt 스킬은 트래커·라벨·도메인 문서 설정을 `docs/agents/`에�
 
 라벨은 소유자가 `python3 -I .baseline/baseline.py github apply`로 만든다([github 프로필](github/README.md)). wayfinder가 쓰는 `wayfinder:*` 라벨 5개도 함께 만든다.
 
+### pstack 절
+
+pstack을 쓰는 저장소는 `AGENTS.md`의 관리 블록 밖에 아래 절을 붙인다. pstack을 부르지 않으면 아무 일도 하지 않고, 누가 부르면 기본 동작(병합 등)을 막는다. repo-baseline 클론이 없는 세션도 읽도록 글을 그대로 옮긴다.
+
+```markdown
+## pstack
+
+pstack 스킬은 사람이 요청할 때만 쓴다. 이 저장소의 규칙이 pstack 기본 동작보다 먼저다.
+
+- `poteto-mode`의 Shipping playbook과 병합·auto-merge 단계는 쓰지 않는다. 병합은 POLICY §5대로 한다.
+- `correct`는 제안까지만 한다. 사람이 고른 것만 반영한다.
+- 판단 규칙은 `AGENTS.md`가 아니라 `REVIEW.md` 「배운 규칙」에 둔다.
+- `create-verification-skill`의 결과는 에이전트 도구가 읽는 저장소 스킬 경로(Claude `.claude/skills/`, Codex·Cursor `.agents/skills/`)에 두고, 실행 명령을 `AGENTS.md`의 check·test에 잇는다. 그 경로는 에이전트 설정 폴더라서 그 PR은 되돌리기 어려움이고 소유자가 병합한다(POLICY §4).
+- `interrogate`·`blast-radius`는 리뷰에 관점을 더할 뿐이다. 리뷰는 그대로 새 세션에서 `prompts/review.md`로 받는다.
+- 서로 다른 모델로 검토하지 않았으면 그 사실을 보고에 적는다.
+```
+
+### 계획 도구(Linear)
+
+GitHub Issue가 원본이다(POLICY §8). 목표·완료 조건·결정 기록·열림과 닫힘·하위 Issue·차단 관계와 상태 라벨은 Issue에 둔다. Linear를 쓰면 Linear의 GitHub Issues 동기화로만 붙이고, 사이클·프로젝트·공개하지 않을 판단만 Linear에 둔다. 차단 관계는 동기화되지 않는다. 제목·설명·우선순위·동기화 스레드의 댓글은 공개 Issue로 동기화되므로, 공개하지 않을 판단은 동기화 스레드 밖의 댓글에만 둔다([Linear GitHub 문서](https://linear.app/docs/github), 2026-11-20 확인).
+
 ## 스킬 사본
 
 - 위 표의 스킬과 그 스킬이 부르는 스킬만 판을 고정한 사본으로 `.claude/skills/`에 둔다. 목록, 출처, 판, 의존 스킬(`requires`)은 [skills/skills.lock.json](skills/skills.lock.json)에 있다. 플러그인 대신 사본을 쓰는 까닭은 클라우드 세션과 Projects 스레드가 저장소 settings의 플러그인을 불러오지 않고 `.claude/skills/`는 읽기 때문이다.

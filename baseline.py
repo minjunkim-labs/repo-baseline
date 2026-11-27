@@ -2489,8 +2489,7 @@ def cmd_doctor(args):
 # github plan|apply: repository settings and status labels (owner only)
 GITHUB_PROFILE = ".github/repository-settings.json"
 # Common values. A project file holds only its own values (identity, required checks, allowed actions,
-# exceptions) and wins: objects merge by key, lists are replaced whole. test_github.py keeps this equal to
-# the v1 templates/github/repository-settings.json until v1 is deleted.
+# exceptions) and wins: objects merge by key, lists are replaced whole.
 GITHUB_SETTINGS = json.loads(r"""
 {"schema_version": 1, "repository": "REPLACE-OWNER/NAME", "repository_id": 0, "default_branch": "main",
  "expected": {

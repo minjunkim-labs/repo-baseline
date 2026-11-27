@@ -91,7 +91,7 @@ python3 -I .baseline/baseline.py doctor
 - [github/ci.yml](../github/ci.yml)을 `.github/workflows/ci.yml`로 복사한다. ubuntu·macOS에서 `run setup`, `check`, `budget`, `run check`, `run test`를 돈다. 고칠 칸이 없다. 기존 CI workflow가 있으면 덮어쓰지 않고, 그 workflow에 `check`를 돌리는 단계를 합친다.
 - `.github/repository-settings.json`에 저장소마다 다른 값만 쓴다.
 - 소유자가 최신 기본 브랜치에서 `python3 -I .baseline/baseline.py github plan`을 읽고 `github apply`로 적용한다. 에이전트는 `apply`를 돌리지 않는다.
-- Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 github 프로필 README의 표대로 `templates/github/`에서 복사한다.
+- Dependabot, `SECURITY.md`, `.coderabbit.yaml`은 [github 프로필](../github/README.md)의 표가 가리키는 파일을 복사한다.
 
 배포하는 앱이면 [ops 프로필](../ops/README.md), 쓰기 권한자가 둘 이상이면 [team 프로필](../team/README.md)을 켠다.
 
