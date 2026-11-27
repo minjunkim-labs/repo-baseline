@@ -61,7 +61,7 @@ class DistributionTests(unittest.TestCase):
 
         released = at_tag("baseline.py")
         if released is None:
-            # shortcut: CI checks out without tags, so only a clone that has fetched tags compares bytes.
+            # Untagged VERSION (between the release-prep PR and its tag): nothing to compare yet.
             self.skipTest(f"태그 {tag}가 없어 사본을 그 판과 비교하지 못한다(git fetch --tags)")
         self.assertEqual(copy, released, ".baseline/baseline.py")
         self.assertEqual(settings, pin.sub(b"\\g<1>" + hashlib.sha256(copy).hexdigest().encode() + b'"',
