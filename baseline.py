@@ -1917,10 +1917,69 @@ def newest_pin(src, cutoff):
     return None
 
 
-def snapshot(src, names, skills, commit):
-    """{"<skill>/<rel>": (path in the source, tree entry)} at the commit, with the source LICENSE in each skill."""
+GIT_HOST = "https://github.com"
+
+
+def git_pin(src, cutoff, names, skills):
+    """(pin, tree) of an `update: commit` source read over anonymous git, never REST: an org's IP allow list
+    refuses the Actions token, and anonymous REST shares an hourly limit with every runner on that IP (#175).
+    The lock needs the pin as a full SHA. pin is what newest_pin or the lock's own pin would give; tree has
+    the REST shape, for the skill folders and the LICENSE only. Fetches commits and trees without blobs; cat-file then downloads the blobs of those
+    files from the promisor remote for their sizes, so the size limit in snapshot comes after the download."""
+    if src["update"] != "commit":
+        raise OSError(f"{src['repo']}: git으로 읽기는 commit 출처만 된다")
+    pinned = src.get("commit")
+    if not (isinstance(pinned, str) and re.fullmatch(r"[0-9a-f]{40}", pinned)):  # also keeps it from reading as a git option
+        raise OSError(f"{src['repo']}: git으로 읽으려면 lock의 commit이 40자 SHA여야 한다")
+    with tempfile.TemporaryDirectory() as tmp:
+        env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_LITERAL_PATHSPECS="1")
+
+        def git(*args, stdin=None, check=True):
+            try:  # credential.helper= : an empty list, so no token or login goes with the request
+                run = subprocess.run(["git", "-c", "credential.helper=", "--git-dir", tmp, *args], input=stdin,
+                                     capture_output=True, env=env, timeout=120)
+            except subprocess.TimeoutExpired as error:
+                raise OSError(f"git {args[0]}: 120초 안에 끝나지 않았다") from error
+            if check and run.returncode:
+                raise OSError(f"git {args[0]} {src['repo']}: {run.stderr.decode('utf-8', 'replace').strip()}")
+            return run
+
+        git("init", "-q", "--bare")
+        git("remote", "add", "origin", f"{GIT_HOST}/{src['repo']}.git")
+        fetch = ("fetch", "-q", "--no-tags", "--filter=blob:none", "origin")
+        # the window starts a day before the pin so the pin is in it even with skewed commit dates
+        git(*fetch, "--depth=1", pinned)
+        since = datetime.fromtimestamp(int(git("show", "-s", "--format=%ct", pinned).stdout), timezone.utc) - timedelta(days=1)
+        git(*fetch, f"--shallow-since={since:%Y-%m-%dT%H:%M:%SZ}", f"refs/heads/{src['branch']}")
+        tip = git("rev-parse", "FETCH_HEAD").stdout.decode().strip()
+        found = git("rev-list", "-1", f"--until={cutoff:%Y-%m-%dT%H:%M:%SZ}", tip).stdout.decode().strip()
+        # never back, never sideways: the found commit has to descend from the pin
+        newer = found and found != pinned and git("merge-base", "--is-ancestor", pinned, found, check=False).returncode == 0
+        commit = found if newer else pinned
+        paths = [skills[name]["path"].rstrip("/") for name in names] + [src["license"]]
+        listing = git("ls-tree", "-r", "-z", commit, "--", *paths).stdout.decode("utf-8", "surrogateescape")
+        entries = []
+        for record in filter(None, listing.split("\0")):
+            meta, path = record.split("\t", 1)
+            mode, kind, sha = meta.split(" ")
+            entries.append({"path": path, "mode": mode, "type": kind, "sha": sha})
+        blobs = [e["sha"] for e in entries if e["type"] == "blob"]
+        sizes = {}
+        for line in git("cat-file", "--batch-check", stdin="".join(f"{sha}\n" for sha in blobs).encode()).stdout.decode().splitlines():
+            sha, kind, *size = line.split(" ")
+            if kind == "blob" and size:
+                sizes[sha] = int(size[0])
+        for entry in entries:
+            if entry["sha"] in sizes:
+                entry["size"] = sizes[entry["sha"]]
+    return (None, commit) if newer else (src.get("tag"), commit), {"truncated": False, "tree": entries}
+
+
+def snapshot(src, names, skills, commit, tree=None):
+    """{"<skill>/<rel>": (path in the source, tree entry)} at the commit, with the source LICENSE in each skill.
+    tree: the REST tree shape when it was read some other way (git_pin)."""
     repo = src["repo"]
-    tree = gh_api(f"repos/{repo}/git/trees/{commit}?recursive=1")
+    tree = tree or gh_api(f"repos/{repo}/git/trees/{commit}?recursive=1")
     if tree.get("truncated"):
         raise OSError(f"{repo}@{commit[:7]}: 트리가 커서 REST가 다 보여 주지 않는다")
     entries = {e["path"]: e for e in tree["tree"]}
@@ -1973,10 +2032,17 @@ def skills_bump(root, check, now):
         updates = []
         for name, src in lock["sources"].items():
             # No newer version: still check the copies against the pin (a skill added to the lock).
-            pin = newest_pin(src, now - timedelta(days=src["days"])) or (
-                (src.get("tag"), src["commit"]) if src.get("commit") else None)
+            cutoff = now - timedelta(days=src["days"])
             names = sorted(n for n, s in lock["skills"].items() if s["source"] == name)
-            files = snapshot(src, names, lock["skills"], pin[1]) if pin else None
+            try:
+                pin = newest_pin(src, cutoff) or ((src.get("tag"), src["commit"]) if src.get("commit") else None)
+                files = snapshot(src, names, lock["skills"], pin[1]) if pin else None
+            except OSError as error:
+                if not (check and src["update"] == "commit" and "IP allow list" in str(error)):
+                    raise
+                print(f"skills-bump: {name}: REST가 막혀 git으로 읽는다", file=sys.stderr)
+                pin, tree = git_pin(src, cutoff, names, lock["skills"])  # the check reads only: git is enough
+                files = snapshot(src, names, lock["skills"], pin[1], tree) if pin else None
             if files and {rel: e["sha"] for rel, (_, e) in files.items()} != local_shas(root, names):
                 updates.append((name, src, pin, names, files))
         if not updates:
