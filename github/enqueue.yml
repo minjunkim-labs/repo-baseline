@@ -27,8 +27,9 @@ jobs:
       && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) }}
     # One group per comment. A group runs one job at a time and keeps one waiting job: a third request on the
     # same PR would cancel the waiting second one, and a cancelled request never gets an answer. Requests on the
-    # same PR may now run side by side. That is safe: the GraphQL call carries expectedHeadOid and a PR cannot
-    # be in the merge queue twice, so the later request gets GitHub's error as its answer.
+    # same PR may now run side by side. That is safe: each run answers its own comment id, and the GraphQL call
+    # carries expectedHeadOid, so a request can never queue another head. A PR is in the merge queue once, so a
+    # later request for a PR that is already queued gets an error or the same result as the first.
     concurrency:
       group: enqueue-${{ github.event.comment.id }}
       cancel-in-progress: false
