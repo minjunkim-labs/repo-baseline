@@ -898,17 +898,33 @@ def gh_api(path, raw=False):
     raw returns file bytes, or None when the file is not there."""
     accept = "application/vnd.github.raw+json" if raw else "application/vnd.github+json"
     result = subprocess.run(["gh", "api", "-H", f"Accept: {accept}", path], capture_output=True)
-    if result.returncode:
-        if raw and b"(HTTP 404)" in result.stderr:
+    code, stdout, stderr = result.returncode, result.stdout, result.stderr
+    if code and b"IP allow list" in stderr:  # e.g. cursor/plugins refuses the Actions token (#175)
+        code, stdout, stderr = anonymous_api(path, accept)
+    if code:
+        if raw and b"(HTTP 404)" in stderr:
             return None
-        raise OSError(f"gh api {path}: {result.stderr.decode('utf-8', 'replace').strip()}")
-    if len(result.stdout) > MAX_READ * 32:
+        raise OSError(f"gh api {path}: {stderr.decode('utf-8', 'replace').strip()}")
+    if len(stdout) > MAX_READ * 32:
         raise OSError(f"gh api {path}: 응답이 너무 크다")
     if raw:
-        if len(result.stdout) > MAX_READ:
+        if len(stdout) > MAX_READ:
             raise OSError(f"{path}: {MAX_READ}바이트를 넘는다")
-        return result.stdout
-    return json.loads(result.stdout)
+        return stdout
+    return json.loads(stdout)
+
+
+def anonymous_api(path, accept):
+    """(code, body, error) of the same REST call without a token. An org's IP allow list refuses tokens
+    from other IPs; its public repos stay readable without one (60 calls an hour, so only as a retry)."""
+    from urllib.error import HTTPError
+    from urllib.request import Request, urlopen
+    request = Request(f"https://api.github.com/{path}", headers={"Accept": accept, "User-Agent": "repo-baseline"})
+    try:
+        with urlopen(request, timeout=30) as response:
+            return 0, response.read(MAX_READ * 32 + 1), b""
+    except HTTPError as error:
+        return 1, b"", f"토큰 없이: {error.reason} (HTTP {error.code})".encode()
 
 
 def pages(path, key=None):

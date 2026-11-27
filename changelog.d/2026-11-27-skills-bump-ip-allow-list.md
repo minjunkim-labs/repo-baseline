@@ -1,0 +1,1 @@
+- 소비 레포가 옮길 일은 없다. repo-baseline의 주간 `skills-bump`가 IP 허용 목록을 켠 조직(cursor)의 공개 저장소를 토큰 없이 다시 읽어 Issue를 연다.

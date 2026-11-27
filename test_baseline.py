@@ -2332,6 +2332,31 @@ def plugin(version):
     return json.dumps({"version": version}).encode()
 
 
+class AnonymousRetryTests(unittest.TestCase):
+    def test_an_ip_allow_list_refusal_is_read_again_without_a_token(self):
+        import io
+        from unittest import mock
+        from urllib.error import HTTPError
+        import baseline as b
+        refused = subprocess.CompletedProcess([], 1, b"", b"gh: ... has an IP allow list enabled ... (HTTP 403)\n")
+        seen = []
+
+        def urlopen(request, timeout):
+            seen.append(request)
+            if "missing" in request.full_url:
+                raise HTTPError(request.full_url, 404, "Not Found", {}, None)
+            return io.BytesIO(b'[{"sha": "abc"}]')
+        with mock.patch.object(b.subprocess, "run", return_value=refused), \
+                mock.patch("urllib.request.urlopen", urlopen):
+            self.assertEqual(b.gh_api("repos/c/p/commits?per_page=1"), [{"sha": "abc"}])
+            self.assertIsNone(b.contents("c/p", "missing", "main"))
+            with mock.patch.object(b.subprocess, "run", return_value=subprocess.CompletedProcess([], 1, b"", b"(HTTP 403)")):
+                self.assertRaises(OSError, b.gh_api, "repos/c/p/commits")  # other refusals are not retried
+        self.assertEqual(seen[0].full_url, "https://api.github.com/repos/c/p/commits?per_page=1")
+        self.assertFalse(seen[0].has_header("Authorization"))
+        self.assertEqual(len(seen), 2)
+
+
 class SkillsBumpTests(unittest.TestCase):
     """skills-bump in a temporary repo-baseline: skills/, its lock, baseline.py and .baseline/."""
 
