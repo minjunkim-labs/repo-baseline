@@ -1923,13 +1923,14 @@ GIT_HOST = "https://github.com"
 def git_pin(src, cutoff, names, skills):
     """(pin, tree) of an `update: commit` source read over anonymous git, never REST: an org's IP allow list
     refuses the Actions token, and anonymous REST shares an hourly limit with every runner on that IP (#175).
-    pin is what newest_pin or the lock's own pin would give; tree has the REST shape, for the skill folders
+    the lock needs the pin as a full SHA. pin is what newest_pin or the lock's own pin would give; tree has the REST shape, for the skill folders
     and the LICENSE only. Fetches commits and trees without blobs; cat-file then downloads the blobs of those
     files from the promisor remote for their sizes, so the size limit in snapshot comes after the download."""
     if src["update"] != "commit":
         raise OSError(f"{src['repo']}: git으로 읽기는 commit 출처만 된다")
     pinned = src.get("commit")
-    since = cutoff - timedelta(days=30)
+    if not (isinstance(pinned, str) and re.fullmatch(r"[0-9a-f]{40}", pinned)):  # also keeps it from reading as a git option
+        raise OSError(f"{src['repo']}: git으로 읽으려면 lock의 commit이 40자 SHA여야 한다")
     with tempfile.TemporaryDirectory() as tmp:
         env = dict(os.environ, GIT_TERMINAL_PROMPT="0", GIT_LITERAL_PATHSPECS="1")
 
@@ -1946,17 +1947,15 @@ def git_pin(src, cutoff, names, skills):
         git("init", "-q", "--bare")
         git("remote", "add", "origin", f"{GIT_HOST}/{src['repo']}.git")
         fetch = ("fetch", "-q", "--no-tags", "--filter=blob:none", "origin")
-        if pinned:  # the window starts a day before the pin so the pin is in it even with skewed commit dates
-            git(*fetch, "--depth=1", pinned)
-            since = datetime.fromtimestamp(int(git("show", "-s", "--format=%ct", pinned).stdout), timezone.utc) - timedelta(days=1)
+        # the window starts a day before the pin so the pin is in it even with skewed commit dates
+        git(*fetch, "--depth=1", pinned)
+        since = datetime.fromtimestamp(int(git("show", "-s", "--format=%ct", pinned).stdout), timezone.utc) - timedelta(days=1)
         git(*fetch, f"--shallow-since={since:%Y-%m-%dT%H:%M:%SZ}", f"refs/heads/{src['branch']}")
         tip = git("rev-parse", "FETCH_HEAD").stdout.decode().strip()
         found = git("rev-list", "-1", f"--until={cutoff:%Y-%m-%dT%H:%M:%SZ}", tip).stdout.decode().strip()
         # never back, never sideways: the found commit has to descend from the pin
-        newer = found and found != pinned and (not pinned or git("merge-base", "--is-ancestor", pinned, found, check=False).returncode == 0)
+        newer = found and found != pinned and git("merge-base", "--is-ancestor", pinned, found, check=False).returncode == 0
         commit = found if newer else pinned
-        if not commit:
-            return None, None
         paths = [skills[name]["path"].rstrip("/") for name in names] + [src["license"]]
         listing = git("ls-tree", "-r", "-z", commit, "--", *paths).stdout.decode("utf-8", "surrogateescape")
         entries = []

@@ -2429,7 +2429,7 @@ class GitReadTests(unittest.TestCase):
         for key, value in (("uploadpack.allowFilter", "true"), ("uploadpack.allowAnySHA1InWant", "true")):
             REAL_RUN(["git", "--git-dir", str(self.remote), "config", key, value], check=True, capture_output=True)
 
-    def bump(self, pin, refusal=b"gh: ... has an IP allow list enabled ... (HTTP 403)\n", edit=None):
+    def bump(self, pin, refusal=b"gh: ... has an IP allow list enabled ... (HTTP 403)\n", edit=None, commit=None):
         """(code, output) of `skills-bump --check` with the lock at `pin`, REST refused, and the copies of `pin`."""
         import io
         from contextlib import redirect_stderr, redirect_stdout
@@ -2445,7 +2445,7 @@ class GitReadTests(unittest.TestCase):
         if edit:
             (self.root / "skills/blast/SKILL.md").write_bytes(edit)
         lock = {"sources": {"p": {"repo": "c/p", "update": "commit", "branch": "main", "days": 7, "license": "pstack/LICENSE",
-                                  "plugin": "pstack/plugin.json", "commit": self.shas[pin], "version": "0.1.0"}},
+                                  "plugin": "pstack/plugin.json", "commit": commit or self.shas[pin], "version": "0.1.0"}},
                 "skills": {"blast": {"source": "p", "path": "pstack/skills/blast", "requires": []}}}
         (self.root / "skills/skills.lock.json").write_bytes(self.b.dump_json(lock))
         seen = []
@@ -2512,6 +2512,14 @@ class GitReadTests(unittest.TestCase):
         code, out = self.bump("pin")
         self.assertEqual(code, 2, out)
         self.assertIn("일반 파일이 아니다", out)
+
+    def test_a_pin_that_is_not_a_full_sha_is_refused(self):
+        self.history()
+        self.publish()
+        for bad in ("--output=x", "main", self.shas["pin"][:12]):  # an option, a name, an abbreviation
+            code, out = self.bump("pin", commit=bad)
+            self.assertEqual(code, 2, out)
+            self.assertIn("40자 SHA", out)
 
     def test_other_refusals_do_not_go_to_git(self):
         self.history()
