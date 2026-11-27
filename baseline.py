@@ -35,7 +35,7 @@ MANAGED = {
     ".gitattributes": {"prefix_sha256": "d60f352d0db1404c70afb4bb8b2ca3fd1c610572aa40720e8a0b7baa7885418c"},
     "AGENTS.md": {"block_sha256": "1492f3d676395887479dd805ead043f844f85a235fe152fa9995de8fbc617cb7"},
     "CLAUDE.md": {"sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"},
-    "REVIEW.md": {"block_sha256": "f5216fadb17f42b92218cf17f42a55d4911eceab78d6e3b92d5b448878fb4185"},
+    "REVIEW.md": {"block_sha256": "eb67f6ee368725921b0b22676f992711538667a651885d8039d61c2d76f0c879"},
     ".github/pull_request_template.md": {"sha256": "e4d300491ddc034b8b5d20103e73da99d09ba67ac746c8210b46b4673dd50a62"},
     ".claude/hooks/allow_enqueue.py": {"sha256": "55b4aeb5b60231948c9f6fe5190878ce9955114d4a8d87e55be33d9f27f3b5e7"},
     ".claude/hooks/check.py": {"sha256": "6b27ea25423c46e4cd0acd2510b7b4b1d0ee6ae6f38f8f4307a37ce6b1b3b758"},
