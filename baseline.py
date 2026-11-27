@@ -1923,8 +1923,8 @@ GIT_HOST = "https://github.com"
 def git_pin(src, cutoff, names, skills):
     """(pin, tree) of an `update: commit` source read over anonymous git, never REST: an org's IP allow list
     refuses the Actions token, and anonymous REST shares an hourly limit with every runner on that IP (#175).
-    the lock needs the pin as a full SHA. pin is what newest_pin or the lock's own pin would give; tree has the REST shape, for the skill folders
-    and the LICENSE only. Fetches commits and trees without blobs; cat-file then downloads the blobs of those
+    The lock needs the pin as a full SHA. pin is what newest_pin or the lock's own pin would give; tree has
+    the REST shape, for the skill folders and the LICENSE only. Fetches commits and trees without blobs; cat-file then downloads the blobs of those
     files from the promisor remote for their sizes, so the size limit in snapshot comes after the download."""
     if src["update"] != "commit":
         raise OSError(f"{src['repo']}: git으로 읽기는 commit 출처만 된다")
