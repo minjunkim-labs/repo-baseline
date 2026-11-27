@@ -7,6 +7,7 @@ Closes #
 ## Evidence
 
 실행한 명령과 결과. 확인하지 않은 범위.
+실행 확인:
 
 ## Merge Danger
 
