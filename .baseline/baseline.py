@@ -22,7 +22,7 @@ import tempfile
 import time
 from urllib.parse import quote
 
-VERSION = "2.1.1"
+VERSION = "2.2.0"
 START, END = b"<!-- baseline:start -->\n", b"<!-- baseline:end -->\n"
 ENV_IGNORE = (".env", ".env.*", "!.env.example", "*.pem", "*.key", "*.p12")  # the v1 core gitignore had the same
 ENV_SAMPLES = (".env", ".env.local", "a.pem", "a.key", "a.p12")
@@ -311,6 +311,9 @@ def core_files(commands):
     files = {p.relative_to(core).as_posix(): p.read_bytes() for p in sorted(core.rglob("*")) if p.is_file()}
     files.update({rel: source(rel).read_bytes() for rel in MANAGED if rel.startswith(SKILLS)})
     files[".baseline/baseline.py"] = Path(__file__).read_bytes()
+    # core/ holds a placeholder pin, so a change to this script never has to touch core/.claude/settings.json.
+    files[".claude/settings.json"] = re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + sha256(files[".baseline/baseline.py"]).encode()
+                                            + b'"', files[".claude/settings.json"])
     files[".baseline/commands.json"] = dump_json(commands)
     files[".baseline/baseline.json"] = dump_json({"version": VERSION, "profiles": [], "managed": MANAGED})
     return files
@@ -1905,7 +1908,7 @@ def skills_bump(root, check, now):
             return 1
         folders = [base + n for base in ("skills/", SKILLS) for update in updates for n in update[3]]
         targets = folders + ["skills/skills.lock.json", "baseline.py", ".baseline/baseline.py", ".baseline/baseline.json",
-                             "core/.claude/settings.json", ".claude/settings.json"]
+                             ".claude/settings.json"]
         links = [rel for rel in targets if linked(root, rel)]
         if links:  # rmtree(ignore_errors) would leave the link and write through it
             raise OSError(f"symlink가 있는 경로에 쓰지 않는다: {', '.join(links)}")
@@ -1952,10 +1955,9 @@ def skills_bump(root, check, now):
                 managed[SKILLS + path.relative_to(root / "skills").as_posix()] = {"sha256": sha256(path.read_bytes())}
     write_managed(root / "baseline.py", managed)
     after = sha256((root / "baseline.py").read_bytes())
-    for rel in ("core/.claude/settings.json", ".claude/settings.json"):  # the enqueue hook pins baseline.py
-        if (root / rel).is_file():
-            data = (root / rel).read_bytes()
-            (root / rel).write_bytes(re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + after.encode() + b'"', data))
+    settings = root / ".claude/settings.json"  # the enqueue hook pins baseline.py; core/ keeps its placeholder
+    if settings.is_file():
+        settings.write_bytes(re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"', b'\\g<1>' + after.encode() + b'"', settings.read_bytes()))
     shutil.copyfile(root / "baseline.py", root / ".baseline/baseline.py")
     recorded = json.loads((root / ".baseline/baseline.json").read_bytes())
     (root / ".baseline/baseline.json").write_bytes(dump_json(dict(recorded, managed=managed)))
