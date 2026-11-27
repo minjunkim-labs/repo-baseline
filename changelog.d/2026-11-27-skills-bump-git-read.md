@@ -1,1 +1,0 @@
-- 소비 레포가 옮길 일은 없다. repo-baseline의 주간 `skills-bump --check`가 IP 허용 목록 때문에 토큰이 막힌 commit 출처(cursor/plugins)를, 토큰 없는 REST 대신 토큰 없는 git으로 읽는다. 공유 러너 IP의 REST 한도에 걸려 실패하던 것을 막는다.
