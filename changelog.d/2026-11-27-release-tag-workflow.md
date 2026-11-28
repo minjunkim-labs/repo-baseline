@@ -1,0 +1,1 @@
+- 소비 레포가 옮길 일은 없다. repo-baseline에서 릴리스 PR이 병합되면 `.github/workflows/release-tag.yml`이 `baseline.py`의 `VERSION`으로 태그를 자동으로 낸다. 클라우드 세션이 태그를 push하지 못해 소유자가 내던 일이다.

@@ -1,0 +1,75 @@
+name: release-tag
+
+# A cloud session cannot push tags (its proxy only allows the working branch), so the tag comes from here.
+# When a push to main changes baseline.py, this reads VERSION and creates the annotated tag v<VERSION> on the
+# commit where that VERSION first appeared on main (the release PR's merge commit). It is idempotent: an existing
+# tag is never moved or replaced (it warns when the tag sits on another commit). The run fails, and tags nothing,
+# unless that commit has docs/releases/v<VERSION>.md, so the tag tree always holds its release notes. Limit: if one
+# push brings two releases at once, only the last VERSION is tagged.
+# After the tag exists, run `python3 -I .baseline/baseline.py upgrade <tag>` (AGENTS.md).
+on:
+  push:
+    branches: [main]
+    paths: [baseline.py]
+  # Retry after a failed run, or when a merge made no run. It uses the file on the branch it starts from.
+  workflow_dispatch:
+
+permissions: {}
+
+# Own group per run (like check.yml), so a pending run is never replaced by a newer one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  release-tag:
+    name: release-tag
+    # A dispatch from another branch would tag that branch's history.
+    if: ${{ github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write  # push the tag
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # walk main's history back to the commit that set VERSION
+          fetch-tags: true
+      - name: tag the release commit
+        run: |
+          set -eu
+          version_at() { git show "$1:baseline.py" 2>/dev/null | sed -n 's/^VERSION = "\([0-9][0-9.]*\)"$/\1/p' | head -n 1; }
+
+          version=$(version_at "$GITHUB_SHA")
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::baseline.py에서 VERSION을 읽지 못했다: '$version'"
+            exit 1
+          fi
+          tag="v$version"
+
+          # The oldest commit on main's first-parent line that already has this VERSION.
+          target=$GITHUB_SHA
+          while parent=$(git rev-parse -q --verify "$target^1") && [ "$(version_at "$parent")" = "$version" ]; do
+            target=$parent
+          done
+
+          if git rev-parse -q --verify "refs/tags/$tag" > /dev/null; then
+            existing=$(git rev-parse "refs/tags/$tag^{commit}")
+            if [ "$existing" = "$target" ]; then
+              echo "태그 $tag는 이미 $target에 있다. 할 일이 없다."
+            else
+              echo "::warning::태그 $tag는 이미 $existing에 있다(VERSION이 처음 나온 commit은 $target). 태그를 옮기지 않는다."
+            fi
+            exit 0
+          fi
+
+          if ! git cat-file -e "$target:docs/releases/v$version.md" 2> /dev/null; then
+            echo "::error::$target에 docs/releases/v$version.md가 없어 태그 $tag를 내지 않는다. 노트와 VERSION을 함께 올린 새 릴리스 PR로 고친다."
+            exit 1
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git tag -a "$tag" "$target" -m "$tag"
+          git push origin "refs/tags/$tag"
+          echo "태그 $tag를 $target에 냈다."

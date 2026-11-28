@@ -11,7 +11,7 @@
 - test: `python3 -m unittest test_baseline test_github test_distribution`
 - build: `N/A: 배포는 파일 복사다`
 
-루트의 `.baseline/`·관리 파일·`.claude/`는 소비 레포처럼 낸 태그의 판이다. `baseline.py`·`core/`를 고쳐도 함께 고치지 않는다. 태그를 낸 직후 소유자가 `python3 -I .baseline/baseline.py upgrade <태그>`로 맞춘다. 맞추기 전에는 태그를 받은 클론에서 `test_distribution.py`가 실패한다. 샌드박스가 에이전트의 `.claude/` 쓰기를 막는다. `core/.claude/settings.json`의 `--sha256`은 자리표시(`0`×64)이고 `init`이 진짜 값으로 쓴다.
+루트의 `.baseline/`·관리 파일·`.claude/`는 소비 레포처럼 낸 태그의 판이다. `baseline.py`·`core/`를 고쳐도 함께 고치지 않는다. 태그는 `.github/workflows/release-tag.yml`이 릴리스 PR 병합 뒤 자동으로 낸다. 태그가 생기면 새 브랜치에서 `python3 -I .baseline/baseline.py upgrade <태그>`로 맞춘다(로컬 샌드박스가 `.claude/` 쓰기를 막으면 클라우드 세션이 한다). 맞추기 전에는 태그를 받은 클론에서 `test_distribution.py`가 실패한다. 샌드박스가 에이전트의 `.claude/` 쓰기를 막는다. `core/.claude/settings.json`의 `--sha256`은 자리표시(`0`×64)이고 `init`이 진짜 값으로 쓴다.
 
 ## 길잡이
 
@@ -28,7 +28,7 @@
 ## 이 저장소의 규칙
 
 - 상시 지시: 문서·쉬움 PR은 리뷰가 끝나면 `python3 -I .baseline/baseline.py enqueue <PR> <리뷰한 head>`로 머지 큐에 넣는다.
-- PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 하나를 더한다. `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮길 일을 쓴다. `CHANGELOG.md`는 고치지 않는다. 태그를 낼 때 지난 태그 뒤 항목을 릴리스 노트 `docs/releases/v<판>.md`로 모으고 지운다. 같은 PR에서 `baseline.py`의 `VERSION`도 그 판으로 바꾼다.
+- PR마다 `changelog.d/YYYY-MM-DD-<slug>.md` 하나를 더한다. `- `로 시작하는 항목 하나, 1~3줄이다. 소비 레포가 손으로 옮길 일을 쓴다. `CHANGELOG.md`는 고치지 않는다. 태그를 낼 때 지난 태그 뒤 항목을 릴리스 노트 `docs/releases/v<판>.md`로 모으고 지운다. 같은 PR에서 `baseline.py`의 `VERSION`도 그 판으로 바꾼다. 그 PR이 `main`에 병합되면 `release-tag` workflow가 `VERSION`을 읽어 `v<판>` 태그를 그 병합 commit에 낸다. 사람도 에이전트도 태그를 직접 내지 않는다. 병합 뒤 태그가 나오지 않으면 Actions에서 `release-tag`를 `workflow_dispatch`로 돌린다. 릴리스 노트가 그 commit에 없어 실패했으면 노트와 `VERSION`을 함께 올린 새 릴리스 PR로 고친다.
 - 같은 사실을 README, `docs/start.md`, `prompts/setup.md`에 적었으면 함께 고친다.
 - 리뷰는 `origin/main` 판의 `prompts/review.md`·`.baseline/baseline.py`·`REVIEW.md`로 한다.
 - 에이전트 도구의 문서를 근거로 쓰면 공식 문서 링크와 확인일을 적는다. 코어에 특정 도구·모델 이름을 넣지 않는다.
