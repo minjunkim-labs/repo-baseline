@@ -1,0 +1,1 @@
+- 머지 큐 `check_response_timeout_minutes` 기대값을 60에서 30으로 줄였다. 소비 레포는 `upgrade` 뒤 `github plan`에 나오는 차이를 소유자가 `github apply`로 맞춘다.
