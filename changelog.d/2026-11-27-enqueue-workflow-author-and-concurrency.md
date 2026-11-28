@@ -1,1 +1,0 @@
-- `github/enqueue.yml`: 댓글 작성자가 OWNER·MEMBER·COLLABORATOR(`author_association`)일 때만 job이 돈다(공개 저장소에서 아무나 `/enqueue` 댓글로 실행과 거절 댓글을 쌓지 못하게). `concurrency` group을 PR 번호에서 댓글 id로 바꿨다(같은 PR에 요청이 연달아 오면 대기 중이던 요청이 취소돼 답이 없던 것을 막는다). v2.4.0의 `.github/workflows/enqueue.yml`을 쓰는 소비 레포는 이 파일을 새 판으로 다시 복사한다. `.github/workflows/**`라 어려움 PR이고 소유자가 병합한다.

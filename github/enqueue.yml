@@ -19,8 +19,8 @@ jobs:
   enqueue:
     # Only a PR comment that starts with the command, from the owner, an organization member or a collaborator.
     # Without the author check anyone can start a run on a public repository by commenting. The script still
-    # reads the comment from the event file and accepts nothing but `/enqueue <40 hex>` from someone with write
-    # access; the text is never put in a shell.
+    # reads the comment from the event file and accepts nothing but `/enqueue <40 hex>` (and the signature a cloud
+    # session's tooling appends) from someone with write access; the text is never put in a shell.
     if: >-
       ${{ github.event.issue.pull_request
       && startsWith(github.event.comment.body, '/enqueue ')
