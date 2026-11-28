@@ -1565,8 +1565,8 @@ def account_problems(repo, report, commits):
         return allowed[login]
     problems = [] if can_push(report["author"]) else [f"작성자 {report['author']}에게 쓰기 권한이 없다"]
     for commit in commits:
-        if (((commit.get("commit") or {}).get("author") or {}).get("email") or "").lower() == CLOUD_COMMIT_EMAIL:
-            continue
+        if report["author"] != BOT and (((commit.get("commit") or {}).get("author") or {}).get("email") or "").lower() == CLOUD_COMMIT_EMAIL:
+            continue  # not on a Dependabot PR: there every commit has to be Dependabot's
         login = (commit.get("author") or {}).get("login")
         if not login:
             problems.append(f"커밋 {commit['sha'][:7]}의 작성자를 GitHub 계정으로 알 수 없다")

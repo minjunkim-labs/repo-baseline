@@ -2054,6 +2054,11 @@ class EnqueueTests(unittest.TestCase):
             self.assertQueued(gh)
         self.assertRefused(self.gh(author="reader"), "reader")  # the PR author still has to be able to push
 
+    def test_a_cloud_session_commit_is_not_skipped_on_a_dependabot_pr(self):
+        gh = self.gh(author="dependabot[bot]")
+        gh.commit_author, gh.commit_email = {"login": "helper"}, "noreply@anthropic.com"
+        self.assertRefused(gh, "helper")
+
     def test_secret_names_stop_it(self):
         gh = self.gh()
         gh.commits["e" * 40] = ["app/.env"]
