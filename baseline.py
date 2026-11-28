@@ -2773,7 +2773,7 @@ GITHUB_SETTINGS = json.loads(r"""
    "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
    "rules": [{"type": "merge_queue", "parameters": {"merge_method": "SQUASH", "grouping_strategy": "ALLGREEN",
     "max_entries_to_build": 5, "max_entries_to_merge": 5, "min_entries_to_merge": 1,
-    "min_entries_to_merge_wait_minutes": 0, "check_response_timeout_minutes": 60}}]}],
+    "min_entries_to_merge_wait_minutes": 0, "check_response_timeout_minutes": 30}}]}],
   "actions": {"enabled": true, "allowed_actions": "selected", "sha_pinning_required": true},
   "allowed_actions": {"github_owned_allowed": true, "verified_allowed": false,
    "patterns_allowed": ["REPLACE: each non-GitHub action the workflows use, as owner/repo@*, or leave the list empty"]},
