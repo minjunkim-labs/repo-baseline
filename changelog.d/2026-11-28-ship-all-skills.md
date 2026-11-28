@@ -1,0 +1,1 @@
+- 스킬 사본을 Matt Pocock·pstack 스킬 전부(82개)로 늘리고 `.agents/skills`를 `../.claude/skills` symlink로 배포한다. `upgrade`가 링크를 만들며, `.agents/skills`가 이미 폴더면 멈추니 안의 스킬을 `.claude/skills/`로 옮긴 뒤 다시 한다.
