@@ -43,10 +43,22 @@ MANAGED = {
     "docs/agents/triage-labels.md": {"seed_sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
     "docs/agents/domain.md": {"seed_sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
     "docs/agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/architect/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/architect/SKILL.md": {"sha256": "aea83d7aa109eb73402182701b14c289844663ad9c8f959fedbef2df66787ce0"},
     ".claude/skills/arena/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/arena/SKILL.md": {"sha256": "24366948a9546dcb7dfc15a5cf7a4571edd917a8c1efef060b458a0fad608053"},
+    ".claude/skills/ask-matt/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/ask-matt/PHASE-BOUNDARIES.md": {"sha256": "a8aa20158609ef39e2b308b6ba0660c91066838d07a867202e63a7744a88a3ed"},
+    ".claude/skills/ask-matt/SKILL.md": {"sha256": "1371f5ce005de0992a44b137748bfb960a56948aa9871b405fe9d90b24332e3c"},
+    ".claude/skills/ask-matt/agents/openai.yaml": {"sha256": "bdffbc5a0a99ed1b6ef3253d251d755fd18162b9845972e380007f844b09b05c"},
+    ".claude/skills/automate-me/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/automate-me/SKILL.md": {"sha256": "ffdb2db6d56b29518f50837d4e5d9194034bb3a767d77eb76efe82351ab1489c"},
+    ".claude/skills/benchmark-checklist/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/benchmark-checklist/SKILL.md": {"sha256": "5efd79495e3eebf3b53814861330fe812458212958f8f009492e866c329161f6"},
     ".claude/skills/blast-radius/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/blast-radius/SKILL.md": {"sha256": "4248d03e22365207d2e5f90c9542720f80a88a6b42fd542ef88dde3cf9f9223f"},
+    ".claude/skills/bro/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/bro/SKILL.md": {"sha256": "aa329d0ceeeecb6822a7174ad76bb07a7826a3c52ceb6a588dec4138815084bb"},
     ".claude/skills/code-review/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/code-review/SKILL.md": {"sha256": "9c921a8d88138a41401d8897ca1bb852088ab1b7b605cdd04edc13e3e8aab6dd"},
     ".claude/skills/code-review/agents/openai.yaml": {"sha256": "8229ca854e11dc8e6aef2131ee03f31fb1561cf905fab9ccc325180cf3331352"},
@@ -55,6 +67,10 @@ MANAGED = {
     ".claude/skills/codebase-design/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/codebase-design/SKILL.md": {"sha256": "2c20617f87ec8af6a434859f381b2f061a69b530444e74eb39e78bb016a6d1e2"},
     ".claude/skills/codebase-design/agents/openai.yaml": {"sha256": "edebc9e4fcfe102114012575eaa9600b9b5fd08c311664f389c36e7bc717740f"},
+    ".claude/skills/correct/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/correct/SKILL.md": {"sha256": "e347045d00c967a0b831ef883cc6ac79d21329aa10b5968637df95de7febf0ba"},
+    ".claude/skills/create-formal-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/create-formal-verification-skill/SKILL.md": {"sha256": "30ef0ac27612ecd16fdc081112113221d673053cef3f8603db11932193861211"},
     ".claude/skills/create-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/create-verification-skill/SKILL.md": {"sha256": "d353973547bf8ad8977eca645f4cd4feaed0d32f4b43d1448f906b0a76c4d694"},
     ".claude/skills/create-verification-skill/references/feature-map-example/README.md": {"sha256": "cb7bd782cf89968a4ba3d58a5151db837430db92d19a6f52a906973b77b516ba"},
@@ -69,48 +85,187 @@ MANAGED = {
     ".claude/skills/domain-modeling/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/domain-modeling/SKILL.md": {"sha256": "7b925d7b1e341a2eeae33ad68a8a8c0ab889a38ddd22a7598e4c240e5a7556a3"},
     ".claude/skills/domain-modeling/agents/openai.yaml": {"sha256": "f6bf2aa996c6e6f53fdd0708e18a0d16a56aed8322cca59fedbe3c0d2c75f06b"},
+    ".claude/skills/figure-it-out/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/figure-it-out/SKILL.md": {"sha256": "30693f2510b111128a6bae0d0ac35f97d972a30c0b84364dc87290b9fdc3b699"},
+    ".claude/skills/grill-me/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/grill-me/SKILL.md": {"sha256": "caaf8b8de1684f96e26b28f3c29189db5c89cce4b73e1c93d86164f66ef88637"},
+    ".claude/skills/grill-me/agents/openai.yaml": {"sha256": "c061e39c3e0f9d865fb1b97556d485704af2a8a58f4b8221a8917a5c2074a32b"},
     ".claude/skills/grill-with-docs/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/grill-with-docs/SKILL.md": {"sha256": "7de372c13488f1ee96cc11cd8907b56b6809cc93eef776eeddd37de6b6cbe3fe"},
     ".claude/skills/grill-with-docs/agents/openai.yaml": {"sha256": "94cd0ab161fb468a836349f5ed482ba58ce8e709a05c57ce533d739dbd35cca9"},
     ".claude/skills/grilling/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/grilling/SKILL.md": {"sha256": "a146842ed93ca43d833550fa9adf02e58cb63c83fea9d4b4522995b82242d4e2"},
     ".claude/skills/grilling/agents/openai.yaml": {"sha256": "1411d7df7d99b7e621a1ff8283c8133cc2464be63d064e52d8ce169c6800ee9b"},
+    ".claude/skills/handoff/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/handoff/SKILL.md": {"sha256": "4cbb043950dad2ffd3662ff1a5a0b51ae676004b5cae10e3787e8ee7a4ee69d3"},
+    ".claude/skills/handoff/agents/openai.yaml": {"sha256": "5c479fd562c691851690e8b18c8501045bef0943c10743d636b2fae26add1d28"},
+    ".claude/skills/how/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/how/SKILL.md": {"sha256": "23d5cc79a449b9838242e7af5563aa8a4f0417bab136bbcc054b4bebc7284680"},
+    ".claude/skills/implement/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/implement/SKILL.md": {"sha256": "483bdc4ccf4ac31d86ac7beeaa0d0db80313e71e120bb8c59b3196ae5decd53d"},
+    ".claude/skills/implement/agents/openai.yaml": {"sha256": "8970a8596ade0c28ab427f41a4ea242d6bdf6186c59ebf55e1238dbecaab79dc"},
+    ".claude/skills/implement-spec/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/implement-spec/SKILL.md": {"sha256": "8d8300f7f12325dbfc99cad124a4bcc96ac0d02d0b2d73dfb348e9262afacfc4"},
+    ".claude/skills/implement-spec/agents/openai.yaml": {"sha256": "fd41efb42c60c96320d6531be7e4bf15cbf5518cd652d57dff27ccffa46988e9"},
+    ".claude/skills/improve-codebase-architecture/HTML-REPORT.md": {"sha256": "581e8bb5a521e46bbda8ca7e19b15948bed882187108092ebb90c62513b77528"},
+    ".claude/skills/improve-codebase-architecture/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/improve-codebase-architecture/SKILL.md": {"sha256": "35b03a3db61e0f5aa333ea59b54963e45a3d2ace6649b2ef4f9576603e2582a6"},
+    ".claude/skills/improve-codebase-architecture/agents/openai.yaml": {"sha256": "c8cb20f68ebf0edb4e497bc11ae5fcaa196004e661cd189015b04f4109ced7f1"},
     ".claude/skills/in-your-own-words/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/in-your-own-words/SKILL.md": {"sha256": "fa8ba74e27d7be371dc270ec78bbf816411477d0dfab185356c861ac8dd413ad"},
     ".claude/skills/interrogate/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/interrogate/SKILL.md": {"sha256": "3f3c2e9b8cf6b180dba9f32a4aff85e5691b09805232468e37a0ba45437a9984"},
+    ".claude/skills/ketchup/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/ketchup/SKILL.md": {"sha256": "f2923ffd14f6fc778f75a47aaed1f317fb5fd00b5701ca769d6446c74106dead"},
+    ".claude/skills/ketchup-video/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/ketchup-video/SKILL.md": {"sha256": "027aed9a01adf208aeac3a134f47d12f7c1e42d6fea03095aedc2bae58cdcfd1"},
+    ".claude/skills/maintain-formal-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/maintain-formal-verification-skill/SKILL.md": {"sha256": "0c96f54293542d3818b68754562b338073958781a9684454611dca37592e2d2c"},
     ".claude/skills/maintain-verification-skill/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/maintain-verification-skill/SKILL.md": {"sha256": "515c0eaa054b3f6be1b1fb06f2c2f173c80fddb58bbcac57576f89c479bc68e8"},
+    ".claude/skills/make-bot-ui/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/make-bot-ui/SKILL.md": {"sha256": "ad19d0bc6764287ec08c2521701974e7dac941f72e4d0fe81a24f4614494586f"},
+    ".claude/skills/no-comments/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/no-comments/SKILL.md": {"sha256": "054a46f2662c725add02d9e0440d8dcb4351f3bd0afcf797acc22a501b527b54"},
     ".claude/skills/pr/CREDITS.md": {"sha256": "a7a087127665d7298a72280ef6e19c41ad8404523712a788c8dc3ab414bc2497"},
     ".claude/skills/pr/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/pr/SKILL.md": {"sha256": "ab63f1cf78647389edcd386c9427c5dfca27ed2836930c24773ffee834c19bcd"},
     ".claude/skills/pr/agents/openai.yaml": {"sha256": "2295b586624db4ef546f3fd4695492f039d941a46d8a1593a702ce3ca511b8ad"},
+    ".claude/skills/principle-attack-the-premise/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-attack-the-premise/SKILL.md": {"sha256": "831e916c540f4b6b720b7472aeea6e6ef93996655e36cc2517221f6f2081b480"},
+    ".claude/skills/principle-boundary-discipline/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-boundary-discipline/SKILL.md": {"sha256": "c02c26cca3906bfd57829535f8fa7ee9e00df037b4dbb24e5f85ec9e12710b48"},
+    ".claude/skills/principle-build-the-lever/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-build-the-lever/SKILL.md": {"sha256": "753d81cf9ca2a4e9d1f057429f0c63c9c622e6022dd877ec97ec15f442076aac"},
+    ".claude/skills/principle-encode-lessons-in-structure/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-encode-lessons-in-structure/SKILL.md": {"sha256": "228963799189f481827d6f28065f278bc2008ffa37030b1234cbd5814d36b9e9"},
+    ".claude/skills/principle-exhaust-the-design-space/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-exhaust-the-design-space/SKILL.md": {"sha256": "2de83d99f93f60ec6313455b0bc9aa9f0bfb93dd59f414f403691322db00d4db"},
+    ".claude/skills/principle-experience-first/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-experience-first/SKILL.md": {"sha256": "58903529d733b1c1a7c9ccf127d45ef3c7d0d9f0b81164a4dc6b80efe6f2912b"},
+    ".claude/skills/principle-explain-the-number/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-explain-the-number/SKILL.md": {"sha256": "e6a3f00991f4949cf18a0b5c77dd3126ca4402b8553f88c9c7905e577512676e"},
+    ".claude/skills/principle-fix-root-causes/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-fix-root-causes/SKILL.md": {"sha256": "79afd7e67d8951203231f6f1ccfc7b4a1f30d8d6cdb68e92755c80012414dbeb"},
+    ".claude/skills/principle-foundational-thinking/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-foundational-thinking/SKILL.md": {"sha256": "5c63eecf4b83ea5a99eda7a95a96cac0929d2dce7393d7089c83917bc12cf820"},
+    ".claude/skills/principle-guard-the-context-window/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-guard-the-context-window/SKILL.md": {"sha256": "af0b9dd70b43628ce4a59a4d332e9d9ad055084e460f430e7a757495c627e81a"},
+    ".claude/skills/principle-laziness-protocol/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-laziness-protocol/SKILL.md": {"sha256": "1be6e7a435f26a75a76eb848b9c3d611b9977d0f5822361753244da25ca3ca45"},
+    ".claude/skills/principle-make-operations-idempotent/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-make-operations-idempotent/SKILL.md": {"sha256": "76ad0a99b6ff2a05a159accfeee48412d62f62774eb8d05bbff26a1f3aa3eab5"},
+    ".claude/skills/principle-migrate-callers-then-delete-legacy-apis/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-migrate-callers-then-delete-legacy-apis/SKILL.md": {"sha256": "580ad9bb1a0994ecb924321ba49efc38a2f85c64e22c76fb133f57a78272a2e6"},
+    ".claude/skills/principle-minimize-reader-load/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-minimize-reader-load/SKILL.md": {"sha256": "22d27deffb0a3726858d0d4b02d71acd4a3eb4d44e218bc89b66e49dc9823937"},
+    ".claude/skills/principle-model-the-domain/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-model-the-domain/SKILL.md": {"sha256": "97c6214dc6a18b93177dda6429185a8640878b36ddee6ec9400c23a0eb9be2d8"},
+    ".claude/skills/principle-never-block-on-the-human/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-never-block-on-the-human/SKILL.md": {"sha256": "05030a7a083c337676f793881b4e93cd218e8f1dd676529f56e6ac1d3efb8d1f"},
+    ".claude/skills/principle-outcome-oriented-execution/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-outcome-oriented-execution/SKILL.md": {"sha256": "10eb91633aa570355ba4bb37088fcade2b22e498df7a58edc749e65bc5a78e2d"},
+    ".claude/skills/principle-prove-it-works/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-prove-it-works/SKILL.md": {"sha256": "3d6c482e341974cfcb8d19ebf66fb1d4274d8673af35e36d3c231a6aa9e03f25"},
+    ".claude/skills/principle-redesign-from-first-principles/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-redesign-from-first-principles/SKILL.md": {"sha256": "170e0a658783e43fee8ec5a8c2422a4abb8f69cef621dd1819a95910b8207034"},
+    ".claude/skills/principle-separate-before-serializing-shared-state/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-separate-before-serializing-shared-state/SKILL.md": {"sha256": "2e5625d686b657e0b607c329fd8043bf50261b808239308fe4c6776e2817e95a"},
+    ".claude/skills/principle-sequence-verifiable-units/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-sequence-verifiable-units/SKILL.md": {"sha256": "ab0cc331cf317c07bb0ed6dd13ee9f618338b36e4e851521977bc5c4a8d429e1"},
+    ".claude/skills/principle-subtract-before-you-add/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-subtract-before-you-add/SKILL.md": {"sha256": "8c93bb9d1a7f38e2ef37655d93f0e790fa59903105af3d500cc8a663ebe45f3f"},
+    ".claude/skills/principle-test-behavior-not-implementation/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-test-behavior-not-implementation/SKILL.md": {"sha256": "42afc1a2c7176363b6410cfde06a9fd3e96f5022ba86bdb8de4838ad65c2442d"},
+    ".claude/skills/principle-type-system-discipline/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/principle-type-system-discipline/SKILL.md": {"sha256": "9cd1ce345bc9d666c73c64c89c89164217b659aa4c4dde5600cbbe6f6e775461"},
     ".claude/skills/prototype/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/prototype/LOGIC.md": {"sha256": "f61c7d249e786a79ef289018901c348271e1798dd0b0bc5607b5c6f4d4a01ab9"},
     ".claude/skills/prototype/SKILL.md": {"sha256": "714de632d116bb73f65cdb5a882db15b9369a6713b9a47c0fad827848f0bfbe3"},
     ".claude/skills/prototype/UI.md": {"sha256": "723211e878acbc7b6ff09755263f3295cde724ba902ff0064da41eed51d45ad3"},
     ".claude/skills/prototype/agents/openai.yaml": {"sha256": "5af65e43ab41a350436697b81e27b7f848d36782043b73c322bb2c9fa9cc55dc"},
+    ".claude/skills/recall/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/recall/SKILL.md": {"sha256": "1f4eda450650a7bd3948f44489a94f6c692f6a14ab9ce56ab9ed6f60c50e2258"},
+    ".claude/skills/reflect/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/reflect/SKILL.md": {"sha256": "6f6952f91514dc86257830da93a446c732a1af906f6acd5e5783dc587a29031e"},
     ".claude/skills/research/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/research/SKILL.md": {"sha256": "1f629e18ab899412683bc6a1c4efb4339999e27c2fdac328f26ee10a8c031d33"},
     ".claude/skills/research/agents/openai.yaml": {"sha256": "9b4c470d63221c1f68f22df70b83e2f12401b317babe0d1b7b5f24a974474d0d"},
+    ".claude/skills/retro/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/retro/SKILL.md": {"sha256": "33fbc28568e3146f20fd908b12998bc0ab30aa4f4c87288199a40793efa94696"},
+    ".claude/skills/retro/agents/openai.yaml": {"sha256": "cb6fb9d7e6b4be5975f41f6def1dd00a1255bad5d9b02696b124c924a8b8745c"},
+    ".claude/skills/setup-matt-pocock-skills/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/setup-matt-pocock-skills/SKILL.md": {"sha256": "b01e05bfe8c323171275c6ceec78b12f1bd4c62dfd26c2cfe8be806d3883f1ed"},
+    ".claude/skills/setup-matt-pocock-skills/agents/openai.yaml": {"sha256": "9527de0110541c45712319025155aeab8dc7d77c6ed6e5e83271bab1851ab939"},
+    ".claude/skills/setup-matt-pocock-skills/domain.md": {"sha256": "593a7042218689f1d24df89df14eaf0a20e19e0d0a7d479a01947ac78f0784b9"},
+    ".claude/skills/setup-matt-pocock-skills/issue-tracker-github.md": {"sha256": "6fdb3e9b00b7b0b115ecac3b1c00e3790f637f190abf598815368722c0a94692"},
+    ".claude/skills/setup-matt-pocock-skills/issue-tracker-gitlab.md": {"sha256": "947602d33a80f98f939fb990995b8f95a3459b114b919c4221d08bd75d7cffe0"},
+    ".claude/skills/setup-matt-pocock-skills/issue-tracker-local.md": {"sha256": "7dcda20a2eb4bdc89b95d1143423c0691309921cadae3132e6424f371030506e"},
+    ".claude/skills/setup-matt-pocock-skills/triage-labels.md": {"sha256": "ae512af838c78b8750471c42cd2b20fa32319553e61d84c9a23d171b40ce14aa"},
+    ".claude/skills/setup-pstack/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/setup-pstack/SKILL.md": {"sha256": "9347e6a17d41c92fd9d57e689c63d81defbd63df18dbcd5e9858ab03de5994ea"},
+    ".claude/skills/sharpen/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/sharpen/SKILL.md": {"sha256": "aac4f8e6a1ffd70e3763314db37d3c2eb0cfea08bc63e98907aca6dae0343031"},
+    ".claude/skills/show-me-your-work/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/show-me-your-work/SKILL.md": {"sha256": "ec29326ac20515f2941198205bec615320a55b21659692e19650530dbf217bde"},
+    ".claude/skills/show-me-your-work/references/decision-log-template.tsv": {"sha256": "6779378006a2f5225e8c06deb84f1d913fb532041ebbb6e50d94600bfe3f4b76"},
+    ".claude/skills/show-me-your-work/scripts/log.sh": {"sha256": "a65a4bc5fb7cdeadbdb7b7ff1ca4682f4d9c42420942b2977cd17b46c4ac338e"},
+    ".claude/skills/swarm/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/swarm/SKILL.md": {"sha256": "8558089df5320e4ddf61126ca3d638404341584c8307dd6d20f8984e5ae3bbd1"},
     ".claude/skills/tdd/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/tdd/SKILL.md": {"sha256": "5505d25bbaa8fc14a79e4d20163936958992a2995b7f1dd1d6197edc9ed722e0"},
     ".claude/skills/tdd/agents/openai.yaml": {"sha256": "ea6f01cf1b8c06a4b0f5b649d74b1b8ce8685e72af1b38d70d877693e092af0b"},
     ".claude/skills/tdd/mocking.md": {"sha256": "3ceb807fdf4a47d6a93d4d9a891e5ba6d362a6247bd08adc451feebfc17361ef"},
     ".claude/skills/tdd/tests.md": {"sha256": "859f9e592c188fda4fc7277dd180e4ce9c7a2e13f6efe1f6f29eccc9d28c106a"},
+    ".claude/skills/teach/GLOSSARY-FORMAT.md": {"sha256": "9b99859ec28437668130d8f2ce5a342938970f8a1ed4fd38c3eab4f4b5fff210"},
+    ".claude/skills/teach/LEARNING-RECORD-FORMAT.md": {"sha256": "701fa34b6748aa89e6c960ffb815257f481a7d77fb2900f9028f7edf3fdd6052"},
+    ".claude/skills/teach/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/teach/MISSION-FORMAT.md": {"sha256": "8cacbb3c0644d3ae0ea4965564797099401a6930a23f7cf462918576587f2418"},
+    ".claude/skills/teach/RESOURCES-FORMAT.md": {"sha256": "e9cacf34026e11a8d1c8f9de88abe5bcbf654f4ebdb25cae8c0de0d5f48f44ec"},
+    ".claude/skills/teach/SKILL.md": {"sha256": "550482c2d674b085c9043b87bfdc14a8f2ec453c736119e7fcbb1e9332bffeba"},
+    ".claude/skills/teach/agents/openai.yaml": {"sha256": "5856f3ae8aec742f1499c640aecdd5f1d6af5fa210a7c6ec794de8263a6f733f"},
+    ".claude/skills/technical-writing/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/technical-writing/SKILL.md": {"sha256": "0a620885599cdde5a0a31fa39878144c10f61c894b56bf4a9ff779496e718b14"},
+    ".claude/skills/to-questionnaire/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/to-questionnaire/SKILL.md": {"sha256": "b5eb929842ee0e93d867c5e906d183d350f2f2d149eaeaa86967d94d8eda1d3b"},
+    ".claude/skills/to-questionnaire/agents/openai.yaml": {"sha256": "9e8a06c38c8842eea8d4922cb9d1ead8e3ace647bab259b943c994a1b4742bc2"},
     ".claude/skills/to-spec/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/to-spec/SKILL.md": {"sha256": "43ad9cf318e5e7d3d1fa360253a37021796dc87a0c2e595ad262661a10f85088"},
     ".claude/skills/to-spec/agents/openai.yaml": {"sha256": "1c5b4d1e3d8e52287ef19cc2742fdbbfae1914ac75d33af3e4c8174f08cc55bb"},
     ".claude/skills/to-tickets/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/to-tickets/SKILL.md": {"sha256": "56ec23c5b2782785d4e65bff9e315b6d3aeb4ef977c174a219e99489fada1995"},
     ".claude/skills/to-tickets/agents/openai.yaml": {"sha256": "21bc6215fffcd7614e9f772bb1760e87cc5fc7dcc707e7d282bc9414267a6090"},
+    ".claude/skills/triage/AGENT-BRIEF.md": {"sha256": "7f5f87fed3033df1b06e083c480f3e847b1fbb0647746b8a4c6a50f9f26ef44f"},
+    ".claude/skills/triage/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/triage/OUT-OF-SCOPE.md": {"sha256": "1fbf9b432130c6380aa65813b55553cfda150309b27c595e183f8e335b8a190d"},
+    ".claude/skills/triage/SKILL.md": {"sha256": "917b0baf74be583e74f110857ed45df2766617f75c00baf61fd136d7af515edf"},
+    ".claude/skills/triage/agents/openai.yaml": {"sha256": "2e683717720cf456d165d0bb1a68bb600d0b6a8ccb61841c172e50d26f95351c"},
+    ".claude/skills/typescript-best-practices/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/typescript-best-practices/SKILL.md": {"sha256": "ec1dac086d3708e5940d45d250c30a37dd953b4e3cb2ca0692f5851d7a039e27"},
+    ".claude/skills/typescript-best-practices/references/patterns.md": {"sha256": "12e70c9419a8b3f5d6a1ab80e272c1f00a43ac0b3bbf72d68199033570e5de77"},
     ".claude/skills/unslop/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
     ".claude/skills/unslop/SKILL.md": {"sha256": "2b823fd069e031c1420180be8e0d4f5e2fd25bf2c428049e5c835c59a489b5e0"},
+    ".claude/skills/wait-what/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/wait-what/SKILL.md": {"sha256": "d961bb37defd975c539427edb8f450cdbccdcdd552e213c1ece46676a7970905"},
+    ".claude/skills/wait-what/agents/openai.yaml": {"sha256": "b41faadf741d51e4ea184148b2d1854d93f947aaf754c7844f70a00f04194999"},
     ".claude/skills/wayfinder/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
     ".claude/skills/wayfinder/SKILL.md": {"sha256": "0c9fa96791aebf3b7d654cf35c6aadde97d81f57c17b07d13b27c14d9c46561f"},
     ".claude/skills/wayfinder/agents/openai.yaml": {"sha256": "88bc81a11a6d52ac67aeaa76b8b619e387020d47c5133a4dd4927fd15c4ad073"},
+    ".claude/skills/why/LICENSE": {"sha256": "bc957ca6bee02792566a1a028d105e02e247c6e77cf057061674273da77b200e"},
+    ".claude/skills/why/SKILL.md": {"sha256": "6b65b3180f1f1bd3b696d7933daf900747410c82931d220a3f57a98addb1c0fd"},
+    ".claude/skills/wizard/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/wizard/SKILL.md": {"sha256": "bdf31d48211ea559878f95a4f344aeabf8d85897488ba564382bab0b000daac1"},
+    ".claude/skills/wizard/agents/openai.yaml": {"sha256": "98f44d682d58e262f160dc59a8befc365e0aa65820dd0261864af26aa8e59d83"},
+    ".claude/skills/wizard/template.sh": {"sha256": "6566f147299bc6f1d941e64591ed04385416d543e11f96f564c7228f5018d0ed"},
+    ".claude/skills/writing-for-agents/LICENSE": {"sha256": "0e7ac423bf2c6e223b7c5b156f8cf72da49d748e56a1641402c31f22ad07dbb5"},
+    ".claude/skills/writing-for-agents/SKILL-MECHANICS.md": {"sha256": "c768e6307c7c10728c401c213f2c4ba71c542127eeb7ad2956aabd15a0fa0059"},
+    ".claude/skills/writing-for-agents/SKILL.md": {"sha256": "551adca942227b44192edba88acd4e8db911f0121ce58ad16944ccf6a896a74a"},
+    ".claude/skills/writing-for-agents/agents/openai.yaml": {"sha256": "eacb24b2a618cfb81dacb0416f4fdd75ddf3a8060f8ddb99aae1b1e301907e4b"},
 }
 SKILLS = ".claude/skills/"  # skill copies: managed files whose source is skills/ (skills-bump)
+# Codex, Antigravity and Gemini CLI read skills from .agents/skills/, not .claude/skills/. One link keeps one copy.
+AGENTS_SKILLS = ".agents/skills"
+AGENTS_LINK = "../.claude/skills"
 COMMANDS = ("setup", "check", "test", "build")
 DEFAULT_COMMANDS = {
     "setup": "N/A: 아직 정하지 않았다",
@@ -342,6 +497,24 @@ def symlinks(target, rels):
     return sorted(links)
 
 
+def agents_link(root):
+    """None when .agents/skills is the link to the skill copies, "missing" when nothing is there, else what is wrong."""
+    path = root / AGENTS_SKILLS
+    if linked(root, ".agents"):
+        return ".agents가 symlink다. 폴더여야 한다"
+    if path.is_symlink():
+        got = os.readlink(path)
+        return None if got == AGENTS_LINK else f"{AGENTS_SKILLS}가 {got}를 가리킨다. {AGENTS_LINK}여야 한다"
+    if path.exists():
+        return f"{AGENTS_SKILLS}가 symlink가 아니다. 안의 스킬을 {SKILLS}로 옮기고 지운 뒤 다시 한다"
+    return "missing"
+
+
+def make_agents_link(root):
+    (root / AGENTS_SKILLS).parent.mkdir(parents=True, exist_ok=True)
+    (root / AGENTS_SKILLS).symlink_to(AGENTS_LINK)
+
+
 def need_core(command, target):
     if not target.is_dir():
         sys.exit(f"{command}: 폴더가 아니다: {target}")
@@ -353,9 +526,11 @@ def cmd_init(args):
     target = Path(args.path)
     need_core("init", target)
     files = core_files(DEFAULT_COMMANDS)
-    links = symlinks(target, (*files, ".gitignore"))
+    links = symlinks(target, (*files, ".gitignore", ".agents"))
     if links:
         sys.exit("init: symlink는 따라가지 않는다: " + ", ".join(links))
+    if agents_link(target) != "missing":
+        sys.exit(f"init: 이미 있다(기존 저장소는 migrate로 옮긴다): {AGENTS_SKILLS}")
     kept = {rel for rel in files if kind_of(rel) == "seed_sha256" and (target / rel).exists()}
     existing = sorted(rel for rel in files if (target / rel).exists() and rel not in kept)
     if existing:
@@ -372,6 +547,8 @@ def cmd_init(args):
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         (target / rel).write_bytes(data)
         print(f"init: {rel}")
+    make_agents_link(target)
+    print(f"init: {AGENTS_SKILLS} -> {AGENTS_LINK}")
     if ignore is not None:
         (target / ".gitignore").write_bytes(ignore)
         print("init: .gitignore (비밀값 줄 추가)")
@@ -700,6 +877,9 @@ def cmd_migrate(args):
     target = Path(args.path)
     need_core("migrate", target)
     blocks, notes, writes, drafts = migrate_plan(target)
+    link = agents_link(target)
+    if link not in (None, "missing"):
+        blocks.append(link)
     print("충돌:")
     for line in [f"- 막힘 {b}" for b in blocks] + [f"- 확인 {n}" for n in notes]:
         print(line)
@@ -709,6 +889,8 @@ def cmd_migrate(args):
     skills = sorted({rel.split("/")[2] for rel in writes if rel.startswith(SKILLS)})
     if skills:
         print(f"- 새로 쓴다 {SKILLS}: " + ", ".join(skills))
+    if link == "missing":
+        print(f"- 새로 쓴다 {AGENTS_SKILLS} (symlink -> {AGENTS_LINK})")
     if drafts is not None:
         print("commands.json 초안(사람이 확인한다. check는 Stop 훅에서, setup·check·test는 CI와 클라우드에서 돈다):")
         for name in COMMANDS:
@@ -723,6 +905,8 @@ def cmd_migrate(args):
     for rel in sorted(writes, key=lambda rel: rel == "CLAUDE.md"):
         (target / rel).parent.mkdir(parents=True, exist_ok=True)
         replace_file(target / rel, writes[rel])
+    if link == "missing":
+        make_agents_link(target)
     print(f"migrate: 파일 {len(writes)}개를 썼다. commands.json 초안을 확인하고 check를 돌린다")
     return 0
 
@@ -770,6 +954,11 @@ def cmd_check(args):
             problems.append(f"{rel}: 관리 블록 표시가 하나씩 있어야 한다")
         elif got != want:
             problems.append(f"{rel}: {'관리 블록이' if kind == 'block_sha256' else '파일이'} 이 판과 다르다")
+    link = agents_link(root)
+    if link == "missing":
+        problems.append(f"{AGENTS_SKILLS}: {AGENTS_LINK}를 가리키는 symlink가 없다(`ln -s {AGENTS_LINK} {AGENTS_SKILLS}`)")
+    elif link:
+        problems.append(f"{AGENTS_SKILLS}: {link}")
     problems += ignore_problems(root)
     # A file added to a skill copy changes the skill too. Other folders in .claude/skills/ are the project's.
     for name in sorted({rel[len(SKILLS):].split("/")[0] for rel in MANAGED if rel.startswith(SKILLS)}):
@@ -907,7 +1096,8 @@ def cmd_budget(args):
 def gh_api(path, raw=False):
     """GitHub REST through `gh api`. Never GraphQL: the cloud sessions' proxy blocks it.
     raw returns file bytes, or None when the file is not there."""
-    accept = "application/vnd.github.raw+json" if raw else "application/vnd.github+json"
+    # raw+json makes gh reformat the body: it rewrote "\u0085" in a pstack test file, so the blob SHA no longer matched.
+    accept = "application/vnd.github.raw" if raw else "application/vnd.github+json"
     result = subprocess.run(["gh", "api", "-H", f"Accept: {accept}", path], capture_output=True)
     code, stdout, stderr = result.returncode, result.stdout, result.stderr
     if code and b"IP allow list" in stderr:  # e.g. cursor/plugins refuses the Actions token (#175)
@@ -1182,6 +1372,9 @@ def upgrade(root, tag_name):
     links = [rel for rel in targets if linked(root, rel)]
     if links:
         raise OSError("symlink는 따라가지 않는다: " + ", ".join(links))
+    link = agents_link(root)
+    if link not in (None, "missing"):
+        raise OSError(f"{AGENTS_SKILLS}: {link}")
     if touch_settings:
         writes[settings] = re.sub(rb'("--sha256",\s*")[0-9a-f]{64}"',
                                   b'\\g<1>' + sha256(source).encode() + b'"', read_file(root, settings))
@@ -1204,6 +1397,9 @@ def upgrade(root, tag_name):
                 path.unlink()
             elif path.is_dir() and not any(path.iterdir()):
                 path.rmdir()
+    if link == "missing":
+        make_agents_link(root)
+        print(f"upgrade: {AGENTS_SKILLS} -> {AGENTS_LINK}")
     # After every other write, so a failure does not record a version the tree does not match.
     path = root / ".baseline/baseline.json"
     path.parent.mkdir(parents=True, exist_ok=True)

@@ -57,6 +57,31 @@ class InitCheckTests(unittest.TestCase):
         self.init()
         self.assertCheck(0)
 
+    def test_init_links_agents_skills_to_the_copies(self):
+        self.init()
+        link = self.repo / ".agents/skills"
+        self.assertTrue(link.is_symlink())
+        self.assertEqual(os.readlink(link), "../.claude/skills")
+        self.assertTrue((link / "tdd/SKILL.md").is_file())
+
+    def test_check_refuses_a_missing_or_wrong_agents_link(self):
+        self.init()
+        link = self.repo / ".agents/skills"
+        link.unlink()
+        self.assertCheck(1, ".agents/skills: ../.claude/skills를 가리키는 symlink가 없다")
+        link.symlink_to("elsewhere")
+        self.assertCheck(1, "elsewhere를 가리킨다")
+        link.unlink()
+        link.mkdir()
+        self.assertCheck(1, "symlink가 아니다")
+
+    def test_init_refuses_an_existing_agents_skills_folder_and_writes_nothing(self):
+        (self.repo / ".agents/skills").mkdir(parents=True)
+        result = cli("init", self.repo)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".agents/skills", result.stderr)
+        self.assertFalse((self.repo / ".baseline").exists())
+
     def test_init_writes_the_minimal_core(self):
         self.init()
         import baseline as b
@@ -344,6 +369,20 @@ class MigrateTests(unittest.TestCase):
         self.assertIn("- test: `swift test --parallel`", result.stdout)
         self.assertIn("--apply", result.stdout)
         self.assertEqual(self.files(), before)
+
+    def test_apply_links_agents_skills_and_a_real_folder_blocks(self):
+        self.assertIn(".agents/skills (symlink -> ../.claude/skills)", self.migrate().stdout)
+        self.assertEqual(self.migrate("--apply").returncode, 0)
+        self.assertEqual(os.readlink(self.repo / ".agents/skills"), "../.claude/skills")
+        self.assertEqual(self.check().returncode, 0, self.check().stderr)
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        (Path(other.name) / "AGENTS.md").write_text(self.AGENTS, encoding="utf-8")
+        (Path(other.name) / ".agents/skills").mkdir(parents=True)
+        result = cli("migrate", other.name, "--apply")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("막힘 .agents/skills가 symlink가 아니다", result.stdout)
+        self.assertFalse((Path(other.name) / ".baseline").exists())
 
     def test_apply_keeps_project_text_and_check_passes(self):
         self.write("CLAUDE.md", "@AGENTS.md\n\nClaude만 읽는 규칙.\n")
@@ -1498,6 +1537,18 @@ class UpgradeTests(unittest.TestCase):
         (self.repo / ".gitattributes").write_bytes(local)
         code, out = self.run_upgrade()
         return code, out, (self.repo / ".gitattributes").read_bytes()
+
+    def test_upgrade_adds_the_agents_skills_link(self):
+        code, out = self.run_upgrade()
+        self.assertEqual(code, 0, out)
+        self.assertEqual(os.readlink(self.repo / ".agents/skills"), "../.claude/skills")
+
+    def test_upgrade_stops_before_any_write_over_an_agents_skills_folder(self):
+        (self.repo / ".agents/skills").mkdir(parents=True)
+        code, out = self.run_upgrade()
+        self.assertNotEqual(code, 0)
+        self.assertIn(".agents/skills가 symlink가 아니다", out)
+        self.assertEqual((self.repo / "AGENTS.md").read_bytes(), self.base["AGENTS.md"])
 
     def test_core_lines_that_grow_or_shrink_upgrade_once_and_again(self):
         a, b, mine = b"* text=auto eol=lf\n", b"*.sh text eol=lf\n", b"*.png binary\n"

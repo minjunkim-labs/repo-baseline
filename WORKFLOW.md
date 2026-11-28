@@ -64,9 +64,9 @@ GitHub Issue가 원본이다(POLICY §8). 목표·완료 조건·결정 기록·
 
 ## 스킬 사본
 
-- 위 표의 스킬과 그 스킬이 부르는 스킬만 판을 고정한 사본으로 `.claude/skills/`에 둔다. 목록, 출처, 판, 의존 스킬(`requires`)은 [skills/skills.lock.json](skills/skills.lock.json)에 있다. 플러그인 대신 사본을 쓰는 까닭은 클라우드 세션과 Projects 스레드가 저장소 settings의 플러그인을 불러오지 않고 `.claude/skills/`는 읽기 때문이다.
+- Matt Pocock이 플러그인으로 내는 스킬(`.claude-plugin/plugin.json`에 실린 27개)과 pstack 스킬을 모두 판을 고정한 사본으로 `.claude/skills/`에 둔다(소유자가 2026-11-28에 전부 두기로 정했다). 단계에 쓰는지는 위 표가 정하고, 표에 없는 스킬은 사람이 부를 때만 쓴다. 이름이 같은 `tdd`·`teach`는 Matt 것만 둔다(뼈대가 Matt다). 두지 않는 것: Matt의 `in-progress/`·`misc/`(플러그인에 실리지 않았다), pstack `statechart`(파일 411개, 4MB)와 `poteto-mode`·`poteto-help`(둘 다 자체 `*.test.ts`·`package.json`이 있어 소비 레포의 테스트·lint가 읽을 수 있다. `poteto-mode`는 흐름·병합 단계가 뼈대와 부딪히고, 그 보호 절은 `AGENTS.md`의 선택 사항이라 소비 레포가 받지 않을 수 있다). 목록, 출처, 판, 의존 스킬(`requires`)은 [skills/skills.lock.json](skills/skills.lock.json)에 있다. 플러그인 대신 사본을 쓰는 까닭은 클라우드 세션과 Projects 스레드가 저장소 settings의 플러그인을 불러오지 않고 `.claude/skills/`는 읽기 때문이다.
 - 원본은 이 저장소의 `skills/`다. 스킬마다 출처의 LICENSE(Matt는 저장소 루트, pstack은 `pstack/LICENSE`, 둘 다 MIT)를 함께 둔다. `init`이 `.claude/skills/`로 복사하고, `check`는 사본이 이 판의 해시와 다르거나 사본 폴더에 없는 파일이 있으면 실패한다. 프로젝트만의 스킬은 다른 이름의 폴더에 둔다.
-- 사본은 `.claude/skills/`에만 두고 `.agents/skills/`(Codex, Antigravity, Gemini CLI가 읽는 곳)에는 두지 않는다. 이 스킬들은 도구마다 전역에도 깔려 있는 경우가 많아, 저장소 사본을 더하면 같은 이름이 둘 이상 생기고 판이 갈린다. 판의 기준은 이 사본과 lock이다. 로컬에서는 같은 이름의 전역 스킬이 대신 불릴 수 있으니, 전역 설치도 lock의 판(Matt는 태그)에 맞춘다. 스킬을 불러오지 못하는 도구는 위 「단계별 스킬」대로 `SKILL.md`를 직접 읽는다. 스킬이 없어 실제로 막힌 일이 생기면 다시 본다(POLICY §6).
+- `.agents/skills`는 `../.claude/skills`를 가리키는 symlink 하나다. Codex, Antigravity, Gemini CLI가 읽는 곳이라 사본은 한 벌만 둔다. `init`·`migrate`가 만들고 `check`가 맞는지 본다. `upgrade`는 없으면 만들고, 이미 폴더나 다른 링크가 있으면 아무것도 쓰지 않고 멈춘다(그 안의 스킬은 `.claude/skills/`로 옮긴다). 링크를 처음 더하는 upgrade PR은 관리 해시 밖의 경로를 바꾸므로 일반 규칙(어려움)을 따른다. 이 도구들이 symlink 폴더를 따라 읽는지는 확인하지 않았다. 이 스킬들은 도구마다 전역에도 깔려 있는 경우가 많아, 저장소 사본을 더하면 같은 이름이 둘 이상 생기고 판이 갈린다. 판의 기준은 이 사본과 lock이다. 로컬에서는 같은 이름의 전역 스킬이 대신 불릴 수 있으니, 전역 설치는 이 스킬들을 빼거나 lock의 판(Matt는 태그)에 맞춘다. 스킬을 불러오지 못하는 도구는 위 「단계별 스킬」대로 `SKILL.md`를 직접 읽는다.
 - 갱신 기준은 출처마다 lock에 있다. 태그가 있는 출처(Matt)는 나온 지 `days`(7)일이 지난 가장 새 태그를 받는다. 태그 날짜는 태그 객체의 날짜이고, 자기 날짜가 없는 가벼운 태그(lightweight)는 받지 않는다. 고정한 커밋보다 앞서지 않는 태그는 건너뛴다. 태그가 없는 출처(pstack의 `cursor/plugins`)는 `branch`에서 `days`일보다 오래된 마지막 커밋을 받고, `plugin.json`의 `version`과 커밋 SHA를 함께 적는다. 판은 앞으로만 간다. 우리 스킬의 바이트가 그대로면 받지 않는다.
 - 한 출처의 스킬은 한 판으로 함께 바뀐다. 그래서 `requires`는 같은 출처의 스킬만 적을 수 있다.
 - `requires`는 그 스킬이 실행하라고 부르는 스킬이다(예: `blast-radius` → `arena`·`unslop`, `interrogate` → `arena`·`in-your-own-words`). "per the X skill"처럼 참고로만 가리키는 스킬(`arena`가 가리키는 `poteto-mode`, principle 스킬)은 복사하지 않는다. lock에 스킬을 더하면 새 판이 없어도 `skills-bump`가 고정한 판에서 받는다.
@@ -123,7 +123,7 @@ workflow가 PR까지 열지 않는 까닭(2026-11-23 실측, #182): `workflow_di
 ### v2에 주는 뜻
 
 - 지침의 원본은 `AGENTS.md` 하나로 맞다. 표에서 확인된 도구는 모두 읽거나 읽게 설정할 수 있고, Gemini CLI만 `context.fileName` 설정이 필요하다. `?`인 곳(Grok Bot, Antigravity 클라우드)은 저장소 지침이 적용된다고 보지 않고 로컬에서 한다.
-- 스킬 사본은 `.claude/skills/`에만 있다. Codex, Antigravity, Gemini CLI는 이 폴더를 읽는다고 문서가 말하지 않는다. 이 도구들이 함께 읽는 곳은 `.agents/skills/`다. 사본을 어디에 둘지는 아직 정하지 않았다.
+- 스킬 사본은 `.claude/skills/`에 있고 `.agents/skills`가 그 symlink다(위 「스킬 사본」). Codex 클라우드, Antigravity, Gemini CLI가 이 링크를 따라 읽는지는 확인하지 않았다.
 - 저장소 deny·훅은 도구마다 형식이 다르고, 코어는 `.claude/settings.json`만 둔다. 로컬에서는 Claude Code와 Grok CLI만 이 파일을 적용하고, 클라우드는 대부분 적용하지 않거나 문서가 없다. 어느 위치에서나 남는 바닥은 서버(브랜치 보호, 필수 CI, 머지 큐)와 `enqueue` 자신의 검사다. 그래서 check는 CI가 반드시 다시 돌린다.
 - 클라우드에서 브랜치 push와 PR이 된다고 확인된 것은 Claude, Codex, Cursor, Jules다. Grok Bot과 Antigravity 클라우드는 문서가 없으니 로컬에서 한다. Claude 클라우드에서는 GraphQL을 쓰는 `gh pr`·`gh issue`가 실패하고, 다른 도구는 문서가 없다. 그래서 Issue를 만들고 고치는 스펙·티켓 단계는 내 기기에서 한다. `enqueue`는 로컬에서는 직접 넣고, 클라우드에서는 `github/enqueue.yml` workflow에 댓글로 요청한다(검사는 같다). 클라우드에서도 도는 명령(`check`, `review-preflight`, `budget`)은 GitHub REST만 쓴다.
 - 태그 push는 Claude 클라우드가 거부하고 다른 도구는 문서가 없다. 그래서 repo-baseline의 태그는 도구가 내지 않는다. 릴리스 PR이 `main`에 병합되면 `.github/workflows/release-tag.yml`이 `baseline.py`의 `VERSION`으로 주석 태그 `v<판>`을 낸다(그 commit에 릴리스 노트 `docs/releases/v<판>.md`가 없으면 내지 않고 실패한다).
