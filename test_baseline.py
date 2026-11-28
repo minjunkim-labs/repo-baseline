@@ -1759,6 +1759,7 @@ class EnqueueGitHub(FakeGitHub):
     def __init__(self, base, head, body="", **kwargs):
         super().__init__(base, head, **kwargs)
         self.body, self.mutations, self.commit_author = body, [], {"login": self.author}
+        self.commit_email = "someone@example.com"
         self.edits = [(REPORTED, "User", "owner")]
         self.threads, self.writes, self.failing = [], [], set()
         self.comment_id, self.workflow, self.resolve_ignored = 100, None, False
@@ -1806,7 +1807,8 @@ class EnqueueGitHub(FakeGitHub):
         if route == f"repos/o/r/commits/{HEAD}/check-runs":
             return {"check_runs": self.checks}
         if route == "repos/o/r/pulls/7/commits" and "page=1" in path:
-            return [{"sha": sha, "author": self.commit_author} for sha in self.commits]
+            return [{"sha": sha, "author": self.commit_author, "commit": {"author": {"email": self.commit_email}}}
+                    for sha in self.commits]
         if route.startswith("repos/o/r/collaborators/"):
             return {"permission": self.permission.get(route.split("/")[4], "none")}
         return super().answer(path)
@@ -2044,6 +2046,13 @@ class EnqueueTests(unittest.TestCase):
         gh = self.gh()
         gh.commit_author = {"login": "stranger"}
         self.assertRefused(gh, "stranger")
+
+    def test_a_cloud_session_commit_is_not_held_to_the_commit_account(self):
+        for login, email in (({"login": "stranger"}, "noreply@anthropic.com"), (None, "NoReply@Anthropic.com")):
+            gh = self.gh()
+            gh.commit_author, gh.commit_email = login, email
+            self.assertQueued(gh)
+        self.assertRefused(self.gh(author="reader"), "reader")  # the PR author still has to be able to push
 
     def test_secret_names_stop_it(self):
         gh = self.gh()

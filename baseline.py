@@ -1545,8 +1545,16 @@ def ci_problems(repo, sha, need):
     return problems
 
 
+# Claude Code's cloud sessions commit as this address. GitHub maps it to an account that cannot push here.
+CLOUD_COMMIT_EMAIL = "noreply@anthropic.com"
+
+
 def account_problems(repo, report, commits):
-    """The author and every commit author must be able to push (Dependabot PRs: dependabot[bot] only)."""
+    """The author and every commit author must be able to push (Dependabot PRs: dependabot[bot] only).
+
+    A commit made by a cloud session (CLOUD_COMMIT_EMAIL) is not held to that: the PR is not a fork and its author
+    can push, so the person who pushed the branch can push. The address is as easy to claim as any other commit
+    email, so this check says who the commit is credited to, not who pushed it."""
     allowed = {}
 
     def can_push(login):
@@ -1557,6 +1565,8 @@ def account_problems(repo, report, commits):
         return allowed[login]
     problems = [] if can_push(report["author"]) else [f"작성자 {report['author']}에게 쓰기 권한이 없다"]
     for commit in commits:
+        if (((commit.get("commit") or {}).get("author") or {}).get("email") or "").lower() == CLOUD_COMMIT_EMAIL:
+            continue
         login = (commit.get("author") or {}).get("login")
         if not login:
             problems.append(f"커밋 {commit['sha'][:7]}의 작성자를 GitHub 계정으로 알 수 없다")
