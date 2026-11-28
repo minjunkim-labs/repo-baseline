@@ -175,20 +175,6 @@
       "requires": [],
       "source": "pstack"
     },
-    "poteto-help": {
-      "path": "pstack/skills/poteto-help",
-      "requires": [],
-      "source": "pstack"
-    },
-    "poteto-mode": {
-      "path": "pstack/skills/poteto-mode",
-      "requires": [
-        "arena",
-        "interrogate",
-        "swarm"
-      ],
-      "source": "pstack"
-    },
     "pr": {
       "path": "skills/engineering/pr",
       "requires": [],
